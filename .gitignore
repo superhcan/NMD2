@@ -1,0 +1,19 @@
+# Virtuell miljö
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Stora geodatafiler – spåras inte i git
+*.tif
+*.tiff
+*.ovr
+*.aux.xml
+*.gpkg
+*.gdb/
+
+# Tillfälliga filer
+*.tmp
+*.log
