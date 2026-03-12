@@ -20,7 +20,7 @@ import rasterio
 TILE    = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/tiles/NMD2023bas_tile_r000_c010.tif")
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
 OUT_DIR = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/generalized_test_conn8")
-PROTECTED = {53, 61, 62}
+PROTECTED = {51, 52, 53, 54, 61, 62}
 NODATA_TMP = 65535
 MMU_STEPS = [2, 4, 8, 16, 32, 64, 100]
 # ──────────────────────────────────────────────────────────────────────────────

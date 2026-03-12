@@ -20,7 +20,7 @@ from scipy.ndimage import uniform_filter
 TILE      = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/tiles/NMD2023bas_tile_r000_c010.tif")
 QML_SRC   = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
 OUT_DIR   = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/generalized_test_modal")
-PROTECTED = {53, 61, 62}
+PROTECTED = {51, 52, 53, 54, 61, 62}
 
 # Udda fönsterstorlekar (pixlar). Effektiv MMU ≈ k²/2
 #   k= 3 →  ~4 px   k= 5 → ~12 px   k= 7 → ~24 px
