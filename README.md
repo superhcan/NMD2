@@ -10,7 +10,15 @@ Denna pipeline:
 3. **Förenklar polygongränser** med GRASS v.generalize (Douglas-Peucker)
 4. **Bevarar kritiska features** (vägar, sjöar) genom väg-separation
 
-**Resultat:** 111 MB raster → 18 MB vektor (modal_k15) med bevarad topologi och väg-integritet.
+**Resultat:** 111 MB raster → 18 MB vektor (modal_k15) med bevarad topologi, väg-integritet och **skyddade klasser bevarade**.
+
+**Skyddade klasser** (aldrig generaliserade):
+- 51 = Byggnad
+- 52 = Övrig exploaterad mark
+- 53 = Väg/järnväg
+- 54 = Torvtäkt
+- 61 = Sjö och vattendrag
+- 62 = Hav
 
 ---
 
@@ -73,7 +81,13 @@ python split_tiles.py
 python pipeline_1024_halo.py
 ```
 
-**Metoder:**
+Denna pipeline gör följande:
+
+**Steg 1:** Dela upp original-rastern i 1024×1024 px tiles  
+**Steg 2:** Extrahera skyddade klasser (51, 52, 53, 54, 61, 62) → `protected/`  
+**Steg 3:** Extrahera landskapet (allt utom skyddade) → `landscape/`  
+**Steg 4:** Fyll landöar < 1 ha → `filled/`  
+**Steg 5:** Fyra parallella generaliseringsmetoder:
 - **Sieve conn4/8:** gdal_sieve, konnektivitet 4 eller 8
 - **Modal filter:** Majoritetsfilter med fönster k=3–15
 - **Semantisk:** Likhet-baserad generalisering
@@ -81,13 +95,17 @@ python pipeline_1024_halo.py
 **Output mappar:**
 ```
 ~/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_1024_halo/
+├── tiles/                  # Original-tiles
+├── protected/              # Skyddade klasser (intakta, ej generaliserade)
+├── landscape/              # Landskapet (som generaliseras)
+├── filled/                 # Efter öfyllnad
 ├── generalized_conn4/      # 7 MMU-steg × 16 tiles
 ├── generalized_conn8/
 ├── generalized_modal/      # k=3,5,7,11,13,15
 └── generalized_semantic/   # 7 MMU-steg × 16 tiles
 ```
 
-**Tid:** ~4 sekunder
+**Tid:** ~5-10 sekunder (beroende på hårdvara)
 
 ### 3. Vektorisera
 
@@ -123,11 +141,13 @@ generalized_modal_k15_roads_preserved.gpkg    (18 MB, vägen bevarad!)
 
 ```
 NMD2/
-├── pipeline_1024_halo.py              ← HUVUDSKRIPT: Rastergeneralisering
+├── pipeline_1024_halo.py              ← HUVUDSKRIPT: Rastergeneralisering (5 steg)
 ├── vectorize_pipeline_1024_halo.py    ← HUVUDSKRIPT: Raster→Vektor
 ├── separate_roads_final.sh            ← HUVUDSKRIPT: Vektor-förenkling
 │
 ├── split_tiles.py                     ← Dela originalraster i tiles
+├── extract_protected_classes.py       ← Referensskript: extrahering av skyddade
+├── extract_landscape_only.py          ← Referensskript: extrahering av landskapet
 ├── generalize_test_conn4.py           ← Test: Sieve conn4
 ├── generalize_test_conn8.py           ← Test: Sieve conn8
 ├── generalize_test_modal.py           ← Test: Modal filter
@@ -135,12 +155,14 @@ NMD2/
 │
 ├── requirements.txt                   ← Python-beroenden
 ├── INSTALL.md                         ← Installationsguide
-├── workflow.md                        ← Arbetsflöde & metoder
+├── workflow.md                        ← Arbetsflöde & metoder (uppdaterad)
 ├── README.md                          ← Du är här
 │
 ├── DOCUMENTATION_INITIAL_WORKFLOW.md  ← Rastergeneralisering + första vektoreisering
 └── DOCUMENTATION_VECTOR_SIMPLIFICATION.md ← Problem, försök & final lösning
 ```
+
+**Notering:** `extract_protected_classes.py` och `extract_landscape_only.py` är nu integrerade som steg 2 och 3 i `pipeline_1024_halo.py`.
 
 ---
 
@@ -148,12 +170,16 @@ NMD2/
 
 ### Rastergeneraliseringens utgångar (pipeline_1024_halo.py)
 
-| Mapp | Metod | Utgångar | Storlek |
-|------|-------|----------|---------|
-| `generalized_conn4/` | gdal_sieve, konnektivitet 4 | 7 MMU × 16 tiles = 112 TIF | ~30 MB |
-| `generalized_conn8/` | gdal_sieve, konnektivitet 8 | 7 MMU × 16 tiles = 112 TIF | ~30 MB |
-| `generalized_modal/` | Modal filter k=3–15 | 6 kernels × 16 tiles = 96 TIF | ~28 MB |
-| `generalized_semantic/` | Semantisk generalisering | 7 MMU × 16 tiles = 112 TIF | ~28 MB |
+| Mapp | Innehål | Utgångar | Storlek |
+|------|---------|----------|----------|
+| `tiles/` | Original-tiles (från split) | 16 TIF | ~50 MB |
+| `protected/` | **Skyddade klasser (51-54, 61-62, intakta)** | 16 TIF | ~20 MB |
+| `landscape/` | Landskapet utan skyddade | 16 TIF | ~48 MB |
+| `filled/` | Efter öfyllnad | 16 TIF | ~48 MB |
+| `generalized_conn4/` | Sieve conn4 | 7 MMU × 16 = 112 TIF | ~30 MB |
+| `generalized_conn8/` | Sieve conn8 | 7 MMU × 16 = 112 TIF | ~30 MB |
+| `generalized_modal/` | Modal filter k=3–15 | 6 kernels × 16 = 96 TIF | ~28 MB |
+| `generalized_semantic/` | Semantisk | 7 MMU × 16 = 112 TIF | ~28 MB |
 
 ### Vektoreringens utgångar (vectorize_pipeline_1024_halo.py)
 
@@ -267,10 +293,11 @@ threshold=10            # Douglas-Peucker tröskel (meter)
 | Steg | Tid | Anteckningar |
 |------|-----|----------|
 | split_tiles.py | ~10 min | Körs endast en gång |
-| pipeline_1024_halo.py | ~4 sec | Parallell processing (4 metoder) |
+| pipeline_1024_halo.py steg 1-3 | ~5-10 sec | Extrahering av skyddade + landskap |
+| pipeline_1024_halo.py steg 4-5 | ~10-15 sec | Öfyllnad + generaliseringsmetoder (parallell) |
 | vectorize_pipeline_1024_halo.py | <2 min | Vektoreisering via gdal_polygonize |
 | separate_roads_final.sh | ~2 min | GRASS generalisering |
-| **TOTALT** | **~2.5 min** | (exklusive initial tile-split) |
+| **TOTALT** | **~2.5-3 min** | (exklusive initial tile-split) |
 
 ---
 

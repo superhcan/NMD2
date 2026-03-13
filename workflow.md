@@ -16,10 +16,42 @@
 
 ---
 
-## Steg 2 — Fyll landöar i vatten
-**Skript:** `fill_islands.py`  
-**Indata:** tile från steg 1 (eller föregående steg)  
-**Utdata:** `filled_islands/NMD2023bas_tile_r*_c*_filled.tif`
+## Steg 2 — Extrahera skyddade klasser
+**Skript:** `pipeline_1024_halo.py` (funktion `step2_extract_protected`)  
+**Indata:** Original-tiles från steg 1  
+**Utdata:** `protected/NMD2023bas_tile_r*_c*.tif`
+
+Extraherar ENDAST de skyddade klasserna från original-tiles:
+- `51` = Exploaterad mark, byggnad
+- `52` = Exploaterad mark, ej byggnad eller väg/järnväg
+- `53` = Exploaterad mark, väg/järnväg
+- `54` = Exploaterad mark, torvtäkt
+- `61` = Sjö och vattendrag
+- `62` = Hav
+
+Allt annat sätts till 0 (bakgrund). Dessa klasser **generaliseras aldrig** och
+bevaras intakta genom hela pipelinen för senare kombinering med generaliserat
+landskap.
+
+---
+
+## Steg 3 — Extrahera landskapet
+**Skript:** `pipeline_1024_halo.py` (funktion `step3_extract_landscape`)  
+**Indata:** Original-tiles från steg 1  
+**Utdata:** `landscape/NMD2023bas_tile_r*_c*.tif`
+
+Extraherar ALLT UTOM de skyddade klasserna från original-tiles:
+- Innehåller alla landskapsklasser som KAN generaliseras
+- De skyddade klasserna sätts till 0 (bakgrund)
+
+Detta landskap-raster är det som kommer att generaliseras i de följande stegen.
+
+---
+
+## Steg 4 — Fyll landöar i vatten
+**Skript:** `pipeline_1024_halo.py` (funktion `step2_fill`)  
+**Indata:** Original-tiles från steg 1  
+**Utdata:** `filled/NMD2023bas_tile_r*_c*_filled.tif`
 
 Sieve-generaliseringen kan aldrig absorbera en liten landyta in i en skyddad
 vattenklass, vilket medför att riktiga mikroöar (och klassificeringsfel som
@@ -37,13 +69,14 @@ ser ut som öar) överlever MMU-filtret. Det här steget hanterar det specifikt.
 
 ---
 
-## Steg 3 — Generalisering (MMU-baserad, raster)
+## Steg 5 — Generalisering (MMU-baserad, raster)
 
 > **Tilekants-artefakter:** Utan overlap ser sieve/modal/semantic varje tile
 > isolerat – en yta som korsar en tilekant delas upp i två separata patches
 > som var för sig kan understig MMU och elimineras felaktigt.
 >
 > **Lösning – halo/överlapp (implementerat i `pipeline_1024_halo.py`):**
+> - Generaliseringen körs på **landskapet** från steg 3 (skyddade klasser är redan separerade)
 > - Varje tile läses med **100 px kant** från granntilesna via en GDAL VRT
 > - Generaliseringen körs på den utvidgade ytan (1024 + 200 px)
 > - Bara den inre kärnan (1024×1024 px) skrivs till utfilen
@@ -51,11 +84,20 @@ ser ut som öar) överlever MMU-filtret. Det här steget hanterar det specifikt.
 >   MMU=4 osv.) och en ny VRT byggs efter varje steg, så att halo-pixlarna
 >   alltid speglar föregående stegs utdata
 
+Notera: De **skyddade klasserna från steg 2** behålls intakta och kan senare
+sammanfogas med de generaliserade landskapen vid vektoriseringen.
+
 
 Syftet är att ta bort ytor som är för små (underskrider MMU). Pixlar i för
 små ytor *byter klass* till närmaste/vanligaste grannklass.
 
-Skyddade klasser (`51`=öppet vatten, `52`=strandlinje, `53`=väg, `54`=bebyggelse, `61`=sjö, `62`=vatten) ändras aldrig.
+Skyddade klasser (ändras aldrig):
+- `51` = Exploaterad mark, byggnad
+- `52` = Exploaterad mark, ej byggnad eller väg/järnväg
+- `53` = Exploaterad mark, väg/järnväg
+- `54` = Exploaterad mark, torvtäkt
+- `61` = Sjö och vattendrag
+- `62` = Hav
 
 MMU-steg som testats: `[2, 4, 8, 16, 32, 64, 100]` px  
 Pixelstorlek: 10 m → 1 px = 0,01 ha → **100 px = 1 ha** (max testat steg)
@@ -63,14 +105,14 @@ Pixelstorlek: 10 m → 1 px = 0,01 ha → **100 px = 1 ha** (max testat steg)
 Fyra metoder har jämförts parallellt (alla kumulativa, dvs. varje steg
 bygger på föregående stegs utdata):
 
-| Skript | Metod | Konnektivitet / fönster |
-|--------|-------|------------------------|
-| `generalize_test.py` | gdal_sieve (largest neighbour) | 4 |
-| `generalize_test_v2.py` | gdal_sieve (largest neighbour) | 4, refaktorerad |
-| `generalize_test_conn4.py` | gdal_sieve | 4 — ortogonalt (jämnare kanter) |
-| `generalize_test_conn8.py` | gdal_sieve | 8 — diagonala grannar räknas |
-| `generalize_test_modal.py` | Majoritetsfiltret (modal filter) | Fönster k=3,5,7,11,13,15 |
-| `generalize_test_semantic.py` | Semantisk likhet (minst tematiskt avstånd) | 4 |
+Huvudskript: `pipeline_1024_halo.py` (funktioner `step3_sieve_halo`, `step3_modal_halo`, `step3_semantic_halo`)
+
+| Metod | Konnektivitet / fönster | Beskrivning |
+|-------|------------------------|-------------|
+| Sieve conn4 | 4 — ortogonalt | Largest-neighbour, jämnare kanter |
+| Sieve conn8 | 8 — diagonala grannar | Largest-neighbour, snabbare |
+| Modal filter | Fönster k=3,5,7,11,13,15 | Majoritetsfilter, mjuka former |
+| Semantisk | 4 — ortogonalt | Likhet-baserad (ekologiskt motiverad) |
 
 ### Metodbeskrivningar
 
@@ -86,12 +128,11 @@ N×N-fönster (scipy `uniform_filter` per klass). Effektiv MMU ≈ k²/2 px.
 klassen med lägst semantiskt avstånd (NMD-gruppering), inte nödvändigtvis
 den störst grannen.
 
-**Utdatakataloger:**
-- `generalized_test/` — generalize_test.py
-- `generalized_test_conn4/` — generalize_test_conn4.py
-- `generalized_test_conn8/` — generalize_test_conn8.py
-- `generalized_test_modal/` — generalize_test_modal.py
-- `generalized_test_semantic/` — generalize_test_semantic.py
+**Utdatakataloger (från `pipeline_1024_halo.py`):**
+- `generalized_conn4/` — Sieve conn4, 7 MMU-steg × 16 tiles
+- `generalized_conn8/` — Sieve conn8, 7 MMU-steg × 16 tiles
+- `generalized_modal/` — Modal filter, 6 kernelstorlekar × 16 tiles
+- `generalized_semantic/` — Semantisk, 7 MMU-steg × 16 tiles
 
 ---
 
@@ -125,17 +166,17 @@ finns. Görs *efter* vektorisering.
 ## Ordning
 
 ```
-1. split_tiles.py               →  tiles/*.tif
-2. fill_islands.py              →  filled_islands/*.tif      (öar < 1 ha i vatten fyllda)
-3. pipeline_1024_halo.py        →  pipeline_1024_halo/       (steg 1–3 ovan, med halo)
-     tiles/                     –  1024 px tiles
-     filled/                    –  efter öfyllnad
-     generalized_conn4/         –  sieve conn4, MMU 2–100 px
-     generalized_conn8/         –  sieve conn8
-     generalized_modal/         –  modal k=3–15
-     generalized_semantic/      –  semantisk
-4. vektorisering                →  *.gpkg                    (råa vektorpolygoner, VRT + shapes)
-5. (simplifiering)              →  *.gpkg                    (jämnade polygoner)
+1. pipeline_1024_halo.py steg 1:  tiles/*.tif                (dela upp original i tiles)
+2. pipeline_1024_halo.py steg 2:  protected/*.tif            (extrahera skyddade klasser)
+3. pipeline_1024_halo.py steg 3:  landscape/*.tif            (extrahera landskapet)
+4. pipeline_1024_halo.py steg 4:  filled/*.tif               (fyll öar i vatten)
+5. pipeline_1024_halo.py steg 5a-5d:
+     generalized_conn4/           (sieve conn4, MMU 2–100 px)
+     generalized_conn8/           (sieve conn8)
+     generalized_modal/           (modal k=3–15)
+     generalized_semantic/        (semantisk)
+6. vectorize_pipeline_1024_halo.py →  vectorized/*.gpkg      (vektorisering)
+7. (kombinering + simplifiering)   →  *.gpkg                 (slå ihop skyddade + generaliserade)
 ```
 
 > `pipeline_1024.py` är en äldre version utan halo – finns kvar för jämförelse.
@@ -143,6 +184,16 @@ finns. Görs *efter* vektorisering.
 
 ---
 
-## Testtile
-Alla skript är hittills körda på en enskild tile:  
-`NMD2023bas_tile_r000_c010.tif` (2 048 × 2 048 px)
+## Pipeline-körning
+
+**Hela rastergeneraliseringspipelinen:**
+```bash
+python pipeline_1024_halo.py
+```
+
+**Därefter vektorisering:**
+```bash
+python vectorize_pipeline_1024_halo.py
+```
+
+Båda steg är fullt automatiserade och körs parallellt där möjligt.

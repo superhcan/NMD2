@@ -105,7 +105,7 @@ PARENT_TILES     = [(0, 10), (0, 11), (1, 10), (1, 11)]
 PARENT_TILE_SIZE = 2048
 SUB_TILE_SIZE    = 1024
 
-OUT_BASE  = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_1024_halo")
+OUT_BASE  = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_1024_halo_v2")
 COMPRESS  = "lzw"
 
 PROTECTED     = {51, 52, 53, 54, 61, 62}
@@ -457,17 +457,133 @@ def step1_split() -> list[Path]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Steg 2: Fyll öar (ingen halo behövs – öar som stöter mot tilekant
+# Steg 2: Extrahera skyddade klasser (51, 52, 53, 54, 61, 62)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def step2_extract_protected(tile_paths: list[Path]) -> list[Path]:
+    """Extrahera BARA skyddade klasser från original-tiles."""
+    t0_step = time.time()
+    out_dir = OUT_BASE / "protected"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    result_paths = []
+    total_px_extracted = 0
+    
+    info.info("Steg 2: Extraherar skyddade klasser %s från original-tiles...", sorted(PROTECTED))
+    
+    for tile in tile_paths:
+        out_path = out_dir / tile.name
+        if not out_path.exists():
+            t0 = time.time()
+            with rasterio.open(tile) as src:
+                meta = src.meta.copy()
+                data = src.read(1)
+            meta.update(compress=COMPRESS)
+            
+            # Skapa mask för skyddade klasser, sätt allt annat till 0
+            protected_data = np.where(np.isin(data, list(PROTECTED)), data, 0).astype(data.dtype)
+            n_px = int(np.count_nonzero(protected_data))
+            total_px_extracted += n_px
+            
+            with rasterio.open(out_path, "w", **meta) as dst:
+                dst.write(protected_data, 1)
+            copy_qml(out_path)
+            
+            elapsed = time.time() - t0
+            log.debug("step2_extract_protected: %s → %d px skyddade klasser  %.1fs",
+                      tile.name, n_px, elapsed)
+            info.info("  %-45s  %9d px extraherade  %.1fs", tile.name, n_px, elapsed)
+        else:
+            log.debug("step2_extract_protected: hoppar %s (finns redan)", tile.name)
+        result_paths.append(out_path)
+    
+    info.info("Steg 2 klar: totalt %d px skyddade klasser extraherade  %.1fs",
+              total_px_extracted, time.time() - t0_step)
+    return result_paths
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Steg 3: Extrahera landskapet (allt utom skyddade klasser)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def step3_extract_landscape(tile_paths: list[Path]) -> list[Path]:
+    """Extrahera landskapet: ta bort vägar (53) och byggnader (51) och ersätt med närliggande lanskapklasser."""
+    t0_step = time.time()
+    out_dir = OUT_BASE / "landscape"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    result_paths = []
+    
+    ROADS_BUILDINGS = {51, 53}  # 51=Byggnad, 53=Väg/järnväg
+    
+    info.info("Steg 3: Extraherar landskapet (ersätter vägar 53 och byggnader 51 med grannande klasser)...")
+    
+    for tile in tile_paths:
+        out_path = out_dir / tile.name
+        if not out_path.exists():
+            t0 = time.time()
+            with rasterio.open(tile) as src:
+                meta = src.meta.copy()
+                data = src.read(1)
+            meta.update(compress=COMPRESS)
+            
+            landscape_data = data.copy()
+            
+            # Iterativ ersättning: för varje väg/byggnad-pixel, ersätt med mest vanlig grannklass
+            mask_roads_buildings = np.isin(landscape_data, ROADS_BUILDINGS)
+            
+            for iteration in range(10):  # Max 10 iterationer
+                if not np.any(mask_roads_buildings):
+                    break
+                
+                # För varje väg/byggnad-pixel, hitta grannarnas klasser
+                for i in range(landscape_data.shape[0]):
+                    for j in range(landscape_data.shape[1]):
+                        if mask_roads_buildings[i, j]:
+                            # Sammla grannarnas klassificeringar (8-connectedness)
+                            neighbors = []
+                            for di in [-1, 0, 1]:
+                                for dj in [-1, 0, 1]:
+                                    if di == 0 and dj == 0:
+                                        continue
+                                    ni, nj = i + di, j + dj
+                                    if 0 <= ni < landscape_data.shape[0] and 0 <= nj < landscape_data.shape[1]:
+                                        if not np.isin(landscape_data[ni, nj], ROADS_BUILDINGS):
+                                            neighbors.append(landscape_data[ni, nj])
+                            
+                            # Ersätt med mest vanlig grannklass
+                            if neighbors:
+                                most_common = np.bincount(neighbors).argmax()
+                                landscape_data[i, j] = most_common
+                                mask_roads_buildings[i, j] = False
+            
+            with rasterio.open(out_path, "w", **meta) as dst:
+                dst.write(landscape_data, 1)
+            copy_qml(out_path)
+            
+            elapsed = time.time() - t0
+            log.debug("step3_extract_landscape: %s → vägar/byggnader ersatta  %.1fs",
+                      tile.name, elapsed)
+            info.info("  %-45s  vägar/byggnader ersatta med grannklasser  %.1fs", tile.name, elapsed)
+        else:
+            log.debug("step3_extract_landscape: hoppar %s (finns redan)", tile.name)
+        result_paths.append(out_path)
+    
+    info.info("Steg 3 klar: landskapet extraherat med vägar/byggnader ersatta  %.1fs",
+              time.time() - t0_step)
+    return result_paths
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Steg 4: Fyll öar (ingen halo behövs – öar som stöter mot tilekant
 #          är per definition inte helt omringade av vatten)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def step2_fill(tile_paths: list[Path]) -> list[Path]:
+def step4_fill(tile_paths: list[Path]) -> list[Path]:
     t0_step   = time.time()
     out_dir   = OUT_BASE / "filled"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths  = []
     total_islands = 0
-    info.info("Steg 2: Fyller landöar < %d px (%.2f ha) i vatten ...",
+    info.info("Steg 4: Fyller landöar < %d px (%.2f ha) i vatten ...",
               MMU_ISLAND, MMU_ISLAND * 100 / 10000)
     for tile in tile_paths:
         out_path = out_dir / tile.name
@@ -489,7 +605,7 @@ def step2_fill(tile_paths: list[Path]) -> list[Path]:
         else:
             log.debug("step2_fill: hoppar %s (finns redan)", tile.name)
         result_paths.append(out_path)
-    info.info("Steg 2 klar: totalt %d öar fyllda  %.1fs",
+    info.info("Steg 4 klar: totalt %d öar fyllda  %.1fs",
               total_islands, time.time() - t0_step)
     return result_paths
 
@@ -498,7 +614,7 @@ def step2_fill(tile_paths: list[Path]) -> list[Path]:
 # Steg 3: Generalisering med halo – steg-för-steg över alla tiles
 # ══════════════════════════════════════════════════════════════════════════════
 
-def step3_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int):
+def step5_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int):
     label    = f"conn{conn}"
     out_dir  = OUT_BASE / f"generalized_{label}"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -508,7 +624,7 @@ def step3_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
-    info.info("Steg 3 sieve-%s: %d MMU-steg × %d tiles (halo=%dpx)",
+    info.info("Steg 5 sieve-%s: %d MMU-steg × %d tiles (halo=%dpx)",
               label, len(MMU_STEPS), len(tile_paths), HALO)
 
     for mmu in MMU_STEPS:
@@ -552,10 +668,10 @@ def step3_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int
         info.info("  %-10s mmu=%3dpx  totalt %9d px ändrade  %.1fs",
                   label, mmu, total_changed, elapsed)
 
-    info.info("Steg 3 sieve-%s KLAR  %.1fs", label, time.time() - t0_step)
+    info.info("Steg 5 sieve-%s KLAR  %.1fs", label, time.time() - t0_step)
 
 
-def step3_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
+def step5_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
     out_dir = OUT_BASE / "generalized_modal"
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step = time.time()
@@ -564,7 +680,7 @@ def step3_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
-    info.info("Steg 3 modal: %d kernelstorlekar × %d tiles (halo=%dpx)",
+    info.info("Steg 5 modal: %d kernelstorlekar × %d tiles (halo=%dpx)",
               len(KERNEL_SIZES), len(tile_paths), HALO)
 
     for k in KERNEL_SIZES:
@@ -606,10 +722,10 @@ def step3_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
         info.info("  modal      k=%2d          totalt %9d px ändrade  %.1fs",
                   k, total_changed, elapsed)
 
-    info.info("Steg 3 modal KLAR  %.1fs", time.time() - t0_step)
+    info.info("Steg 5 modal KLAR  %.1fs", time.time() - t0_step)
 
 
-def step3_semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
+def step5_semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
     out_dir = OUT_BASE / "generalized_semantic"
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step = time.time()
@@ -618,7 +734,7 @@ def step3_semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
-    info.info("Steg 3 semantisk: %d MMU-steg × %d tiles (halo=%dpx)",
+    info.info("Steg 5 semantisk: %d MMU-steg × %d tiles (halo=%dpx)",
               len(MMU_STEPS), len(tile_paths), HALO)
 
     for mmu in MMU_STEPS:
@@ -660,7 +776,7 @@ def step3_semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
         info.info("  semantic   mmu=%3dpx  totalt %9d px ändrade  %.1fs",
                   mmu, total_changed, elapsed)
 
-    info.info("Steg 3 semantisk KLAR  %.1fs", time.time() - t0_step)
+    info.info("Steg 5 semantisk KLAR  %.1fs", time.time() - t0_step)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -692,24 +808,30 @@ if __name__ == "__main__":
     info.info("\nSteg 1: Dela upp i %d px tiles", SUB_TILE_SIZE)
     tile_paths = step1_split()
 
-    info.info("\nSteg 2: Fyll landöar")
-    filled_paths = step2_fill(tile_paths)
+    info.info("\nSteg 2: Extrahera skyddade klasser från original-tiles")
+    protected_paths = step2_extract_protected(tile_paths)
+
+    info.info("\nSteg 3: Extrahera landskapet från original-tiles")
+    landscape_paths = step3_extract_landscape(tile_paths)
+
+    info.info("\nSteg 4: Fyll landöar")
+    filled_paths = step4_fill(tile_paths)
 
     filled_vrt = OUT_BASE / "filled_mosaic.vrt"
     build_vrt(filled_paths, filled_vrt)
     info.info("  Mosaik-VRT: %s", filled_vrt.name)
 
-    info.info("\nSteg 3a: Sieve conn4 (med halo)")
-    step3_sieve_halo(tile_paths, filled_paths, conn=4)
+    info.info("\nSteg 5a: Sieve conn4 (med halo)")
+    step5_sieve_halo(tile_paths, filled_paths, conn=4)
 
-    info.info("\nSteg 3b: Sieve conn8 (med halo)")
-    step3_sieve_halo(tile_paths, filled_paths, conn=8)
+    info.info("\nSteg 5b: Sieve conn8 (med halo)")
+    step5_sieve_halo(tile_paths, filled_paths, conn=8)
 
-    info.info("\nSteg 3c: Modal filter (med halo)")
-    step3_modal_halo(tile_paths, filled_paths)
+    info.info("\nSteg 5c: Modal filter (med halo)")
+    step5_modal_halo(tile_paths, filled_paths)
 
-    info.info("\nSteg 3d: Semantisk generalisering (med halo)")
-    step3_semantic_halo(tile_paths, filled_paths)
+    info.info("\nSteg 5d: Semantisk generalisering (med halo)")
+    step5_semantic_halo(tile_paths, filled_paths)
 
     elapsed = time.time() - t_total
     info.info("══════════════════════════════════════════════════════════")

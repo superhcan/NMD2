@@ -48,38 +48,32 @@ Dela upp originalrastern i 2048×2048-tiles (körs en gång):
 python split_tiles.py
 ```
 
-Generaliseringstest på en tile:
+Kör hela rastergeneraliseringspipelinen (5 automatiserade steg):
 
 ```bash
-# Largest-neighbour, 4-konnektivitet (garanterad MMU)
-python generalize_test_conn4.py
-
-# Largest-neighbour, 8-konnektivitet
-python generalize_test_conn8.py
-
-# Semantisk likhet (ekologiskt motiverade val)
-python generalize_test_semantic.py
-
-# Majoritetsfilter (mjuka former, ingen MMU-garanti)
-python generalize_test_modal.py
+python pipeline_1024_halo.py
 ```
 
-Vektorisering av modal k15-resultat:
-
-```bash
-python vectorize_modal_k15.py
-```
+**Pipelinen gör följande:**
+- Steg 1: Dela upp i 1024×1024 px sub-tiles
+- Steg 2: Extrahera skyddade klasser (51-54, 61-62)
+- Steg 3: Extrahera landskapet (utan skyddade klasser)
+- Steg 4: Fyll landöar < 1 ha i vatten
+- Steg 5: Fyra generaliseringsmetoder parallellt (sieve conn4/8, modal, semantisk)
 
 ## Utdatamappar
 
-Alla resultat skrivs till `/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/`:
+Alla resultat skrivs till `/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_1024_halo/`:
 
-| Mapp | Innehåll |
+| Mapp | Innehål |
 |------|----------|
 | `tiles/` | 1 225 tiles (35×35), 2048×2048 px |
-| `generalized_test_conn4/` | Sieve conn4, MMU 2–100 px |
-| `generalized_test_conn8/` | Sieve conn8, MMU 2–100 px |
-| `generalized_test_semantic/` | Semantisk, MMU 2–100 px |
-| `generalized_test_modal/` | Modal filter, k3–k15 |
+| `protected/` | Skyddade klasser extraherade från original (16 tiles) |
+| `landscape/` | Landet (allt utom skyddade) från original (16 tiles) |
+| `filled/` | Efter landöfyllnad (16 tiles) |
+| `generalized_conn4/` | Sieve conn4, MMU 2–100 px (7 steg × 16 tiles) |
+| `generalized_conn8/` | Sieve conn8, MMU 2–100 px |
+| `generalized_modal/` | Modal filter, k=3–15 (6 kernels × 16 tiles) |
+| `generalized_semantic/` | Semantisk, MMU 2–100 px |
 
 Varje TIF-fil har en matchande `.qml` för automatisk färgsättning i QGIS.
