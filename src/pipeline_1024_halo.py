@@ -23,6 +23,7 @@ Kräver: rasterio, numpy, scipy (i venv) + gdal_sieve.py + gdalbuildvrt (system)
 import logging
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from datetime import datetime
@@ -33,6 +34,10 @@ import rasterio
 from rasterio.windows import Window
 from scipy import ndimage
 from scipy.ndimage import uniform_filter
+
+# Add src directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+from qgis_project_builder import create_pipeline_project
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Logging – två loggers + console
@@ -792,6 +797,10 @@ if __name__ == "__main__":
     _setup_logging(OUT_BASE)
     log  = _LOGGERS["debug"]
     info = _LOGGERS["summary"]
+    
+    # ── Initialisera QGIS-projekt ──
+    project_builder = create_pipeline_project(OUT_BASE)
+    info.info("📦 QGIS-projekt initialiserat")
 
     t_total = time.time()
     ts_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -811,34 +820,83 @@ if __name__ == "__main__":
 
     info.info("\nSteg 1: Dela upp i %d px tiles", SUB_TILE_SIZE)
     tile_paths = step1_split()
+    project_builder.add_step_group(1, "Split Tiles")
+    for tile in tile_paths[:5]:  # Limited to first 5 for performance
+        project_builder.add_raster_layer(tile, tile.stem, opacity=0.7)
+    project_builder.save()
 
     info.info("\nSteg 2: Extrahera skyddade klasser från original-tiles")
     protected_paths = step2_extract_protected(tile_paths)
+    project_builder.add_step_group(2, "Protected Classes")
+    for tile in protected_paths[:5]:
+        project_builder.add_raster_layer(tile, tile.stem, opacity=0.7)
+    project_builder.save()
 
     info.info("\nSteg 3: Extrahera landskapet från original-tiles")
     landscape_paths = step3_extract_landscape(tile_paths)
+    project_builder.add_step_group(3, "Landscape Extract")
+    for tile in landscape_paths[:5]:
+        project_builder.add_raster_layer(tile, tile.stem, opacity=0.7)
+    project_builder.save()
 
     info.info("\nSteg 4: Fyll landöar")
     filled_paths = step4_fill(tile_paths)
+    project_builder.add_step_group(4, "Fill Islands")
+    for tile in filled_paths[:5]:
+        project_builder.add_raster_layer(tile, tile.stem, opacity=0.7)
+    project_builder.save()
 
     filled_vrt = OUT_BASE / "filled_mosaic.vrt"
     build_vrt(filled_paths, filled_vrt)
     info.info("  Mosaik-VRT: %s", filled_vrt.name)
 
+    # ── Steg 5: Generalization (med subgrupper per metod) ──
+    project_builder.add_step_group(5, "Generalized")
+    
     info.info("\nSteg 5a: Sieve conn4 (med halo)")
     step5_sieve_halo(tile_paths, filled_paths, conn=4)
+    project_builder.add_method_subgroup("Sieve Conn4")
+    conn4_dir = OUT_BASE / "generalized_conn4"
+    if conn4_dir.exists():
+        for tif in sorted(conn4_dir.glob("*_mmu100.tif"))[:3]:  # Show only mmu100
+            project_builder.add_raster_layer(tif, tif.stem, opacity=0.6)
+    project_builder.pop_subgroup()
 
     info.info("\nSteg 5b: Sieve conn8 (med halo)")
     step5_sieve_halo(tile_paths, filled_paths, conn=8)
+    project_builder.add_method_subgroup("Sieve Conn8")
+    conn8_dir = OUT_BASE / "generalized_conn8"
+    if conn8_dir.exists():
+        for tif in sorted(conn8_dir.glob("*_mmu100.tif"))[:3]:
+            project_builder.add_raster_layer(tif, tif.stem, opacity=0.6)
+    project_builder.pop_subgroup()
 
     info.info("\nSteg 5c: Modal filter (med halo)")
     step5_modal_halo(tile_paths, filled_paths)
+    project_builder.add_method_subgroup("Modal Filter")
+    modal_dir = OUT_BASE / "generalized_modal"
+    if modal_dir.exists():
+        for k in [3, 7, 15]:  # Show k3, k7, k15
+            for tif in sorted(modal_dir.glob(f"*_modal_k{k:02d}.tif"))[:2]:
+                project_builder.add_raster_layer(tif, tif.stem, opacity=0.6)
+    project_builder.pop_subgroup()
 
     info.info("\nSteg 5d: Semantisk generalisering (med halo)")
     step5_semantic_halo(tile_paths, filled_paths)
+    project_builder.add_method_subgroup("Semantic")
+    semantic_dir = OUT_BASE / "generalized_semantic"
+    if semantic_dir.exists():
+        for tif in sorted(semantic_dir.glob("*_mmu100.tif"))[:3]:
+            project_builder.add_raster_layer(tif, tif.stem, opacity=0.6)
+    project_builder.pop_subgroup()
+    
+    project_builder.save()
 
     elapsed = time.time() - t_total
     info.info("══════════════════════════════════════════════════════════")
     info.info("Pipeline KLAR  totaltid: %.0fs (%.1f min)", elapsed, elapsed / 60)
     info.info("Utdata: %s", OUT_BASE)
+    info.info("QGIS-projekt: %s", project_builder.project_path)
     info.info("══════════════════════════════════════════════════════════")
+    
+    project_builder.cleanup()
