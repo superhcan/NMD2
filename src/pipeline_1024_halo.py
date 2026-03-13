@@ -114,7 +114,7 @@ PARENT_TILES     = [(0, 10), (0, 11), (1, 10), (1, 11)]
 PARENT_TILE_SIZE = 2048
 SUB_TILE_SIZE    = 1024
 
-OUT_BASE  = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_1024_halo_v2")
+OUT_BASE  = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_1024_halo_v3")
 COMPRESS  = "lzw"
 
 PROTECTED     = {51, 52, 53, 54, 61, 62}
