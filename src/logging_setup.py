@@ -12,11 +12,20 @@ from pathlib import Path
 
 
 def setup_logging(out_base: Path):
-    """Skapar två loggfiler och en console-handler."""
-    out_base.mkdir(parents=True, exist_ok=True)
+    """Skapar två loggfiler och en console-handler.
+    
+    Loggfiler sparas i:
+      - log/         → pipeline_debug_<ts>.log
+      - summary/     → pipeline_summary_<ts>.log
+    """
+    log_dir = out_base / "log"
+    summary_dir = out_base / "summary"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    debug_log   = out_base / f"pipeline_debug_{ts}.log"
-    summary_log = out_base / f"pipeline_summary_{ts}.log"
+    debug_log   = log_dir / f"pipeline_debug_{ts}.log"
+    summary_log = summary_dir / f"pipeline_summary_{ts}.log"
 
     fmt_detail  = logging.Formatter(
         "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",

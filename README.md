@@ -21,6 +21,16 @@ export NVM_DIR="$HOME/.config/nvm"
 python3 src/simplify_mapshaper.py
 ```
 
+## 📋 Loggfiler
+
+Pipeline-körningar genererar loggfiler i arbetssimulatorn:
+
+- **`log/`** — Debug-loggfiler (`pipeline_debug_<YYYYMMDD_HHMMSS>.log`)
+- **`summary/`** — Sammanfattningsloggfiler (`pipeline_summary_<YYYYMMDD_HHMMSS>.log`)
+
+Dessa innehåller detaljerade körningsrapporter från den senaste pipelinekörningen.
+Filadresserna skrivs ut i konsolen när pipeline startar.
+
 ---
 
 ## 📚 Dokumentation

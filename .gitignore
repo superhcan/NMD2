@@ -17,3 +17,7 @@ __pycache__/
 # Tillfälliga filer
 *.tmp
 *.log
+
+# Loggfiler och utgång
+log/
+summary/

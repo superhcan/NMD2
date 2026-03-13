@@ -24,12 +24,15 @@ LAYER_NAME = "polygoner"
 # ════════════════════════════════════════════════════════════════════════════════
 
 def setup_logging(out_dir: Path):
+    log_dir = out_dir / "log"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
     ts = time.strftime("%Y%m%d_%H%M%S")
     logging.basicConfig(
         level=logging.DEBUG,
         format='%(asctime)s [%(levelname)-5s] %(message)s',
         handlers=[
-            logging.FileHandler(out_dir / f"vectorize_debug_{ts}.log"),
+            logging.FileHandler(log_dir / f"vectorize_debug_{ts}.log"),
             logging.StreamHandler()
         ]
     )

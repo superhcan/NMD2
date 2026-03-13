@@ -11,8 +11,13 @@ _LOG = None
 
 def _setup_logging(out_base):
     global _LOG
+    log_dir = out_base / "log"
+    summary_dir = out_base / "summary"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = out_base / f"vectorize_summary_{ts}.log"
+    log_path = summary_dir / f"vectorize_summary_{ts}.log"
     log = logging.getLogger("")
     log.setLevel(logging.INFO)
     h1 = logging.FileHandler(log_path)
