@@ -152,7 +152,7 @@ def build_qgis_project():
         group.setExpanded(False)
         root.addChildNode(group)
         
-        # Speciell hantering för Steg 4 – skapa sub_groups för varje metod
+        # Speciell hantering för Steg 4 – skapa sub_groups för varje metod + setting
         if step_num == 4:
             methods = ["conn4", "conn8", "modal", "semantic"]
             
@@ -163,34 +163,70 @@ def build_qgis_project():
                     continue
                 
                 # Skapa sub_group för metoden
-                subgroup = QgsLayerTreeGroup(f"Generaliserad ({method.upper()})")
-                subgroup.setExpanded(False)
-                group.addChildNode(subgroup)
+                method_group = QgsLayerTreeGroup(f"Generaliserad ({method.upper()})")
+                method_group.setExpanded(False)
+                group.addChildNode(method_group)
                 
-                # Lägg till raster-filer från denna metod
-                layer_files = sorted(method_dir.glob("*.tif"))[:16]  # Max 16 per subgroup
+                # Gruppera filer efter setting (MMU-värde eller kernel-storlek)
+                settings_dict = {}
+                layer_files = sorted(method_dir.glob("*.tif"))
                 
                 for layer_file in layer_files:
                     layer_name = layer_file.stem
-                    try:
-                        layer = QgsRasterLayer(str(layer_file), layer_name, "gdal")
-                        if not layer.isValid():
-                            log.debug(f"  ✗ {layer_name:45s} (ej giltig)")
+                    
+                    # Extrahera setting från filnamn
+                    if method in ["conn4", "conn8", "semantic"]:
+                        # Exempel: ...conn4_mmu002.tif → "mmu002"
+                        if "mmu" in layer_name:
+                            setting = layer_name.split("mmu")[-1][:3]  # "002", "004", etc
+                            setting_label = f"MMU {setting}px"
+                        else:
                             continue
-                        
-                        project.addMapLayer(layer, addToLegend=False)
-                        tree_layer = QgsLayerTreeLayer(layer)
-                        tree_layer.setExpanded(False)
-                        subgroup.addChildNode(tree_layer)
-                        
-                        log.info(f"  ✓ {layer_name:45s}")
-                        total_layers += 1
-                        
-                    except Exception as e:
-                        log.warning(f"  ✗ {layer_name:45s} ({e})")
+                    elif method == "modal":
+                        # Exempel: ...modal_k03.tif → "k03"
+                        if "_k" in layer_name:
+                            setting = layer_name.split("_k")[-1][:2]  # "03", "05", etc
+                            setting_label = f"Klusterradie k={setting}"
+                        else:
+                            continue
+                    else:
                         continue
+                    
+                    # Lägg till fil i rätt setting-grupp
+                    if setting_label not in settings_dict:
+                        settings_dict[setting_label] = []
+                    settings_dict[setting_label].append(layer_file)
                 
-                log.info(f"  {step_name:45s} → {method.upper():6s} {len(layer_files)} lager\n")
+                # Lägg till lager grupperat per setting
+                for setting_label in sorted(settings_dict.keys()):
+                    # Skapa sub_group för setting
+                    setting_group = QgsLayerTreeGroup(setting_label)
+                    setting_group.setExpanded(False)
+                    method_group.addChildNode(setting_group)
+                    
+                    for layer_file in settings_dict[setting_label]:
+                        layer_name = layer_file.stem
+                        try:
+                            layer = QgsRasterLayer(str(layer_file), layer_name, "gdal")
+                            if not layer.isValid():
+                                log.debug(f"  ✗ {layer_name:45s} (ej giltig)")
+                                continue
+                            
+                            project.addMapLayer(layer, addToLegend=False)
+                            tree_layer = QgsLayerTreeLayer(layer)
+                            tree_layer.setExpanded(False)
+                            setting_group.addChildNode(tree_layer)
+                            
+                            log.info(f"  ✓ {layer_name:45s}")
+                            total_layers += 1
+                            
+                        except Exception as e:
+                            log.warning(f"  ✗ {layer_name:45s} ({e})")
+                            continue
+                    
+                    log.info(f"  {setting_label:45s} ({len(settings_dict[setting_label])} lager)")
+                
+                log.info(f"  {step_name:45s} {method.upper():6s} ({len(layer_files)} lager totalt)\n")
         
         else:
             # Standard-hantering för andra steg
