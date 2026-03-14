@@ -152,53 +152,95 @@ def build_qgis_project():
         group.setExpanded(False)
         root.addChildNode(group)
         
-        # Bestäm filtyp
-        if step_num <= 5:
-            # Raster-filer
-            layer_files = sorted(step_dir.glob("*.tif"))
-        else:
-            # Vektor-filer
-            layer_files = (sorted(step_dir.glob("*.gpkg")) +
-                          sorted(step_dir.glob("*.shp")))
-        
-        if not layer_files:
-            log.warning(f"⚠️  {step_name:40s} – inga filer hittade")
-            continue
-        
-        # Lägg till lager (max 16 per grupp för prestanda)
-        layers_added = 0
-        for layer_file in layer_files[:16]:
-            layer_name = layer_file.stem
+        # Speciell hantering för Steg 4 – skapa sub_groups för varje metod
+        if step_num == 4:
+            methods = ["conn4", "conn8", "modal", "semantic"]
             
-            try:
-                if layer_file.suffix == ".tif":
-                    # Raster-lager
-                    layer = QgsRasterLayer(str(layer_file), layer_name, "gdal")
-                    if not layer.isValid():
-                        log.warning(f"  ✗ {layer_name:45s} (ej giltig)")
+            for method in methods:
+                method_dir = step_dir.parent / f"steg4_generalized_{method}"
+                if not method_dir.exists():
+                    log.debug(f"  Metodkatalog saknas: {method_dir.name}")
+                    continue
+                
+                # Skapa sub_group för metoden
+                subgroup = QgsLayerTreeGroup(f"Generaliserad ({method.upper()})")
+                subgroup.setExpanded(False)
+                group.addChildNode(subgroup)
+                
+                # Lägg till raster-filer från denna metod
+                layer_files = sorted(method_dir.glob("*.tif"))[:16]  # Max 16 per subgroup
+                
+                for layer_file in layer_files:
+                    layer_name = layer_file.stem
+                    try:
+                        layer = QgsRasterLayer(str(layer_file), layer_name, "gdal")
+                        if not layer.isValid():
+                            log.debug(f"  ✗ {layer_name:45s} (ej giltig)")
+                            continue
+                        
+                        project.addMapLayer(layer, addToLegend=False)
+                        tree_layer = QgsLayerTreeLayer(layer)
+                        tree_layer.setExpanded(False)
+                        subgroup.addChildNode(tree_layer)
+                        
+                        log.info(f"  ✓ {layer_name:45s}")
+                        total_layers += 1
+                        
+                    except Exception as e:
+                        log.warning(f"  ✗ {layer_name:45s} ({e})")
                         continue
-                else:
-                    # Vektor-lager
-                    layer = QgsVectorLayer(str(layer_file), layer_name, "ogr")
-                    if not layer.isValid():
-                        log.warning(f"  ✗ {layer_name:45s} (ej giltig)")
-                        continue
                 
-                # Lägg till i projekt
-                project.addMapLayer(layer, addToLegend=False)
-                tree_layer = QgsLayerTreeLayer(layer)
-                tree_layer.setExpanded(True)  # Expandera lagret i träd
-                group.addChildNode(tree_layer)
-                
-                log.info(f"  ✓ {layer_name:45s}")
-                layers_added += 1
-                total_layers += 1
-                
-            except Exception as e:
-                log.warning(f"  ✗ {layer_name:45s} ({e})")
-                continue
+                log.info(f"  {step_name:45s} → {method.upper():6s} {len(layer_files)} lager\n")
         
-        log.info(f"  {step_name:45s} → {layers_added} lager\n")
+        else:
+            # Standard-hantering för andra steg
+            # Bestäm filtyp
+            if step_num <= 5:
+                # Raster-filer
+                layer_files = sorted(step_dir.glob("*.tif"))
+            else:
+                # Vektor-filer
+                layer_files = (sorted(step_dir.glob("*.gpkg")) +
+                              sorted(step_dir.glob("*.shp")))
+            
+            if not layer_files:
+                log.warning(f"⚠️  {step_name:40s} – inga filer hittade")
+                continue
+            
+            # Lägg till lager (max 16 per grupp för prestanda)
+            layers_added = 0
+            for layer_file in layer_files[:16]:
+                layer_name = layer_file.stem
+                
+                try:
+                    if layer_file.suffix == ".tif":
+                        # Raster-lager
+                        layer = QgsRasterLayer(str(layer_file), layer_name, "gdal")
+                        if not layer.isValid():
+                            log.warning(f"  ✗ {layer_name:45s} (ej giltig)")
+                            continue
+                    else:
+                        # Vektor-lager
+                        layer = QgsVectorLayer(str(layer_file), layer_name, "ogr")
+                        if not layer.isValid():
+                            log.warning(f"  ✗ {layer_name:45s} (ej giltig)")
+                            continue
+                    
+                    # Lägg till i projekt
+                    project.addMapLayer(layer, addToLegend=False)
+                    tree_layer = QgsLayerTreeLayer(layer)
+                    tree_layer.setExpanded(True)  # Expandera lagret i träd
+                    group.addChildNode(tree_layer)
+                    
+                    log.info(f"  ✓ {layer_name:45s}")
+                    layers_added += 1
+                    total_layers += 1
+                    
+                except Exception as e:
+                    log.warning(f"  ✗ {layer_name:45s} ({e})")
+                    continue
+            
+            log.info(f"  {step_name:45s} → {layers_added} lager\n")
     
     # Spara projekt
     log.info(f"Sparar projekt...")
