@@ -1,62 +1,102 @@
 # 🔴 src/ - Pipeline-kod
 
-All aktiv pipeline-kod lägger här.
+All aktiv pipeline-kod läggs här. Pipeline är organiserad som **separata steg** med en master orchestrator.
 
 ---
 
 ## 📂 Innehål
 
-### 🚀 Huvudpipeline
-- **`pipeline_1024_halo.py`** - Steg 1-6 (Raster → Vektorisering)
+### 🎯 Master Orchestrator
+- **`../run_all_steps.py`** - Orchestrator som kör alla steg i rätt ordning
+  - Användning: `python3 run_all_steps.py` (alla steg)
+  - Eller: `python3 run_all_steps.py --step 5 7` (endast steg 5-7)
+  - Se `--help` för alla alternativ
 
-### 🔧 Förenkling (Steg 7)
-- **`simplify_mapshaper.py`** - Mapshaper-baserad topologi-bevarad förenkling
-- **`simplify_mapshaper_ARKIV_2026-03-13.py`** - Backup av Steg 7
+### 🚀 Pipeline-Steg (i ordning)
 
-### 📊 Vektorisering (Steg 6)
-- **`vectorize_modal_k15.py`** - Modal K15 vektorisering
-- **`vectorize_pipeline_1024_halo.py`** - Pipeline vektorisering (med halo)
-- **`vectorize_tiles.py`** - Generell vektorisering
-- **`vectorize_generalized.py`** - Äldre vektorisering
+**Steg 1: Tileluppdelning**
+- **`steg_1_split_tiles.py`** - Delar original-raster (5.8 GB) i 1024×1024 px tiles (16 st)
 
-### 🧩 Support
-- **`config.py`** - Konfigurationsfil (vägar, parametrar, etc.)
+**Steg 2: Extrahera skyddade klasser**
+- **`steg_2_extract_protected.py`** - Extraherar vägar, byggnader, vatten (klass 51-54, 61-62) för senare sammansättning
+
+**Steg 3: Extrahera landskapsbild**
+- **`steg_3_extract_landscape.py`** - Ersätter vägar/byggnader med omkringliggande värden för generalisering
+
+**Steg 4a: Fyll små öar**
+- **`steg_4a_fill_islands.py`** - Fyller landöar < 1 ha helt omringade av vatten (< 100 pixlar)
+
+**Steg 4b: Filtrera små sjöar** (valfritt)
+- **`steg_4b_filter_lakes.py`** - Tar bort små sjöar < 1 ha från landskapsbild (motsvarar 4a men för vatten)
+
+**Steg 5: Generalisering**
+- **`steg_5_generalize.py`** - Generaliserar med 4 metoder (sieve conn4/8, modal, semantic) och halo-teknik
+
+**Steg 6: Vektorisering**
+- **`steg_6_vectorize.py`** - Konverterar generaliserade raster till GeoPackage-vektorer (20,624 polygoner)
+
+**Steg 7: Mapshaper-förenkling**
+- **`steg_7_simplify.py`** - Förenklar vektorer med topologi-bevarad Mapshaper (4 nivåer: p90/p75/p50/p25)
+
+**Steg 8: Bygga QGIS-projekt**
+- **`steg_8_build_qgis_project.py`** - Bygger QGIS-projekt från alla steg, organiserar lager i grupper
+
+### 🧩 Support & Verktyg
+- **`config.py`** - Centraliserad konfiguration (vägar, parametrar, etc.)
 - **`logging_setup.py`** - Loggningskonfiguration
-
-### 🌳 Tileluppdelning (Steg 1)
-- **`split_tiles.py`** - Tileluppdelning
-
-### 🛣️ Vägar & Byggnader (valfritt)
-- **`separate_roads_final.sh`** - Vägseparering shell-script
-- **`separate_roads_grass.sh`** - GRASS GIS vägseparering
+- **`qgis_project_builder.py`** - QGIS-projektgenerator
+- **`split_tiles.py`** - Äldre tileluppdelning (ersatt av steg 1 i orchestrator)
 
 ---
 
 ## 🚀 Hur Man Kör
 
-### Steg 1-6: Huvudpipeline
+### Med Orchestrator (Rekommenderat)
 ```bash
-source /path/to/venv/bin/activate
-python3 src/pipeline_1024_halo.py
+cd /home/hcn/projects/NMD2
+source .venv/bin/activate
+
+# Kör alla steg (1-8)
+python3 run_all_steps.py
+
+# Eller bara vissa steg
+python3 run_all_steps.py --step 5 8     # Endast steg 5-8
+python3 run_all_steps.py --skip-4b      # Hoppa över valfritt steg 4b
+python3 run_all_steps.py --list         # Visa alla steg
 ```
 
-### Steg 7: Förenkling
+### Individuella Steg (Manuellt)
 ```bash
+cd /home/hcn/projects/NMD2/src
+
+# Steg 1: Tileluppdelning
+python3 steg_1_split_tiles.py
+
+# Steg 2: Extrahera skyddade klasser
+python3 steg_2_extract_protected.py
+
+# Steg 3: Extrahera landskapsbild
+python3 steg_3_extract_landscape.py
+
+# Steg 4a: Fyll små öar
+python3 steg_4a_fill_islands.py
+
+# Steg 4b (valfritt): Filtrera små sjöar
+python3 steg_4b_filter_lakes.py
+
+# Steg 5: Generalisering (använder steg_5_generalize.py)
+python3 steg_5_generalize.py
+
+# Steg 6: Vektorisering
+python3 steg_6_vectorize.py
+
+# Steg 7: Mapshaper-förenkling
 export NVM_DIR="$HOME/.config/nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+python3 steg_7_simplify.py
 
-python3 src/simplify_mapshaper.py
-```
-
-### Bara Tileluppdelning
-```bash
-python3 src/split_tiles.py
-```
-
-### Bara Vektorisering
-```bash
-python3 src/vectorize_pipeline_1024_halo.py
-# eller annat vektoriserings-script
+# Steg 8: Bygga QGIS-projekt (kräver QGIS installerat)
+python3 steg_8_build_qgis_project.py
 ```
 
 ---
@@ -64,28 +104,16 @@ python3 src/vectorize_pipeline_1024_halo.py
 ## ⚙️ Konfiguration
 
 Redigera `src/config.py` för att ändra:
-- Input/output-katalogtruktur
-- Parametrar (toleranser, upflösningar, etc.)
-- Klassgrupper
-- Loggning
+- `OUT_BASE` - Utmappningskatalog (standardvärde: `pipeline_1024_halo_v6`)
+- `PARENT_TILES` - Vilka förälder-tiles som ska processeras
+- `MMU_ISLAND`, `MMU_STEPS` - Minsta arealstorlekar
+- `KERNEL_SIZES` - Modal-filterkärnstorlekar
 
 ---
 
 ## 📚 Dokumentation
 
-Se `doc/` för detaljerad dokumentation:
+Se `../doc/` för detaljerad dokumentation:
 - `doc/README.md` - Projektöversikt
-- `doc/workflow.md` - Pipeline arkitektur
-- `doc/STEG_7_FORENKLING_README.md` - Steg 7 detaljer
-
----
-
-## 🔗 Relaterade Mappar
-
-- **`doc/`** - All dokumentation
-- **`lab/`** - Experimentell & arkiverad kod
-- **`__pycache__/`** - Python cache (ignorera)
-
----
-
-**Struktur skapad:** 13 mars 2026
+- `doc/workflow.md` - Pipeline arkitektur och arbetsgång
+- `doc/STEG_7_FORENKLING_README.md` - Mapshaper-förenkling detaljer

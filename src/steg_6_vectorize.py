@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""vectorize_pipeline_1024_halo.py — Simple shell-based vekt."""
+"""
+steg_6_vectorize.py — Steg 6: Vektorisering av generaliserat raster.
+
+Läser generaliserade raster från Steg 5 (sieve, modal, semantic, semantic) 
+och konverterar dem till GeoPackage-vektorer med GDAL.
+
+Kör: python3 src/steg_6_vectorize.py
+
+Kräver: GDAL/OGR, rasterio, shapely
+"""
 import logging
 import re
 import subprocess
@@ -7,20 +16,50 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from config import OUT_BASE
+
 _LOG = None
 
 def _setup_logging(out_base):
     global _LOG
+    import os
     log_dir = out_base / "log"
     summary_dir = out_base / "summary"
     log_dir.mkdir(parents=True, exist_ok=True)
     summary_dir.mkdir(parents=True, exist_ok=True)
     
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = summary_dir / f"vectorize_summary_{ts}.log"
-    log = logging.getLogger("")
+    
+    # Läs steg-info från miljövariabler
+    step_num = os.getenv("STEP_NUMBER")
+    step_name = os.getenv("STEP_NAME")
+    
+    # Skapa loggfilnamn med eventuell steg-referens
+    if step_num and step_name:
+        step_suffix = f"_steg{step_num}_{step_name}_{ts}"
+    else:
+        step_suffix = f"_{ts}"
+    
+    debug_log = log_dir / f"pipeline_debug{step_suffix}.log"
+    summary_log = summary_dir / f"pipeline_summary{step_suffix}.log"
+    
+    # Debug logger
+    dbg = logging.getLogger("pipeline.vectorize.debug")
+    dbg.setLevel(logging.DEBUG)
+    dbg_handler = logging.FileHandler(debug_log)
+    dbg_handler.setLevel(logging.DEBUG)
+    fmt_detail = logging.Formatter("%(asctime)s [%(levelname)-8s] %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    dbg_handler.setFormatter(fmt_detail)
+    dbg.addHandler(dbg_handler)
+    
+    # Summary logger
+    log = logging.getLogger("pipeline.vectorize")
     log.setLevel(logging.INFO)
-    h1 = logging.FileHandler(log_path)
+    
+    # Remove existing handlers to avoid duplicates
+    log.handlers.clear()
+    
+    h1 = logging.FileHandler(summary_log)
     h2 = logging.StreamHandler()
     fmt = logging.Formatter("%(asctime)s [%(levelname)-6s] %(message)s", datefmt="%H:%M:%S")
     h1.setFormatter(fmt)
@@ -30,14 +69,14 @@ def _setup_logging(out_base):
     _LOG = log
     return log
 
-PIPE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_1024_halo")
-OUT = PIPE / "vectorized"
+PIPE = OUT_BASE
+OUT = PIPE / "steg6_vectorized"
 LN = "markslag"
 
 def vectorize_sieve(conn):
-    log = logging.getLogger("")
+    log = logging.getLogger("pipeline.vectorize")
     method = f"conn{conn}"
-    in_dir = PIPE / f"generalized_{method}"
+    in_dir = PIPE / f"steg4_generalized_{method}"
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))
@@ -70,8 +109,8 @@ def vectorize_sieve(conn):
             log.info("    ✗ failed")
 
 def vectorize_modal():
-    log = logging.getLogger("")
-    in_dir = PIPE / "generalized_modal"
+    log = logging.getLogger("pipeline.vectorize")
+    in_dir = PIPE / "steg4_generalized_modal"
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))
@@ -104,8 +143,8 @@ def vectorize_modal():
             log.info("    ✗ failed")
 
 def vectorize_semantic():
-    log = logging.getLogger("")
-    in_dir = PIPE / "generalized_semantic"
+    log = logging.getLogger("pipeline.vectorize")
+    in_dir = PIPE / "steg4_generalized_semantic"
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))
@@ -137,7 +176,7 @@ def vectorize_semantic():
 
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
-    log = _setup_logging(OUT)
+    log = _setup_logging(OUT_BASE)
     t0 = time.time()
     
     log.info("══════════════════════════════════════════════════════════")

@@ -24,6 +24,7 @@ Projektstruktur:
 """
 
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -85,7 +86,7 @@ class QGISProjectBuilder:
         legend = ET.SubElement(root, "legend", updateDrawingOrder="true")
         
         # Layer tree
-        layer_tree = ET.SubElement(root, "layer-tree-group", checked="Qt::Checked", name="NMD2 Pipeline", expanded="1")
+        layer_tree = ET.SubElement(root, "layer-tree-group", checked="Qt::Checked", name="NMD2 Pipeline", expanded="0")
         ET.SubElement(layer_tree, "customproperties")
         
         # Map layers container
@@ -110,7 +111,7 @@ class QGISProjectBuilder:
             "layer-tree-group",
             checked="Qt::Checked",
             name=group_name,
-            expanded="1"
+            expanded="0"
         )
         ET.SubElement(group_elem, "customproperties")
         
@@ -156,6 +157,13 @@ class QGISProjectBuilder:
         self.layer_count += 1
         layer_id = f"layer_{self.layer_count}"
         
+        # Konvertera till relativ sökväg från projektets utgångskatalog
+        try:
+            rel_path = Path(tif_path).relative_to(self.out_base)
+        except ValueError:
+            # Om inte möjligt att göra relativ, använd absolut
+            rel_path = Path(tif_path)
+        
         # Lägg till i layer-tree
         current_group = self.layer_tree_group_stack[-1]
         layer_tree_layer = ET.SubElement(
@@ -163,10 +171,10 @@ class QGISProjectBuilder:
             "layer-tree-layer",
             id=layer_id,
             name=layer_name,
-            source=str(tif_path),
+            source=str(rel_path),
             checked="Qt::Checked",
             providerKey="gdal",
-            expanded="0"
+            expanded="1"
         )
         ET.SubElement(layer_tree_layer, "customproperties")
         
@@ -185,7 +193,7 @@ class QGISProjectBuilder:
         maplayer_name.text = layer_name
         
         datasource = ET.SubElement(maplayer, "datasource")
-        datasource.text = str(tif_path)
+        datasource.text = str(rel_path)
         
         provider = ET.SubElement(maplayer, "provider", key="gdal")
         provider.text = "gdal"
@@ -212,7 +220,14 @@ class QGISProjectBuilder:
         self.layer_count += 1
         layer_qgis_id = f"layer_{self.layer_count}"
         
-        datasource_str = f"{gpkg_path}|layername={layer_id}"
+        # Konvertera till relativ sökväg från projektets utgångskatalog
+        try:
+            rel_path = Path(gpkg_path).relative_to(self.out_base)
+        except ValueError:
+            # Om inte möjligt att göra relativ, använd absolut
+            rel_path = Path(gpkg_path)
+        
+        datasource_str = f"{rel_path}|layername={layer_id}"
         
         # Lägg till i layer-tree
         current_group = self.layer_tree_group_stack[-1]
@@ -224,7 +239,7 @@ class QGISProjectBuilder:
             source=datasource_str,
             checked="Qt::Checked",
             providerKey="ogr",
-            expanded="0"
+            expanded="1"
         )
         ET.SubElement(layer_tree_layer, "customproperties")
         
@@ -251,6 +266,78 @@ class QGISProjectBuilder:
         geom_type = ET.SubElement(maplayer, "geometryType")
         geom_type.text = "Polygon"
     
+    def _get_raster_extent(self, tif_path: Path) -> tuple:
+        """
+        Läs extent från en raster-fil med gdalinfo.
+        
+        Returns:
+            (xmin, ymin, xmax, ymax) eller None om det misslyckas
+        """
+        try:
+            result = subprocess.run(
+                ["gdalinfo", str(tif_path)],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            lines = result.stdout.split("\n")
+            upper_left = None
+            lower_right = None
+            
+            for line in lines:
+                if line.startswith("Upper Left"):
+                    # Extract: "Upper Left  (  413250.000, 6799940.000)"
+                    parts = line.split("(")[1].split(")")[0].split(",")
+                    upper_left = (float(parts[0].strip()), float(parts[1].strip()))
+                elif line.startswith("Lower Right"):
+                    # Extract: "Lower Right (  423490.000, 6789700.000)"
+                    parts = line.split("(")[1].split(")")[0].split(",")
+                    lower_right = (float(parts[0].strip()), float(parts[1].strip()))
+            
+            if upper_left and lower_right:
+                xmin = min(upper_left[0], lower_right[0])
+                xmax = max(upper_left[0], lower_right[0])
+                ymin = min(upper_left[1], lower_right[1])
+                ymax = max(upper_left[1], lower_right[1])
+                return (xmin, ymin, xmax, ymax)
+        except Exception as e:
+            print(f"⚠️  Could not read extent from {tif_path}: {e}")
+        
+        return None
+    
+    def _update_extent_from_layers(self) -> None:
+        """
+        Uppdatera extent från de första raster-lagren.
+        """
+        # Hitta alla raster-lager sources
+        maplayers = self.root.findall(".//maplayer[@type='raster']")
+        
+        if not maplayers:
+            return
+        
+        # Försök läsa extent från första lagret
+        for maplayer in maplayers:
+            datasource_elem = maplayer.find("datasource")
+            if datasource_elem is not None and datasource_elem.text:
+                # Bygg full path från relativ sökväg
+                rel_path = datasource_elem.text
+                full_path = self.out_base / rel_path
+                
+                if full_path.exists():
+                    extent = self._get_raster_extent(full_path)
+                    if extent:
+                        # Uppdatera extent i root
+                        extent_elem = self.root.find("extent")
+                        if extent_elem is not None:
+                            xmin, ymin, xmax, ymax = extent
+                            extent_elem.find("xmin").text = str(int(xmin))
+                            extent_elem.find("ymin").text = str(int(ymin))
+                            extent_elem.find("xmax").text = str(int(xmax))
+                            extent_elem.find("ymax").text = str(int(ymax))
+                            print(f"✓ Extent updated: [{xmin:.0f}, {ymin:.0f}] to [{xmax:.0f}, {ymax:.0f}]")
+                        return
+    
     def save(self) -> Path:
         """
         Spara projektet som .qgz-fil.
@@ -258,6 +345,9 @@ class QGISProjectBuilder:
         Returns:
             Sökväg till sparad .qgz-fil
         """
+        # Uppdatera extent från lagren
+        self._update_extent_from_layers()
+        
         # Spara XML
         tree = ET.ElementTree(self.root)
         tree.write(self.qgs_file, encoding="utf-8", xml_declaration=True)

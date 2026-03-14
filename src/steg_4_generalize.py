@@ -1,21 +1,19 @@
 """
-pipeline_1024_halo.py — Som pipeline_1024.py men med halo/överlapp vid generalisering.
+steg_5_generalize.py — Steg 5: Landskapsgeneralisering med halo-teknik.
 
-HALO = 100 px på varje tilekant säkerställer att ytor som korsar en tilekant
-generaliseras korrekt – de ses som en sammanhängande patch istället för två
-separata.
+Som pipeline_1024_halo.py men nu som separat steg. Använder halo/överlapp vid generalisering
+för att säkerställa att ytor som korsar tilekanter generaliseras korrekt.
 
-Nyckelskillnad mot pipeline_1024.py:
+HALO = 100 px på varje tilekant säkerställer att ytor ses som sammanhängande patch 
+istället för två separata när de ligger på tilegrä.
+
+Nyckelskillnad mot tidigare pipeline:
   - Generaliseringen körs STEG-FÖR-STEG (inte tile-för-tile):
       Alla tiles → MMU=2 → bygg VRT → alla tiles → MMU=4 → bygg VRT → ...
   - Varje steg läser HALO px extra från granntilesna via VRT.
   - Bara den inre kärnan (utan halo) skrivs till utfilen.
 
-Utdata sparas i pipeline_1024_halo/ (separat från pipeline_1024/).
-
-Loggfiler:
-  pipeline_debug_<timestamp>.log   – alla meddelanden (DEBUG+)
-  pipeline_summary_<timestamp>.log – sammanfattning (INFO+, även konsolen)
+Kör: python3 src/steg_5_generalize.py
 
 Kräver: rasterio, numpy, scipy (i venv) + gdal_sieve.py + gdalbuildvrt (system)
 """
@@ -35,9 +33,7 @@ from rasterio.windows import Window
 from scipy import ndimage
 from scipy.ndimage import uniform_filter
 
-# Add src directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
-from qgis_project_builder import create_pipeline_project
+from config import OUT_BASE, SRC, QML_SRC, PARENT_TILES, PARENT_TILE_SIZE, SUB_TILE_SIZE, PROTECTED, WATER_CLASSES, COMPRESS
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Logging – två loggers + console
@@ -47,17 +43,29 @@ _LOGGERS = {}
 
 def _setup_logging(out_base: Path):
     """Skapar två loggfiler:
-      debug   – alla level (DEBUG+)  → log/pipeline_debug_<ts>.log
-      summary – INFO+                → summary/pipeline_summary_<ts>.log + console
+      debug   – alla level (DEBUG+)  → log/pipeline_debug_stegN_namn_<ts>.log
+      summary – INFO+                → summary/pipeline_summary_stegN_namn_<ts>.log + console
     """
+    import os
     log_dir = out_base / "log"
     summary_dir = out_base / "summary"
     log_dir.mkdir(parents=True, exist_ok=True)
     summary_dir.mkdir(parents=True, exist_ok=True)
     
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    debug_log   = log_dir / f"pipeline_debug_{ts}.log"
-    summary_log = summary_dir / f"pipeline_summary_{ts}.log"
+    
+    # Läs steg-info från miljövariabler
+    step_num = os.getenv("STEP_NUMBER")
+    step_name = os.getenv("STEP_NAME")
+    
+    # Skapa loggfilnamn med eventuell steg-referens
+    if step_num and step_name:
+        step_suffix = f"_steg{step_num}_{step_name}_{ts}"
+    else:
+        step_suffix = f"_{ts}"
+    
+    debug_log   = log_dir / f"pipeline_debug{step_suffix}.log"
+    summary_log = summary_dir / f"pipeline_summary{step_suffix}.log"
 
     fmt_detail  = logging.Formatter(
         "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
@@ -104,21 +112,10 @@ log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Inställningar
+# HALO-parameters
 # ══════════════════════════════════════════════════════════════════════════════
 
-SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.tif")
-QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
-
-PARENT_TILES     = [(0, 10), (0, 11), (1, 10), (1, 11)]
-PARENT_TILE_SIZE = 2048
-SUB_TILE_SIZE    = 1024
-
-OUT_BASE  = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_1024_halo_v6")
-COMPRESS  = "lzw"
-
-PROTECTED     = {51, 52, 53, 54, 61, 62}
-WATER_CLASSES = {61, 62}
+HALO = 100
 NODATA_TMP    = 65535
 MMU_ISLAND    = 100
 MMU_STEPS     = [2, 4, 8, 16, 32, 64, 100]
@@ -418,7 +415,7 @@ def eliminate_small_semantic(data: np.ndarray, min_px: int) -> np.ndarray:
 
 def step1_split() -> list[Path]:
     t0      = time.time()
-    out_dir = OUT_BASE / "tiles"
+    out_dir = OUT_BASE / "steg1_tiles"
     out_dir.mkdir(parents=True, exist_ok=True)
     created  = []
     new_tiles = 0
@@ -472,7 +469,7 @@ def step1_split() -> list[Path]:
 def step2_extract_protected(tile_paths: list[Path]) -> list[Path]:
     """Extrahera BARA skyddade klasser från original-tiles."""
     t0_step = time.time()
-    out_dir = OUT_BASE / "protected"
+    out_dir = OUT_BASE / "steg2_protected"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths = []
     total_px_extracted = 0
@@ -517,7 +514,7 @@ def step2_extract_protected(tile_paths: list[Path]) -> list[Path]:
 def step3_extract_landscape(tile_paths: list[Path]) -> list[Path]:
     """Extrahera landskapet: ta bort vägar (53) och byggnader (51) och ersätt med närliggande lanskapklasser."""
     t0_step = time.time()
-    out_dir = OUT_BASE / "landscape"
+    out_dir = OUT_BASE / "steg3_landscape"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths = []
     
@@ -588,7 +585,7 @@ def step3_extract_landscape(tile_paths: list[Path]) -> list[Path]:
 
 def step4_fill(tile_paths: list[Path]) -> list[Path]:
     t0_step   = time.time()
-    out_dir   = OUT_BASE / "filled"
+    out_dir   = OUT_BASE / "steg4_filled"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths  = []
     total_islands = 0
@@ -625,11 +622,11 @@ def step4_fill(tile_paths: list[Path]) -> list[Path]:
 
 def step5_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int):
     label    = f"conn{conn}"
-    out_dir  = OUT_BASE / f"generalized_{label}"
+    out_dir  = OUT_BASE / f"steg4_generalized_{label}"
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step  = time.time()
 
-    prev_vrt = OUT_BASE / "filled_mosaic.vrt"
+    prev_vrt = OUT_BASE / "steg4_filled_mosaic.vrt"
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
@@ -681,11 +678,11 @@ def step5_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int
 
 
 def step5_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
-    out_dir = OUT_BASE / "generalized_modal"
+    out_dir = OUT_BASE / "steg4_generalized_modal"
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step = time.time()
 
-    prev_vrt = OUT_BASE / "filled_mosaic.vrt"
+    prev_vrt = OUT_BASE / "steg4_filled_mosaic.vrt"
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
@@ -735,11 +732,11 @@ def step5_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
 
 
 def step5_semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
-    out_dir = OUT_BASE / "generalized_semantic"
+    out_dir = OUT_BASE / "steg4_generalized_semantic"
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step = time.time()
 
-    prev_vrt = OUT_BASE / "filled_mosaic.vrt"
+    prev_vrt = OUT_BASE / "steg4_filled_mosaic.vrt"
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
@@ -798,19 +795,15 @@ if __name__ == "__main__":
     log  = _LOGGERS["debug"]
     info = _LOGGERS["summary"]
     
-    # ── Initialisera QGIS-projekt ──
-    project_builder = create_pipeline_project(OUT_BASE)
-    info.info("📦 QGIS-projekt initialiserat")
+    # ── QGIS-projektet bygges nu separat i Steg 8 ──
 
     t_total = time.time()
     ts_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     info.info("══════════════════════════════════════════════════════════")
-    info.info("NMD pipeline_1024_halo  startad %s", ts_start)
+    info.info("Steg 5: Landskapsgeneralisering (halo-teknik)")
     info.info("Källbild  : %s", SRC)
     info.info("Utmapp    : %s", OUT_BASE)
-    info.info("Tiles     : %d px  →  sub-tiles: %d px",
-              PARENT_TILE_SIZE, SUB_TILE_SIZE)
     info.info("Halo      : %d px", HALO)
     info.info("Skyddade klasser: %s", sorted(PROTECTED))
     info.info("Vattenkl. (öfyllnad): %s", sorted(WATER_CLASSES))
@@ -818,85 +811,29 @@ if __name__ == "__main__":
     info.info("Kernelstorlekar (modal): %s", KERNEL_SIZES)
     info.info("══════════════════════════════════════════════════════════")
 
-    info.info("\nSteg 1: Dela upp i %d px tiles", SUB_TILE_SIZE)
-    tile_paths = step1_split()
-    project_builder.add_step_group(1, "Split Tiles")
-    for tile in tile_paths[:5]:  # Limited to first 5 for performance
-        project_builder.add_raster_layer(tile, tile.stem, opacity=0.7)
-    project_builder.save()
-
-    info.info("\nSteg 2: Extrahera skyddade klasser från original-tiles")
-    protected_paths = step2_extract_protected(tile_paths)
-    project_builder.add_step_group(2, "Protected Classes")
-    for tile in protected_paths[:5]:
-        project_builder.add_raster_layer(tile, tile.stem, opacity=0.7)
-    project_builder.save()
-
-    info.info("\nSteg 3: Extrahera landskapet från original-tiles")
-    landscape_paths = step3_extract_landscape(tile_paths)
-    project_builder.add_step_group(3, "Landscape Extract")
-    for tile in landscape_paths[:5]:
-        project_builder.add_raster_layer(tile, tile.stem, opacity=0.7)
-    project_builder.save()
-
-    info.info("\nSteg 4a: Fyll landöar")
-    filled_paths = step4_fill(tile_paths)
-    project_builder.add_step_group(4, "Fill Islands")
-    for tile in filled_paths[:5]:
-        project_builder.add_raster_layer(tile, tile.stem, opacity=0.7)
-    project_builder.save()
-
-    filled_vrt = OUT_BASE / "filled_mosaic.vrt"
-    build_vrt(filled_paths, filled_vrt)
-    info.info("  Mosaik-VRT: %s", filled_vrt.name)
-
-    # ── Steg 5: Generalization (med subgrupper per metod) ──
-    project_builder.add_step_group(5, "Generalized")
-    
     info.info("\nSteg 5a: Sieve conn4 (med halo)")
-    step5_sieve_halo(tile_paths, filled_paths, conn=4)
-    project_builder.add_method_subgroup("Sieve Conn4")
-    conn4_dir = OUT_BASE / "generalized_conn4"
-    if conn4_dir.exists():
-        for tif in sorted(conn4_dir.glob("*_mmu100.tif"))[:3]:  # Show only mmu100
-            project_builder.add_raster_layer(tif, tif.stem, opacity=0.6)
-    project_builder.pop_subgroup()
+    # Steg 4 (Generalisering) läser från steg3_landscape (inte från steg4_filled)
+    landscape_dir = OUT_BASE / "steg3_landscape"
+    if not landscape_dir.exists():
+        info.error("❌ steg3_landscape/ katalog saknas. Kör Steg 1-3 först.")
+        raise FileNotFoundError(f"{landscape_dir}")
+    
+    landscape_paths = sorted(landscape_dir.glob("*.tif"))
+    tile_paths = sorted((OUT_BASE / "steg1_tiles").glob("*.tif")) if (OUT_BASE / "steg1_tiles").exists() else []
+    
+    step5_sieve_halo(tile_paths, landscape_paths, conn=4)
 
     info.info("\nSteg 5b: Sieve conn8 (med halo)")
-    step5_sieve_halo(tile_paths, filled_paths, conn=8)
-    project_builder.add_method_subgroup("Sieve Conn8")
-    conn8_dir = OUT_BASE / "generalized_conn8"
-    if conn8_dir.exists():
-        for tif in sorted(conn8_dir.glob("*_mmu100.tif"))[:3]:
-            project_builder.add_raster_layer(tif, tif.stem, opacity=0.6)
-    project_builder.pop_subgroup()
+    step5_sieve_halo(tile_paths, landscape_paths, conn=8)
 
     info.info("\nSteg 5c: Modal filter (med halo)")
-    step5_modal_halo(tile_paths, filled_paths)
-    project_builder.add_method_subgroup("Modal Filter")
-    modal_dir = OUT_BASE / "generalized_modal"
-    if modal_dir.exists():
-        for k in [3, 7, 15]:  # Show k3, k7, k15
-            for tif in sorted(modal_dir.glob(f"*_modal_k{k:02d}.tif"))[:2]:
-                project_builder.add_raster_layer(tif, tif.stem, opacity=0.6)
-    project_builder.pop_subgroup()
+    step5_modal_halo(tile_paths, landscape_paths)
 
     info.info("\nSteg 5d: Semantisk generalisering (med halo)")
-    step5_semantic_halo(tile_paths, filled_paths)
-    project_builder.add_method_subgroup("Semantic")
-    semantic_dir = OUT_BASE / "generalized_semantic"
-    if semantic_dir.exists():
-        for tif in sorted(semantic_dir.glob("*_mmu100.tif"))[:3]:
-            project_builder.add_raster_layer(tif, tif.stem, opacity=0.6)
-    project_builder.pop_subgroup()
-    
-    project_builder.save()
+    step5_semantic_halo(tile_paths, landscape_paths)
 
     elapsed = time.time() - t_total
     info.info("══════════════════════════════════════════════════════════")
-    info.info("Pipeline KLAR  totaltid: %.0fs (%.1f min)", elapsed, elapsed / 60)
+    info.info("Steg 5 KLAR  totaltid: %.0fs (%.1f min)", elapsed, elapsed / 60)
     info.info("Utdata: %s", OUT_BASE)
-    info.info("QGIS-projekt: %s", project_builder.project_path)
-    info.info("══════════════════════════════════════════════════════════")
-    
-    project_builder.cleanup()
+    info.info("════════════════════════════════════════════════════════════")

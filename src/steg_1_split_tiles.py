@@ -1,24 +1,37 @@
 """
-Split NMD2023bas_v2_0.tif into tiles.
+steg_1_split_tiles.py — Steg 1: Tileluppdelning.
+
+Delar original-raster (NMD2023bas_v2_0.tif) i 1024×1024 px tiles.
 
 Namnkonvention: NMD2023bas_tile_r{rad:03d}_c{kol:03d}.tif
 Varje tile får en kopia av .qml-filen så att QGIS läser in paletten automatiskt.
+
+Kör: python3 steg_1_split_tiles.py
 """
 
+import logging
 import shutil
 import sys
+import time
 from pathlib import Path
 
 import rasterio
 from rasterio.windows import Window
 
-# ── Inställningar ─────────────────────────────────────────────────────────────
-SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.tif")
-QML_SRC = SRC.with_suffix(".qml")          # NMD2023bas_v2_0.qml
-OUT_DIR = SRC.parent / "tiles"             # .../NMD2023_basskikt_v2_0/tiles/
-TILE_SIZE = 2048                            # pixlar per sida
-COMPRESS = "lzw"                            # LZW passar bra för klassraster
+from config import SRC, QML_SRC, OUT_BASE, COMPRESS
+
+log = logging.getLogger("pipeline.debug")
+info = logging.getLogger("pipeline.summary")
+
 # ──────────────────────────────────────────────────────────────────────────────
+
+TILE_SIZE = 2048  # pixlar per sida
+
+# ──────────────────────────────────────────────────────────────────────────────
+
+TILE_SIZE = 2048  # pixlar per sida
+
+OUT_DIR = OUT_BASE / "steg1_tiles"  # Output-mapp för steg 1 tiles
 
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -27,6 +40,8 @@ if not QML_SRC.exists():
     copy_qml = False
 else:
     copy_qml = True
+
+t_start = time.time()
 
 with rasterio.open(SRC) as src:
     meta = src.meta.copy()
@@ -72,4 +87,18 @@ with rasterio.open(SRC) as src:
                 pct = count / total * 100
                 print(f"  {count}/{total} ({pct:.0f}%)", flush=True)
 
-print("\nKlart!")
+elapsed = time.time() - t_start
+print(f"\nKlart! ({elapsed:.1f}s)")
+print(f"Tiles sparade i: {OUT_DIR}")
+
+
+if __name__ == "__main__":
+    import os
+    from logging_setup import setup_logging
+    step_num = os.getenv("STEP_NUMBER")
+    step_name = os.getenv("STEP_NAME")
+    setup_logging(OUT_BASE, step_num, step_name)
+    log  = logging.getLogger("pipeline.debug")
+    info = logging.getLogger("pipeline.summary")
+    
+    info.info("Steg 1 klar: %d tiles skapade (%.1fs)", len(list(OUT_DIR.glob("*.tif"))), elapsed)

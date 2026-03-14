@@ -6,6 +6,7 @@ av de olika pipelinestegen.
 """
 
 from pathlib import Path
+import os
 import numpy as np
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -15,7 +16,8 @@ import numpy as np
 SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.tif")
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
 
-OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_1024_halo_v2")
+# Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_1024_halo_v7"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION

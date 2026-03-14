@@ -1,25 +1,65 @@
 # NMD2 2023 Landskapsförenkling Pipeline
 
-**Status:** Steg 7 (Förenkling) ✅ KOMPLETT
+**Status:** Komplett (8 steg) ✅ | Pipeline modernisering: ~70% färdig
 
 ---
 
 ## 🚀 Snabbstart
 
+### Ny Orchestrator-metod (Rekommenderat)
+
 ```bash
 cd /home/hcn/projects/NMD2
-
-# Aktivera miljö
 source .venv/bin/activate
 
-# Kör pipeline (Steg 1-6)
-python3 src/pipeline_1024_halo.py
+# Kör alla 8 steg via orchestrator
+python3 run_all_steps.py
 
-# Förenkla resultat (Steg 7)
-export NVM_DIR="$HOME/.config/nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-python3 src/simplify_mapshaper.py
+# Eller bara vissa steg
+python3 run_all_steps.py --step 1 4    # Bara steg 1-4
+python3 run_all_steps.py --step 5 8    # Bara steg 5-8 (generalisering-QGIS)
+python3 run_all_steps.py --list        # Visa alla steg
 ```
+
+### Klassisk metod (Manuella steg)
+
+```bash
+cd /home/hcn/projects/NMD2
+source .venv/bin/activate
+
+cd src
+
+# Steg 1-4: Förberedelse
+python3 steg_1_split_tiles.py
+python3 steg_2_extract_protected.py
+python3 steg_3_extract_landscape.py
+python3 steg_4a_fill_islands.py
+
+# Steg 5-8: Generalisering å QGIS
+python3 steg_5_generalize.py
+python3 steg_6_vectorize.py
+python3 steg_7_simplify.py
+python3 steg_8_build_qgis_project.py
+```
+
+---
+
+## 📂 Projektstruktur - 8 Steg
+
+**Nya separata steg-filer (i ordning):**
+- `steg_1_split_tiles.py` — Tileluppdelning (1024×1024 px)
+- `steg_2_extract_protected.py` — Extrahera skyddade klasser
+- `steg_3_extract_landscape.py` — Extrahera landskapsbild
+- `steg_4a_fill_islands.py` — Fyll små öar
+- `steg_4b_filter_lakes.py` — Filtrera små sjöar (valfritt)
+- `steg_5_generalize.py` — Generalisering (sieve, modal, semantic)
+- `steg_6_vectorize.py` — Vektorisering
+- `steg_7_simplify.py` — Mapshaper-förenkling
+- `steg_8_build_qgis_project.py` — Bygga QGIS-projekt (NYT steg!)
+
+Se [ARKITEKTUR.md](ARKITEKTUR.md) för detaljgranskning av moderniseringsstatusen.
+
+---
 
 ## 📋 Loggfiler
 
@@ -35,14 +75,16 @@ Filadresserna skrivs ut i konsolen när pipeline startar.
 
 ## 📚 Dokumentation
 
-All dokumentation ligger i `doc/`:
+**Arkitektur & Planering:**
+- **[ARKITEKTUR.md](ARKITEKTUR.md)** - Pipeline-moderniseringstatus (60% färdig)
 
+**Detaljerad dokumentation i `doc/`:**
 - **[README.md](doc/README.md)** - Projekt-översikt
+- **[workflow.md](doc/workflow.md)** - Pipeline-arbetsflöde & arkitektur
 - **[STEG_7_FORENKLING_README.md](doc/STEG_7_FORENKLING_README.md)** - Förenkling process & inställningar
 - **[STEG_7_NOTES.md](doc/STEG_7_NOTES.md)** - Snabb-referens för Steg 7
 - **[MAPSHAPER_INSTALLATION_GUIDE.md](doc/MAPSHAPER_INSTALLATION_GUIDE.md)** - Mapshaper installation
 - **[MAPSHAPER_SIMPLIFY_GUIDE.md](doc/MAPSHAPER_SIMPLIFY_GUIDE.md)** - Detaljerad Mapshaper-dokumentation
-- **[workflow.md](doc/workflow.md)** - Pipeline-arbetsflöde
 - **[INSTALL.md](doc/INSTALL.md)** - Installation av beroenden
 - **[tile_boundary_notes.md](doc/tile_boundary_notes.md)** - Tile-gränser & halo-behandling
 
