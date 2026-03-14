@@ -198,7 +198,19 @@ def build_qgis_project():
                     settings_dict[setting_label].append(layer_file)
                 
                 # Lägg till lager grupperat per setting
-                for setting_label in sorted(settings_dict.keys()):
+                # Sortera så mest generaliserad överst (högsta MMU/kernel underst)
+                def sort_settings(label):
+                    if "MMU" in label:
+                        # Extrahera MMU-värde och sortera fallande (100 överst, 002 underst)
+                        mmu_val = int(label.split()[-1].replace("px", ""))
+                        return (0, -mmu_val)  # 0 = MMU-typ, negativ för fallande
+                    elif "Klusterradie" in label:
+                        # Extrahera kernel-värde och sortera fallande (k=15 överst, k=03 underst)
+                        k_val = int(label.split("k=")[-1])
+                        return (1, -k_val)   # 1 = Kernel-typ, negativ för fallande
+                    return (2, label)
+                
+                for setting_label in sorted(settings_dict.keys(), key=sort_settings):
                     # Skapa sub_group för setting
                     setting_group = QgsLayerTreeGroup(setting_label)
                     setting_group.setExpanded(False)
