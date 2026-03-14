@@ -6,8 +6,8 @@ Kör alla 8 steg i rätt ordning:
   Steg 1: Tileluppdelning (steg_1_split_tiles.py)
   Steg 2: Extrahera skyddade klasser (steg_2_extract_protected.py)
   Steg 3: Extrahera landskapsbild (steg_3_extract_landscape.py)
-  Steg 4: Generalisering (steg_4_generalize.py)
-  Steg 5: Ta bort små områden < 1 ha (steg_5_fill_islands.py)
+  Steg 4: Ta bort små områden < 1 ha (steg_4_fill_islands.py)
+  Steg 5: Generalisering (steg_5_generalize.py)
   Steg 6: Vektorisering (steg_6_vectorize.py)
   Steg 7: Mapshaper-förenkling (steg_7_simplify.py)
   Steg 8: Bygga QGIS-projekt (steg_8_build_qgis_project.py)
@@ -67,22 +67,22 @@ STEPS = {
         "requires_dir": "steg1_tiles"
     },
     4: {
-        "name": "Generalisering",
-        "script": "steg_4_generalize.py",
-        "description": "Generaliserar landskapsbild med sieve, modal, semantic och halo-teknik",
+        "name": "Ta bort små områden",
+        "script": "steg_4_fill_islands.py",
+        "description": "Tar bort alla små områden < 1 ha (öar, sjöar, etc)",
         "requires_dir": "steg3_landscape"
     },
     5: {
-        "name": "Ta bort små områden",
-        "script": "steg_5_fill_islands.py",
-        "description": "Tar bort alla små områden < 1 ha (öar, sjöar, etc)",
-        "requires_dir": "steg4_generalized_modal"
+        "name": "Generalisering",
+        "script": "steg_5_generalize.py",
+        "description": "Generaliserar landskapsbild med sieve, modal, semantic och halo-teknik",
+        "requires_dir": "steg4_filled"
     },
     6: {
         "name": "Vektorisering",
         "script": "steg_6_vectorize.py",
         "description": "Konverterar generaliserade raster till GeoPackage-vektorer",
-        "requires_dir": "steg5_filled"
+        "requires_dir": "steg5_generalized_modal"
     },
     7: {
         "name": "Mapshaper-förenkling",

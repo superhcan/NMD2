@@ -76,7 +76,7 @@ LN = "markslag"
 def vectorize_sieve(conn):
     log = logging.getLogger("pipeline.vectorize")
     method = f"conn{conn}"
-    in_dir = PIPE / f"steg4_generalized_{method}"
+    in_dir = PIPE / f"steg5_generalized_{method}"
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))
@@ -110,7 +110,7 @@ def vectorize_sieve(conn):
 
 def vectorize_modal():
     log = logging.getLogger("pipeline.vectorize")
-    in_dir = PIPE / "steg4_generalized_modal"
+    in_dir = PIPE / "steg5_generalized_modal"
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))
@@ -144,7 +144,7 @@ def vectorize_modal():
 
 def vectorize_semantic():
     log = logging.getLogger("pipeline.vectorize")
-    in_dir = PIPE / "steg4_generalized_semantic"
+    in_dir = PIPE / "steg5_generalized_semantic"
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))

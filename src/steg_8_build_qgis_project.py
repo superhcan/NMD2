@@ -131,8 +131,8 @@ def build_qgis_project():
     steps = [
         (7, "Steg 7 - Förenklad (Mapshaper)", OUT_BASE / "steg7_simplified"),
         (6, "Steg 6 - Vektoriserad", OUT_BASE / "steg6_vectorized"),
-        (5, "Steg 5 - Fyllda områden", OUT_BASE / "steg5_filled"),
-        (4, "Steg 4 - Generaliserad", OUT_BASE / "steg4_generalized_modal"),
+        (5, "Steg 5 - Generaliserad", OUT_BASE / "steg5_generalized_modal"),
+        (4, "Steg 4 - Fyllda områden", OUT_BASE / "steg4_filled"),
         (3, "Steg 3 - Landskapsbild", OUT_BASE / "steg3_landscape"),
         (2, "Steg 2 - Skyddade klasser", OUT_BASE / "steg2_protected"),
         (1, "Steg 1 - Tiles", OUT_BASE / "steg1_tiles"),
@@ -152,12 +152,12 @@ def build_qgis_project():
         group.setExpanded(False)
         root.addChildNode(group)
         
-        # Speciell hantering för Steg 4 – skapa sub_groups för varje metod + setting
-        if step_num == 4:
+        # Speciell hantering för Steg 5 – skapa sub_groups för varje metod + setting
+        if step_num == 5:
             methods = ["conn4", "conn8", "modal", "semantic"]
             
             for method in methods:
-                method_dir = step_dir.parent / f"steg4_generalized_{method}"
+                method_dir = step_dir.parent / f"steg5_generalized_{method}"
                 if not method_dir.exists():
                     log.debug(f"  Metodkatalog saknas: {method_dir.name}")
                     continue

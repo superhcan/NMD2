@@ -37,7 +37,7 @@ def copy_qml(tif_path: Path):
 def fill_islands(tile_paths: list[Path]) -> list[Path]:
     """Ta bort ALLA sammanhängande områden < MMU_ISLAND px inkl öar, sjöar, etc."""
     t0_step   = time.time()
-    out_dir   = OUT_BASE / "steg5_filled"
+    out_dir   = OUT_BASE / "steg4_filled"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths = []
     total_filled = 0
@@ -128,9 +128,9 @@ if __name__ == "__main__":
     setup_logging(OUT_BASE, step_num, step_name)
     
     # Läs tiles från Steg 3
-    tiles_dir = OUT_BASE / "steg4_generalized_modal"
+    tiles_dir = OUT_BASE / "steg3_landscape"
     if not tiles_dir.exists():
-        print(f"Fel: {tiles_dir} finns ej. Kör Steg 3 först (steg_3_extract_landscape.py)")
+        print(f"Fel: {tiles_dir} finns ej. Kör Steg 1-3 först")
         exit(1)
     
     tile_paths = sorted(tiles_dir.glob("*.tif"))
