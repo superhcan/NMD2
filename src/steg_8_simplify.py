@@ -19,6 +19,7 @@ Kräver: Mapshaper installerat och i PATH
 """
 
 import subprocess
+import re as _re
 import json
 import os
 import logging
@@ -26,6 +27,118 @@ from pathlib import Path
 from datetime import datetime
 import sys
 from config import OUT_BASE, SIMPLIFICATION_TOLERANCES
+
+# Filer större än detta förenklas i rader för att undvika Node.js minnesgräns
+LARGE_FILE_THRESHOLD_MB = 400
+# Antal rader att dela upp i (välj ett rimligt tal; 7 ger ~200 MB per rad för 10%-körningen)
+N_CHUNKS = 7
+
+
+def _get_gpkg_extent(gpkg_path):
+    """Returnerar (xmin, ymin, xmax, ymax) för ett GeoPackage-lager."""
+    r = subprocess.run(["ogrinfo", "-al", "-so", str(gpkg_path)], capture_output=True, text=True)
+    m = _re.search(r'Extent: \(([0-9.]+), ([0-9.]+)\) - \(([0-9.]+), ([0-9.]+)\)', r.stdout)
+    if m:
+        return float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))
+    return None
+
+
+def _simplify_chunked(input_path, output_path, variant_name, tolerances, log):
+    """Förenklar ett stort GeoPackage genom att dela upp det i N horisontella rader."""
+    ext = _get_gpkg_extent(input_path)
+    if not ext:
+        log.error("Kunde inte hämta extent från %s", input_path)
+        return
+
+    xmin, ymin, xmax, ymax = ext
+    chunk_height = (ymax - ymin) / N_CHUNKS
+    log.info("Stor fil (%.0f MB) — processar i %d rader à %.0f m",
+             input_path.stat().st_size / 1e6, N_CHUNKS, chunk_height)
+
+    for tolerance in tolerances:
+        print(f"  p{tolerance}%: ", end="", flush=True)
+        chunk_gpkgs = []
+
+        for i in range(N_CHUNKS):
+            chunk_ymin = ymin + i * chunk_height
+            chunk_ymax = ymin + (i + 1) * chunk_height
+            base = f"/tmp/_steg8_{variant_name}_p{tolerance}_c{i:02d}"
+
+            # 1. Extrahera spatial subset
+            raw_gpkg = Path(f"{base}_raw.gpkg")
+            subprocess.run(
+                ["ogr2ogr", "-f", "GPKG", "-spat",
+                 str(xmin), str(chunk_ymin), str(xmax), str(chunk_ymax),
+                 str(raw_gpkg), str(input_path)],
+                capture_output=True
+            )
+            if not raw_gpkg.exists() or raw_gpkg.stat().st_size < 1000:
+                raw_gpkg.unlink(missing_ok=True)
+                continue
+
+            # 2. GPkg → GeoJSON
+            raw_geojson = Path(f"{base}_raw.geojson")
+            subprocess.run(
+                ["ogr2ogr", "-f", "GeoJSON", str(raw_geojson), str(raw_gpkg)],
+                capture_output=True
+            )
+            raw_gpkg.unlink(missing_ok=True)
+            if not raw_geojson.exists():
+                continue
+
+            # 3. Mapshaper-förenkling
+            simp_geojson = Path(f"{base}_simp.geojson")
+            r = subprocess.run(
+                ["mapshaper", str(raw_geojson),
+                 "-simplify", f"percentage={tolerance}%", "planar", "keep-shapes",
+                 "-o", "format=geojson", str(simp_geojson)],
+                capture_output=True, text=True
+            )
+            raw_geojson.unlink(missing_ok=True)
+            if r.returncode != 0 or not simp_geojson.exists():
+                simp_geojson.unlink(missing_ok=True)
+                continue
+
+            # 4. GeoJSON → GPkg
+            simp_gpkg = Path(f"{base}_simp.gpkg")
+            subprocess.run(
+                ["ogr2ogr", "-f", "GPKG", "-a_srs", "EPSG:3006",
+                 str(simp_gpkg), str(simp_geojson)],
+                capture_output=True
+            )
+            simp_geojson.unlink(missing_ok=True)
+            if simp_gpkg.exists() and simp_gpkg.stat().st_size > 1000:
+                chunk_gpkgs.append(simp_gpkg)
+
+        # 5. Slå ihop alla rad-GPkg till slut-fil
+        output_gpkg = output_path / f"{variant_name}_simplified_p{tolerance}.gpkg"
+        if output_gpkg.exists():
+            output_gpkg.unlink()
+
+        if not chunk_gpkgs:
+            print("❌ inga rader lyckades")
+            continue
+
+        subprocess.run(
+            ["ogr2ogr", "-f", "GPKG", str(output_gpkg), str(chunk_gpkgs[0])],
+            capture_output=True
+        )
+        for c in chunk_gpkgs[1:]:
+            subprocess.run(
+                ["ogr2ogr", "-f", "GPKG", "-update", "-append", str(output_gpkg), str(c)],
+                capture_output=True
+            )
+        for c in chunk_gpkgs:
+            c.unlink(missing_ok=True)
+
+        if output_gpkg.exists():
+            sz = output_gpkg.stat().st_size / 1e6
+            print(f"  GeoPackage: {sz:.1f} MB ✓")
+        else:
+            print("❌ merge misslyckades")
+
+    log.info("Simplification complete!")
+    log.info("Output files in: %s", output_path)
 
 def setup_logging(out_base):
     """Setup logging with step-aware filenames."""
@@ -83,39 +196,34 @@ def setup_logging(out_base):
 def simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances=[90, 75, 50, 25, 15], log=None):
     """
     Simplify GeoPackage using Mapshaper CLI with topology preservation.
-    
-    Args:
-        input_file: Path to input GeoPackage
-        output_dir: Directory for output files
-        variant_name: Name of variant (e.g. 'conn4_mmu008', 'conn8_mmu008', 'modal_k15')
-        tolerances: List of percentage values (% of removable vertices to retain)
-                   90% = minimal simplification, 15% = very aggressive
-        log: Logger instance
+    Stora filer (> LARGE_FILE_THRESHOLD_MB) delas upp i rader för att undvika
+    Node.js minnesgränsen.
     """
-    
+
     if log is None:
         log = logging.getLogger("pipeline.simplify")
-    """
-    Simplify GeoPackage using Mapshaper CLI with topology preservation.
-    
-    Args:
-        input_file: Path to input GeoPackage
-        output_dir: Directory for output files
-        tolerances: List of percentage values (% of removable vertices to retain)
-                   90% = minimal simplification, 25% = aggressive simplification
-    """
-    
+
     input_path = Path(input_file)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    
+
     if not input_path.exists():
         log.error(f"Input file not found: {input_file}")
         sys.exit(1)
-    
+
     log.info(f"Input: {input_path}")
     log.info(f"Output: {output_path}")
-    
+
+    file_size_mb = input_path.stat().st_size / 1e6
+
+    if file_size_mb > LARGE_FILE_THRESHOLD_MB:
+        log.info(f"Simplifying {variant_name} with Mapshaper (chunked, topology-preserving):")
+        log.info(f"(percentage = %% of removable vertices to retain)")
+        _simplify_chunked(input_path, output_path, variant_name, tolerances, log)
+        return
+
+    # ── Liten fil: befintlig metod ──────────────────────────────────────────
+
     # Convert GeoPackage to GeoJSON for Mapshaper
     geojson_file = output_path / "temp_input.geojson"
     log.info(f"Converting GeoPackage to GeoJSON...")

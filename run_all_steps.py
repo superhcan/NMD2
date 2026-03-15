@@ -33,7 +33,7 @@ import argparse
 
 # Import pipeline configuration
 sys.path.insert(0, str(Path(__file__).parent / "src"))
-from config import ENABLE_STEPS, OUT_BASE
+from config import ENABLE_STEPS, OUT_BASE, GENERALIZATION_METHODS
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SETUP
@@ -93,7 +93,7 @@ STEPS = {
         "name": "Vektorisering",
         "script": "steg_7_vectorize.py",
         "description": "Konverterar generaliserade raster till GeoPackage-vektorer",
-        "requires_dir": "steg6_generalized_modal"
+        "requires_dir": None  # Kontrolleras dynamiskt i check_prerequisites
     },
     8: {
         "name": "Mapshaper-förenkling",
@@ -153,6 +153,15 @@ def check_input_directory(step_key):
     if "requires_dir" not in STEPS[step_key]:
         return True  # Steg 1 behöver ingen input-katalog
     
+    # Steg 7: kontrollera dynamiskt att minst en generaliserad metodkatalog finns
+    if step_key == 7:
+        method_dirs = [OUT_BASE / f"steg6_generalized_{m}" for m in GENERALIZATION_METHODS]
+        if not any(d.exists() for d in method_dirs):
+            log.warning(f"⚠️  Steg 7: Inga generaliserade kataloger hittades ({[d.name for d in method_dirs]})")
+            log.warning(f"   Kör steg 6 först eller kontrollera GENERALIZATION_METHODS i config.py")
+            return False
+        return True
+
     req_dir = STEPS[step_key]["requires_dir"]
     if req_dir is None:
         return True  # Steg hanterar input-katalog själv (t.ex. steg 5)
