@@ -201,7 +201,12 @@ def run_step(step_key):
         env = os.environ.copy()
         env["STEP_NUMBER"] = str(step_key)
         # Använd script-namn istället för den långa svenska beskrivningen
+        # Extrahera namn efter "steg_X_" för att undvika att få nummer två gånger
         step_name_short = script.replace("steg_", "").replace(".py", "").lower()
+        # Ta bort ledande nummer_steg
+        parts = step_name_short.split("_", 1)
+        if len(parts) > 1:
+            step_name_short = parts[1]
         env["STEP_NAME"] = step_name_short
         
         result = subprocess.run(cmd, cwd=SRC_DIR.parent, env=env, check=True)
