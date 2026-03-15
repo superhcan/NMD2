@@ -14,8 +14,8 @@ Nyckelskillnad mot pipeline_1024.py:
 Utdata sparas i pipeline_1024_halo/ (separat från pipeline_1024/).
 
 Loggfiler:
-  pipeline_debug_<timestamp>.log   – alla meddelanden (DEBUG+)
-  pipeline_summary_<timestamp>.log – sammanfattning (INFO+, även konsolen)
+  debug_log   – alla meddelanden (DEBUG+)
+  summary_log – sammanfattning (INFO+, även konsolen)
 
 Kräver: rasterio, numpy, scipy (i venv) + gdal_sieve.py + gdalbuildvrt (system)
 """
@@ -47,8 +47,8 @@ _LOGGERS = {}
 
 def _setup_logging(out_base: Path):
     """Skapar två loggfiler:
-      debug   – alla level (DEBUG+)  → log/pipeline_debug_<ts>.log
-      summary – INFO+                → summary/pipeline_summary_<ts>.log + console
+      debug   – alla level (DEBUG+)  → log/debug_<ts>.log
+      summary – INFO+                → summary/summary_<ts>.log + console
     """
     log_dir = out_base / "log"
     summary_dir = out_base / "summary"
@@ -56,8 +56,8 @@ def _setup_logging(out_base: Path):
     summary_dir.mkdir(parents=True, exist_ok=True)
     
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    debug_log   = log_dir / f"pipeline_debug_{ts}.log"
-    summary_log = summary_dir / f"pipeline_summary_{ts}.log"
+    debug_log   = log_dir / f"debug_{ts}.log"
+    summary_log = summary_dir / f"summary_{ts}.log"
 
     fmt_detail  = logging.Formatter(
         "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",

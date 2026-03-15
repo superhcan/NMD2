@@ -49,17 +49,17 @@ def setup_logging(out_base):
     
     # Timestamp för filnamn
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    step_suffix = f"_steg{step_num}_{step_name}_{ts}"
+    step_suffix = f"steg_{step_num}_{step_name}_{ts}"
     
     # Debug-logg (DEBUG-nivå)
-    debug_log = log_dir / f"pipeline_debug{step_suffix}.log"
+    debug_log = log_dir / f"debug_{step_suffix}.log"
     debug_handler = logging.FileHandler(str(debug_log))
     debug_handler.setLevel(logging.DEBUG)
     debug_formatter = logging.Formatter("%(asctime)s [%(levelname)-6s] %(message)s", datefmt="%H:%M:%S")
     debug_handler.setFormatter(debug_formatter)
     
     # Summary-logg (INFO-nivå + console)
-    summary_log = summary_dir / f"pipeline_summary{step_suffix}.log"
+    summary_log = summary_dir / f"summary_{step_suffix}.log"
     summary_handler = logging.FileHandler(str(summary_log))
     summary_handler.setLevel(logging.INFO)
     summary_formatter = logging.Formatter("%(asctime)s [%(levelname)-6s] %(message)s", datefmt="%H:%M:%S")

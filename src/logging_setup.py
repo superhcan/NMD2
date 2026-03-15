@@ -2,8 +2,8 @@
 logging_setup.py — Centraliserad loggning för pipelinen.
 
 Två loggers:
-  - pipeline.debug: DEBUG+ → pipeline_debug_<ts>.log
-  - pipeline.summary: INFO+ → pipeline_summary_<ts>.log + console
+  - pipeline.debug: DEBUG+ → debug_<ts>.log
+  - pipeline.summary: INFO+ → summary_<ts>.log + console
 """
 
 import logging
@@ -15,8 +15,8 @@ def setup_logging(out_base: Path, step_num: int = None, step_name: str = None):
     """Skapar två loggfiler och en console-handler.
     
     Loggfiler sparas i:
-      - log/         → pipeline_debug_stegN_namn_<ts>.log
-      - summary/     → pipeline_summary_stegN_namn_<ts>.log
+      - log/         → debug_stegN_namn_<ts>.log
+      - summary/     → summary_stegN_namn_<ts>.log
     
     Args:
         out_base: Basutmatningskatalog
@@ -32,12 +32,12 @@ def setup_logging(out_base: Path, step_num: int = None, step_name: str = None):
     
     # Skapa loggfilnamn med eventuell steg-referens
     if step_num is not None and step_name:
-        step_suffix = f"_steg{step_num}_{step_name}_{ts}"
+        step_suffix = f"steg_{step_num}_{step_name}_{ts}"
     else:
-        step_suffix = f"_{ts}"
+        step_suffix = f"ts"
     
-    debug_log   = log_dir / f"pipeline_debug{step_suffix}.log"
-    summary_log = summary_dir / f"pipeline_summary{step_suffix}.log"
+    debug_log   = log_dir / f"debug_{step_suffix}.log"
+    summary_log = summary_dir / f"summary_{step_suffix}.log"
 
     fmt_detail  = logging.Formatter(
         "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",

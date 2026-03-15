@@ -43,8 +43,8 @@ _LOGGERS = {}
 
 def _setup_logging(out_base: Path):
     """Skapar två loggfiler:
-      debug   – alla level (DEBUG+)  → log/pipeline_debug_stegN_namn_<ts>.log
-      summary – INFO+                → summary/pipeline_summary_stegN_namn_<ts>.log + console
+      debug   – alla level (DEBUG+)  → log/debug_stegN_namn_<ts>.log
+      summary – INFO+                → summary/summary_stegN_namn_<ts>.log + console
     """
     import os
     log_dir = out_base / "log"
@@ -60,12 +60,12 @@ def _setup_logging(out_base: Path):
     
     # Skapa loggfilnamn med eventuell steg-referens
     if step_num and step_name:
-        step_suffix = f"_steg{step_num}_{step_name}_{ts}"
+        step_suffix = f"steg_{step_num}_{step_name}_{ts}"
     else:
-        step_suffix = f"_{ts}"
+        step_suffix = f"{ts}"
     
-    debug_log   = log_dir / f"pipeline_debug{step_suffix}.log"
-    summary_log = summary_dir / f"pipeline_summary{step_suffix}.log"
+    debug_log   = log_dir / f"debug_{step_suffix}.log"
+    summary_log = summary_dir / f"summary_{step_suffix}.log"
 
     fmt_detail  = logging.Formatter(
         "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
