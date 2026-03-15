@@ -40,7 +40,69 @@ GENERALIZATION_METHODS = {"conn4", "conn8", "modal", "semantic"}
 
 **VIKTIGT: MMU = Minimum Mapping Unit. Större värde = mer generalisering (mindre detalj bevarad).**
 
-### Så Fungerar Det
+### Så Fungerar Det - Teknisk Förklaring
+
+**Siev-algoritmen** (conn4 och conn8) identifierar samanhängande pixelgrupper och klassificerar dem efter storlek:
+
+1. **Identifiera pixelgrupper**: Hitta alla sammanhängande områden av samma klassifikation
+   - conn4: Endast horisontala & vertikala grannar räknas
+   - conn8: Även diagonala grannar räknas
+   
+2. **Mät gruppstorlek**: Räkna antal pixlar i varje grupp
+
+3. **Jämför med MMU**: 
+   - Om gruppstorlek < MMU → **Pixlarna ersätts med den omgivande klassens värde** (sieveras ut)
+   - Om gruppstorlek ≥ MMU → **Pixlorna behålls oförändrade**
+
+#### Konkret Exempel
+
+Originaldata (5×5 pixlar, klassifikation 11):
+```
+Omgivande klass = 1 (vatten)
+Målklass = 11 (skog)
+
+Original:
+  1 1 1 1 1
+  1 11 11 1 1
+  1 11 1 1 1
+  1 1 1 1 1
+  1 1 1 1 1
+
+Grupp av klass 11: 3 pixlar (markerad med *)
+  1  1  1  1  1
+  1 11*11* 1  1
+  1 11*  1  1
+  1  1  1  1  1
+```
+
+**Med MMU=2**: Gruppen (3 px) ≥ 2 → **Behålls**
+```
+  1 1 1 1 1
+  1 11 11 1 1
+  1 11 1 1 1
+  1 1 1 1 1
+  1 1 1 1 1
+```
+
+**Med MMU=4**: Gruppen (3 px) < 4 → **Alla 11:or ersätts med omgivningen (1)**
+```
+  1 1 1 1 1
+  1  1  1 1 1
+  1  1 1 1 1
+  1 1 1 1 1
+  1 1 1 1 1
+```
+
+**Med MMU=8**: Gruppen (3 px) < 8 → **Samma resultat, alla 11:or ersätts**
+```
+  1 1 1 1 1
+  1  1  1 1 1
+  1  1 1 1 1
+  1 1 1 1 1
+  1 1 1 1 1
+```
+
+### Allmän Förklaring
 
 MMU (Minimum Mapping Unit) i pixlar definierar den minsta pixelgruppstorlek som ska bevaras. Alla pixelgrupper mindre än MMU-värdet "sållas bort" (sieveras ut):
 
@@ -127,9 +189,91 @@ MMU_STEPS = [32, 64, 100]
 
 **VIKTIGT: K-värde = fönsterstorlek för "majority voting". Större K = mer generalisering (mindre detalj bevarad).**
 
-### Så Fungerar Det
+### Så Fungerar Det - Teknisk Förklaring
 
-Modal filter använder "majority voting" i ett K×K pixelfönster. Varje pixel ersätts med det vanligaste värdet i sitt fönster:
+**Modal filter** använder "majority voting" för att ersätta pixlar:
+
+1. **Skapa ett K×K fönster** omkring varje pixel
+2. **Räkna frekvensen** av varje värde/klass inom fönstret
+3. **Ersätt pixeln** med det värde som förekommer MEST (vanligaste värdet)
+4. **Flytta fönstret** till nästa pixel och upprepa
+
+#### Konkret Exempel - Kernel k=3
+
+Original rasterdata (7×7 pixlar, klassifikation 1-3):
+```
+Original:
+  1 1 2 2 2 1 1
+  1 2 2 2 3 1 1
+  1 2 2 3 3 1 1
+  1 2 3 3 3 1 1
+  1 2 3 3 1 1 1
+  1 1 3 1 1 1 1
+  1 1 1 1 1 1 1
+```
+
+**Bearbeta pixel (2,2) med k=3** (3×3 fönster):
+```
+Fönster omkring pixel (2,2):
+  1 2 2
+  2 2 2  ← Mittenpixeln som ska ersättas
+  2 2 3
+
+Frekvensräkning:
+  Värde 1: förekommer 1 gång (1/9)
+  Värde 2: förekommer 6 gånger (6/9) ← VANLIGASTE
+  Värde 3: förekommer 2 gånger (2/9)
+
+Ersätt med 2 (det vanligaste värdet)
+Resultat: pixel blir 2
+```
+
+**Bearbeta pixel (3,5) med k=3** (3×3 fönster):
+```
+Fönster omkring pixel (3,5):
+  2 3 1
+  3 1 1  ← Mittenpixeln som ska ersättas (värdeer 1)
+  3 1 1
+
+Frekvensräkning:
+  Värde 1: förekommer 5 gånger (5/9) ← VANLIGASTE
+  Värde 2: förekommer 1 gång (1/9)
+  Värde 3: förekommer 3 gånger (3/9)
+
+Ersätt med 1 (det vanligaste värdet)
+Resultat: pixel blir 1
+```
+
+**Efter k=3 modal filter (hela bilden)**:
+```
+Resultat efter 3×3 modal filter:
+  1 1 2 2 2 1 1
+  1 2 2 2 2 1 1   ← Mindre variabilitet
+  1 2 2 2 3 1 1   ← Småpixlar utjämnade
+  1 2 2 3 3 1 1
+  1 2 2 3 1 1 1   ← Smågrupper försvinner
+  1 1 2 1 1 1 1
+  1 1 1 1 1 1 1
+```
+
+#### Större Kernel k=5
+
+Med ett större fönster blir effekten starkare:
+```
+k=5 = 5×5 fönster → större område granskas
+      → Mer "röstning" från omgivningen
+      → Fler små detaljer försvinner
+      → Mer enfärgade områden
+```
+
+Samma pixel (3,5) med k=5 (5×5 fönster):
+```
+Större fönster innehåller mer av originaldata
+→ Ännu större chans att omgivningen "överröstar" originalvärdet
+→ Effekten bli ännu starkare
+```
+
+### Allmän Förklaring
 
 ```
 k=3   = 3×3 pixel fönster
@@ -215,7 +359,94 @@ KERNEL_SIZES = [11, 13, 15]
 
 **VIKTIGT: Denna parameter konfigurerar hur många vertices som SKA BEHÅLLAS, inte hur många som tas bort!**
 
-### Så Fungerar Det
+### Så Fungerar Det - Teknisk Förklaring
+
+**Mapshaper simplifikation** använder Weighted Visvalingam-Whyatt algoritmen (default) för att identifiera och ta bort "removable vertices":
+
+#### Algoritmen - Steg för Steg
+
+1. **Klassifiera vertices**: Markera vilka vertices som kan tas bort utan väsentlig geometriförändring
+   - Vertices på raka stretchor: kan tas bort utan problem
+   - Vertices vid skarpa vinklar: viktiga, bör bevaras
+   - Vertices vid små utskjutningar: kandidater för borttagning
+
+2. **Beräkna viktning**: För varje vertex beräknas en "viktighet"
+   - Stora vinklar (< 45°): höga vikter (viktiga)
+   - Små vinklar (> 135°): låga vikter (kan tas bort)
+   - Längden på kanterna påverkar också viktningen
+
+3. **Rangordna**: Sortera vertices efter viktning (minst viktiga först)
+
+4. **Behål X%**: 
+   - p90: Behål bara de 90% viktigaste vertices → ta bort de 10% minst viktiga
+   - p50: Behål bara de 50% viktigaste vertices → ta bort de 50% minst viktiga  
+   - p15: Behål bara de 15% viktigaste vertices → ta bort de 85% minst viktiga
+
+#### Konkret Exempel
+
+Original polygon (15 vertices):
+```
+Polygon form: En ojämn kustlinje med många små detaljer
+
+Original:
+    ●─────●─────●
+   /       \     \
+  ●         ●─●  ●
+  │      ●     ●  
+  ●     / \     ●
+   \   ●   ●   /
+    ●─●─────●─●
+
+Vertices: 15 st
+Edges: 15 st
+```
+
+**Med p90 (behål 90% av vertices)**:
+```
+Beräkna viktning för alla 15 vertices:
+  - 9 vertices identifieras som "removable" (små utskjutningar)
+  - 6 vertices identifieras som "kritiska" (stora vinklar)
+
+Ranking av removable vertices (minst viktiga först):
+  1. Liten pixel-utskjutning → väg-vertex
+  2. Små vinklar på båda sidor → väg-vertex
+  3. ... (fortsätt för alla 9)
+  
+Behål 90%: 15 × 0.90 = 13.5 ≈ 13 vertices
+  → Ta bort de 2 minst viktiga vertices (99% och 98% viktiga)
+
+Resultat: 13 vertices (endast små utskjutningar borta)
+```
+
+**Med p50 (behål 50% av vertices)**:
+```
+Behål 50%: 15 × 0.50 = 7.5 ≈ 7-8 vertices
+  → Behål bara de viktigaste vertices
+  → Ta bort många små detaljer
+
+Resultat: 7-8 vertices (många små detaljer borta, stort fokus på stora strukturer)
+```
+
+**Med p15 (behål 15% av vertices)**:
+```
+Behål 15%: 15 × 0.15 = 2.25 ≈ 2-3 vertices
+  → Bara de absolut viktigaste vertices bevaras
+  → Extremt förenklad geometri
+
+Resultat: 2-3 vertices (nästan bara raka linjer, all detalj försvinner)
+```
+
+#### Visuell Jämföring
+
+```
+Original (p100):  ～～～～～～～～～～ (många smala svängningar)
+p90:              ─～─～─～─～─~~~── (lite förenklat)
+p75:              ───～─～────~~──── (märkbar försenkling)
+p50:              ─────────────────  (helt utplånad, stora drag)
+p15:              ╱╲─╲╱╲───╱╲──╱╲  (extrem förenkling)
+```
+
+### Allmän Förklaring
 
 Mapshaper behåller ett specifikt **percentage av "removable vertices"** (vertices som kan tas bort utan att ändra geometrin väsentligt):
 
