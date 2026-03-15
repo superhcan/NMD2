@@ -58,8 +58,37 @@ MMU_STEPS    = [2, 4, 8, 16, 32, 64, 100]
 #   KERNEL_SIZES = [3, 5, 7, 11, 13, 15]  # Full upplösning (6 nivåer)
 #
 KERNEL_SIZES = [3, 5, 7, 11, 13, 15]
-# Värden mellan 0-100 för procentuell förenkling av removable vertices
-# Lägre = mer förenkling, högre = mindre förenkling (mer detalj)
+
+# Mapshaper Simplification Tolerances (Steg 8)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Dessa värden styr hur aggressiv vertex-förenkling ska vara i Mapshaper.
+# 
+# Teknisk förklaring:
+#   - Mapshaper behåller percentage% av "removable vertices"
+#   - Högre värde (ex. p90) = behåller MER detalj = mindre förenkling
+#   - Lägre värde (ex. p15) = behåller MINDRE detalj = mer förenkling
+#
+# VIKTIGT: Dessa är INTE samma som "simplification level 90%" - det är tvärtom!
+#   p90  = behåll 90% av removable vertices → minimal förenkling
+#   p50  = behåll 50% av removable vertices → medium förenkling
+#   p15  = behåll 15% av removable vertices → aggressiv förenkling
+#
+# Praktiska effekter:
+#   p90-p75: Nästan original geometri + små förbättringar (filstorlek -10-20%)
+#   p50:     Medium kompromiss (filstorlek -40-50%)
+#   p25-p15: Starkt förenklad (filstorlek -70-80%)
+#   p5:      Extrem förenkling (filstorlek -90%+)
+#
+# Exempel:
+#   SIMPLIFICATION_TOLERANCES = [90, 50, 15]      # 3 nivåer - snabb test
+#   SIMPLIFICATION_TOLERANCES = [90, 75, 50, 25, 15]  # 5 nivåer - standard
+#   SIMPLIFICATION_TOLERANCES = [95, 85, 70, 50, 30, 10]  # 6 nivåer - detaljerad
+#
+# Tips:
+#   - Använd p90-p75 för presentationskvalitet
+#   - Använd p50 för webb-kartor
+#   - Använd p15-p5 för extrem förenkling (lätta filer)
+#   - Fler nivåer = längre körtid men bättre att jämföra resultat
 #
 SIMPLIFICATION_TOLERANCES = [90, 75, 50, 25, 15]
 

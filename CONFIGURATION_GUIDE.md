@@ -113,9 +113,29 @@ KERNEL_SIZES = [3, 5, 7, 9, 11, 13, 15, 17, 19]
 
 ## 4. Mapshaper Förenkling - Toleranser (Steg 8)
 
-Toleransnivåer för vertex-förenkling (procentuell).
-- **Höga värden** (90%, 75%) = sparar många vertices = mindre förenkling
-- **Låga värden** (15%, 25%) = tar bort många vertices = större förenkling
+**VIKTIGT: Denna parameter konfigurerar hur många vertices som SKA BEHÅLLAS, inte hur många som tas bort!**
+
+### Så Fungerar Det
+
+Mapshaper behåller ett specifikt **percentage av "removable vertices"** (vertices som kan tas bort utan att ändra geometrin väsentligt):
+
+```
+p90 = Behåll 90% av removable vertices
+      → Nästan original geometri
+      → Minimal förenkling
+      → Stor filstorlek
+      → Många detaljer bevarade
+
+p50 = Behåll 50% av removable vertices  
+      → Medium förenkling
+      → Medel filstorlek
+      → Bra balans mellan förenkling och detalj
+
+p15 = Behåll 15% av removable vertices
+      → Aggressiv förenkling
+      → Liten filstorlek
+      → Mest detaljer försvinner
+```
 
 ### Konfigurera
 ```python
@@ -126,27 +146,63 @@ SIMPLIFICATION_TOLERANCES = [90, 75, 50, 25, 15]
 
 **Snabb test** (färre nivåer):
 ```python
-SIMPLIFICATION_TOLERANCES = [75, 50, 25]
+SIMPLIFICATION_TOLERANCES = [75, 25]
 ```
+Bara två nivåer för snabb feedback
 
-**Standard**:
+**Standard** (rekommenderat):
 ```python
 SIMPLIFICATION_TOLERANCES = [90, 75, 50, 25, 15]
 ```
-- Bra täckning från minimal till aggressive förenkling
+5 nivåer som täcker spektrumet från minimal till aggressiv
 
-**Mer granulär**:
+**Detaljerad analys**:
 ```python
-SIMPLIFICATION_TOLERANCES = [95, 90, 75, 50, 25, 15, 5]
+SIMPLIFICATION_TOLERANCES = [95, 85, 75, 65, 50, 35, 20, 10, 5]
+```
+Många nivåer för detaljerad jämförelse
+
+### Effekt på Filstorlek
+
+| Tolerance | Filstorlek (ungefär) | Detalj | Användning |
+|-----------|---|---|---|
+| p95 | 105-110% av original | Nästan original | Kartpresentationer |
+| p90 | 95-100% av original | Nästan original | Webbaserade kartor |
+| p75 | 70-80% av original | Bra detalj kvar | Mobila appar |
+| p50 | 50-60% av original | Medium detalj | Webb-kartor |
+| p25 | 20-30% av original | Reducerad detalj | Överblickskarta |
+| p15 | 10-20% av original | Mycket reducerad | Liten filstorlek |
+| p5 | 5-10% av original | Minimal detail | Extrem förenkling |
+
+### Praktiska Tips
+
+**För presentationskvalitet**: Använd `p90` eller `p75`
+```python
+SIMPLIFICATION_TOLERANCES = [90, 75, 50]
 ```
 
-### Effekt
-| Tolerance | Ungefär effekt |
-|-----------|----------------|
-| p95, p90 | Minimal förenkling (original + små simplifikationer) |
-| p75, p50 | Medium förenkling |
-| p25, p15 | Aggressive förenkling |
-| p5 | Extrem förenkling |
+**För webbkarta**: Använd `p50` eller `p25`
+```python
+SIMPLIFICATION_TOLERANCES = [50, 25]
+```
+
+**För lätt data**: Använd `p15` eller lägre
+```python
+SIMPLIFICATION_TOLERANCES = [25, 15, 5]
+```
+
+### Exempel: Jämförande Skalning
+
+Med en original GeoPackage på **50 MB**:
+```
+p95  → ~52 MB   (nästan ingen förenkling)
+p90  → ~50 MB   (minimal förenkling)
+p75  → ~38 MB   (30% förenkling)
+p50  → ~28 MB   (44% förenkling)
+p25  → ~12 MB   (76% förenkling)
+p15  →  ~8 MB   (84% förenkling)
+p5   →  ~4 MB   (92% förenkling - extrem!)
+```
 
 ---
 
