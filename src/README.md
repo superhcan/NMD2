@@ -8,8 +8,8 @@ All aktiv pipeline-kod läggs här. Pipeline är organiserad som **separata steg
 
 ### 🎯 Master Orchestrator
 - **`../run_all_steps.py`** - Orchestrator som kör alla steg i rätt ordning
-  - Användning: `python3 run_all_steps.py` (alla steg)
-  - Eller: `python3 run_all_steps.py --step 5 7` (endast steg 5-7)
+  - Användning: `python3 run_all_steps.py` (alla 9 steg)
+  - Eller: `python3 run_all_steps.py --step 6 9` (endast steg 6-9)
   - Se `--help` för alla alternativ
 
 ### 🚀 Pipeline-Steg (i ordning)
@@ -23,22 +23,22 @@ All aktiv pipeline-kod läggs här. Pipeline är organiserad som **separata steg
 **Steg 3: Extrahera landskapsbild**
 - **`steg_3_extract_landscape.py`** - Ersätter vägar/byggnader med omkringliggande värden för generalisering
 
-**Steg 4a: Fyll små öar**
-- **`steg_4a_fill_islands.py`** - Fyller landöar < 1 ha helt omringade av vatten (< 100 pixlar)
+**Steg 4: Ta bort små sjöar**
+- **`steg_4_fill_islands.py`** - Tar bort små sjöar < 1 ha från landskapsbild och fyller med omgivande värden (< 100 pixlar)
 
-**Steg 4b: Filtrera små sjöar** (valfritt)
-- **`steg_4b_filter_lakes.py`** - Tar bort små sjöar < 1 ha från landskapsbild (motsvarar 4a men för vatten)
+**Steg 5: Fylla små öar** (valfritt)
+- **`steg_4b_filter_lakes.py`** - Fyller landöar < 1 ha helt omringade av vatten med dominant vattenklass
 
-**Steg 5: Generalisering**
+**Steg 6: Generalisering**
 - **`steg_5_generalize.py`** - Generaliserar med 4 metoder (sieve conn4/8, modal, semantic) och halo-teknik
 
-**Steg 6: Vektorisering**
+**Steg 7: Vektorisering**
 - **`steg_6_vectorize.py`** - Konverterar generaliserade raster till GeoPackage-vektorer (20,624 polygoner)
 
-**Steg 7: Mapshaper-förenkling**
+**Steg 8: Mapshaper-förenkling**
 - **`steg_7_simplify.py`** - Förenklar vektorer med topologi-bevarad Mapshaper (4 nivåer: p90/p75/p50/p25)
 
-**Steg 8: Bygga QGIS-projekt**
+**Steg 9: Bygga QGIS-projekt**
 - **`steg_8_build_qgis_project.py`** - Bygger QGIS-projekt från alla steg, organiserar lager i grupper
 
 ### 🧩 Support & Verktyg
@@ -56,12 +56,11 @@ All aktiv pipeline-kod läggs här. Pipeline är organiserad som **separata steg
 cd /home/hcn/projects/NMD2
 source .venv/bin/activate
 
-# Kör alla steg (1-8)
+# Kör alla steg (1-9)
 python3 run_all_steps.py
 
 # Eller bara vissa steg
-python3 run_all_steps.py --step 5 8     # Endast steg 5-8
-python3 run_all_steps.py --skip-4b      # Hoppa över valfritt steg 4b
+python3 run_all_steps.py --step 6 9     # Endast steg 6-9 (generalisering → QGIS)
 python3 run_all_steps.py --list         # Visa alla steg
 ```
 
@@ -78,24 +77,24 @@ python3 steg_2_extract_protected.py
 # Steg 3: Extrahera landskapsbild
 python3 steg_3_extract_landscape.py
 
-# Steg 4a: Fyll små öar
-python3 steg_4a_fill_islands.py
+# Steg 4: Ta bort små sjöar
+python3 steg_4_fill_islands.py
 
-# Steg 4b (valfritt): Filtrera små sjöar
+# Steg 5 (valfritt): Fylla små öar
 python3 steg_4b_filter_lakes.py
 
-# Steg 5: Generalisering (använder steg_5_generalize.py)
+# Steg 6: Generalisering
 python3 steg_5_generalize.py
 
-# Steg 6: Vektorisering
+# Steg 7: Vektorisering
 python3 steg_6_vectorize.py
 
-# Steg 7: Mapshaper-förenkling
+# Steg 8: Mapshaper-förenkling
 export NVM_DIR="$HOME/.config/nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 python3 steg_7_simplify.py
 
-# Steg 8: Bygga QGIS-projekt (kräver QGIS installerat)
+# Steg 9: Bygga QGIS-projekt (kräver QGIS installerat)
 python3 steg_8_build_qgis_project.py
 ```
 

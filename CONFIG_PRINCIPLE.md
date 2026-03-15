@@ -46,8 +46,8 @@ ENABLE_STEPS = {
 ### 3. **ALGORITHM PARAMETERS**
 ```python
 MMU_ISLAND = 100  # Min island size for steg 4 (pixels)
-MMU_STEPS = [2, 4, 8, 16, 32, 64, 100]  # Steg 5 sieve MMUs
-KERNEL_SIZES = [3, 5, 7, 11, 13, 15]  # Steg 5 modal filter sizes
+MMU_STEPS = [2, 4, 8, 16, 32, 64, 100]  # Steg 6 sieve MMUs
+KERNEL_SIZES = [3, 5, 7, 11, 13, 15]  # Steg 6 modal filter sizes
 HALO = 100  # Cross-tile boundary overlap (pixels)
 ```
 → **Change here to tune generalization**

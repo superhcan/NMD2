@@ -2,22 +2,23 @@
 """
 run_all_steps.py — Master orchestrator för NMD2 pipeline.
 
-Kör alla 8 steg i rätt ordning:
+Kör alla 9 steg i rätt ordning:
   Steg 1: Tileluppdelning (steg_1_split_tiles.py)
   Steg 2: Extrahera skyddade klasser (steg_2_extract_protected.py)
   Steg 3: Extrahera landskapsbild (steg_3_extract_landscape.py)
-  Steg 4: Ta bort små områden < 1 ha (steg_4_fill_islands.py)
-  Steg 5: Generalisering (steg_5_generalize.py)
-  Steg 6: Vektorisering (steg_6_vectorize.py)
-  Steg 7: Mapshaper-förenkling (steg_7_simplify.py)
-  Steg 8: Bygga QGIS-projekt (steg_8_build_qgis_project.py)
+  Steg 4: Ta bort små sjöar < 1 ha (steg_4_fill_islands.py)
+  Steg 5: Fylla små öar omringade av vatten (steg_4b_filter_lakes.py) [VALFRITT]
+  Steg 6: Generalisering (steg_5_generalize.py)
+  Steg 7: Vektorisering (steg_6_vectorize.py)
+  Steg 8: Mapshaper-förenkling (steg_7_simplify.py)
+  Steg 9: Bygga QGIS-projekt (steg_8_build_qgis_project.py)
 
 Användning:
   python3 run_all_steps.py              # Kör alla steg
-  python3 run_all_steps.py --step 5 8  # Kör endast steg 5-8
+  python3 run_all_steps.py --step 6 9  # Kör endast steg 6-9
 
 Kräver:
-  - QGIS (för steg 8)
+  - QGIS (för steg 9)
   - Mapshaper installerat och i PATH
   - Python-venv aktiverad
 """
