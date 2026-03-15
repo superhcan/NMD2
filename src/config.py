@@ -23,10 +23,11 @@ OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_
 # TILE CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-PARENT_TILES     = [(0, 10), (0, 11), (1, 10), (1, 11)]
-PARENT_TILE_SIZE = 2048
-SUB_TILE_SIZE    = 1024
-HALO             = 100   # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
+TILE_SIZE        = 1024          # Huvudtile-storlek (pixlar per sida)
+PARENT_TILES     = [(0, 19), (0, 20), (1, 19), (1, 20)]
+PARENT_TILE_SIZE = 1024          # Matchar TILE_SIZE i steg 1
+SUB_TILE_SIZE    = 1024          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
+HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CLASSIFICATION CONSTANTS
@@ -43,6 +44,21 @@ ROADS_BUILDINGS = {51, 53}                       # Väg/järnväg och byggnader 
 MMU_ISLAND   = 100              # Minsta storlek på öar innan fyllnad (px)
 MMU_STEPS    = [2, 4, 8, 16, 32, 64, 100]   # Sieve MMU:er (px)
 KERNEL_SIZES = [3, 5, 7, 11, 13, 15]        # Modal filter kernelstorlekar
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PIPELINE CONFIGURATION — Vilka steg ska köras?
+# ══════════════════════════════════════════════════════════════════════════════
+
+ENABLE_STEPS = {
+    1: False,   # Tileluppdelning (hoppa över - tiles finns redan)
+    2: True,    # Extrahera skyddade klasser
+    3: True,    # Extrahera landskapsbild
+    4: True,    # Ta bort små områden (GDAL sieve)
+    5: True,    # Generalisering
+    6: True,    # Vektorisering
+    7: True,    # Mapshaper-förenkling
+    8: True,    # Bygga QGIS-projekt
+}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GDAL & RASTERIO SETTINGS

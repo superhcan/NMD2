@@ -25,11 +25,9 @@ info = logging.getLogger("pipeline.summary")
 
 # ──────────────────────────────────────────────────────────────────────────────
 
-TILE_SIZE = 2048  # pixlar per sida
+TILE_SIZE = 1024  # pixlar per sida
 
 # ──────────────────────────────────────────────────────────────────────────────
-
-TILE_SIZE = 2048  # pixlar per sida
 
 OUT_DIR = OUT_BASE / "steg1_tiles"  # Output-mapp för steg 1 tiles
 

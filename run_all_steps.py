@@ -30,6 +30,10 @@ import os
 from pathlib import Path
 import argparse
 
+# Import pipeline configuration
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+from config import ENABLE_STEPS
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SETUP
 # ══════════════════════════════════════════════════════════════════════════════
@@ -185,7 +189,9 @@ def run_step(step_key):
         # Skicka steg-info som miljövariabler
         env = os.environ.copy()
         env["STEP_NUMBER"] = str(step_key)
-        env["STEP_NAME"] = str(step["name"]).replace(" ", "_").lower()
+        # Använd script-namn istället för den långa svenska beskrivningen
+        step_name_short = script.replace("steg_", "").replace(".py", "").lower()
+        env["STEP_NAME"] = step_name_short
         
         result = subprocess.run(cmd, cwd=SRC_DIR.parent, env=env, check=True)
         elapsed = time.time() - t0
@@ -267,13 +273,20 @@ def main():
     else:
         step_keys = [k for k in sorted(STEPS.keys(), key=lambda x: (isinstance(x, str), x))]
     
-    log.info(f"🔄 Kör: {', '.join(str(k) for k in step_keys)}\n")
+    # Filtrera enligt ENABLE_STEPS i config
+    enabled_steps = [k for k in step_keys if ENABLE_STEPS.get(k, True)]
+    disabled_steps = [k for k in step_keys if not ENABLE_STEPS.get(k, True)]
+    
+    if disabled_steps:
+        log.info(f"⏭️  Hoppar över (inaktiverade i config): {', '.join(str(k) for k in disabled_steps)}\n")
+    
+    log.info(f"🔄 Kör: {', '.join(str(k) for k in enabled_steps)}\n")
     
     # Kör steg
     t0_total = time.time()
     results = {}
     
-    for step_key in step_keys:
+    for step_key in enabled_steps:
         results[step_key] = run_step(step_key)
         if not results[step_key]:
             log.error(f"\n❌ Steg {step_key} misslyckades. Avbryter.")

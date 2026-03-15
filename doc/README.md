@@ -70,18 +70,12 @@ Lägg NMD2023-data i detta format:
 ### 1. Dela upp rastern i tiles (första gången)
 
 ```bash
-python split_tiles.py
+python3 run_all_steps.py --step 1
 ```
 
-**Output:** `tiles/` mapp med 1225×2048px tiles
+**Output:** `steg1_tiles/` mapp med ~4,900 × 1,024×1,024 px tiles (70×70 grid)
 
-### 2. Generalisera rastern
-
-```bash
-python pipeline_1024_halo.py
-```
-
-Denna pipeline gör följande:
+### 2. Kör hela pipelinen
 
 **Steg 1:** Dela upp original-rastern i 1024×1024 px tiles  
 **Steg 2:** Extrahera skyddade klasser (51, 52, 53, 54, 61, 62) → `protected/`  

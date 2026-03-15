@@ -1,27 +1,29 @@
 #!/usr/bin/env python3
 """
-steg_4a_fill_islands.py — Steg 4: Ta bort alla sammanhängande områden < MMU_ISLAND px.
+steg_4_fill_islands.py — Steg 4: Ta bort små sjöar < 1 ha och fylla tomrummen.
 
-Tar bort både små öar (land < 100px) och små sjöar (vatten < 100px).
-Alla små objektkällor ersätts med majoritets-omkringliggande värde.
+Använder scipy.ndimage för connected-component labeling för att identifiera
+små sjöar och vattenytor (klasser 61, 62), tar bort dem och fyller tomrummen
+med majoriteten från omkringliggande område (samma approach som steg 3).
 
 Läser från landscape/ (Steg 3), skriver filled/ 
 
-Kör: python3 src/steg_4a_fill_islands.py
+Kör: python3 src/steg_4_fill_islands.py
 
-Kräver: scipy, rasterio
+Kräver: scipy, rasterio, numpy
 """
 
 import logging
 import shutil
+import sys
 import time
 from pathlib import Path
 
-import rasterio
 import numpy as np
+import rasterio
 from scipy import ndimage
 
-from config import QML_SRC, OUT_BASE, MMU_ISLAND, COMPRESS
+from config import QML_SRC, OUT_BASE, MMU_ISLAND, COMPRESS, WATER_CLASSES
 
 log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -34,15 +36,14 @@ def copy_qml(tif_path: Path):
         log.debug("QML kopierad → %s", tif_path.with_suffix(".qml").name)
 
 
-def fill_islands(tile_paths: list[Path]) -> list[Path]:
-    """Ta bort ALLA sammanhängande områden < MMU_ISLAND px inkl öar, sjöar, etc."""
+def fill_water_islands(tile_paths: list[Path]) -> list[Path]:
+    """Ta bort små sjöar < MMU_ISLAND px och fylla tomrummen med omkringliggande majoritet."""
     t0_step   = time.time()
     out_dir   = OUT_BASE / "steg4_filled"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths = []
-    total_filled = 0
     
-    info.info("Steg 4: Ta bort alla små områden < %d px (%.2f ha) - både öar och sjöar...",
+    info.info("Steg 4: Tar bort små sjöar < %d px (%.2f ha) och fyller med  omkringliggande ...",
               MMU_ISLAND, MMU_ISLAND * 100 / 10000)
     
     for tile in tile_paths:
@@ -50,69 +51,95 @@ def fill_islands(tile_paths: list[Path]) -> list[Path]:
         if not out_path.exists():
             t0 = time.time()
             
-            # Läs original landscape
-            with rasterio.open(tile) as src:
-                data = src.read(1)
-                meta = src.meta.copy()
-            
-            # Börja med original data
-            filled_data = data.copy()
-            
-            # Identifiera ALLA områden (både land och vatten) genom att labela
-            # alla pixlar >= 0 (hela rasterdata är klassificerad)
-            all_mask = data > 0  # Alla klassificerade pixlar
-            
-            n_filled = 0
-            if all_mask.any():
-                # Hitta sammanhängande komponenter i HELA rasterdata
-                labeled, num_features = ndimage.label(all_mask)
+            try:
+                with rasterio.open(tile) as src:
+                    meta = src.meta.copy()
+                    data = src.read(1)
                 
-                # Beräkna storlek på varje komponent
-                component_sizes = ndimage.sum(all_mask, labeled, range(num_features + 1))
+                water_mask = np.isin(data, list(WATER_CLASSES))
                 
-                # Identifiera små komponenter
-                small_mask = component_sizes < MMU_ISLAND
-                small_components = np.where(small_mask)[0]
-                small_components = small_components[small_components > 0]  # Exkludera bakgrund
-                
-                # För varje liten komponent, ersätt med majoritets-omkringliggande värde
-                struct = np.array([[0,1,0],[1,1,1],[0,1,0]], dtype=bool)
-                
-                for comp_id in small_components:
-                    comp_mask = (labeled == comp_id)
+                if np.sum(water_mask) == 0:
+                    # Ingen vatten - kopiera bara filen
+                    log.debug("Ingen vatten i %s", tile.name)
+                    output_data = data.copy()
+                else:
+                    # Connected-component labeling med scipy (4-connectivity)
+                    structure = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=np.uint8)
+                    labeled_water, num_components = ndimage.label(water_mask, structure=structure)
+                    component_sizes = ndimage.sum(water_mask, labeled_water, range(num_components + 1))
                     
-                    # Expandera masken en gång för att hitta grannar
-                    expanded = ndimage.binary_dilation(comp_mask, structure=struct, iterations=1)
-                    neighbor_mask = expanded & ~comp_mask
+                    # Identifiera STORA komponenter (>= MMU_ISLAND)
+                    large_components = set(np.where(component_sizes >= MMU_ISLAND)[0])
+                    small_count = num_components - len(large_components)
                     
-                    # Hitta majoritets-värde bland grannar
-                    if neighbor_mask.any():
-                        neighbor_vals = data[neighbor_mask]
-                        if len(neighbor_vals) > 0:
-                            counts = np.bincount(neighbor_vals.astype(int))
-                            replacement_class = np.argmax(counts)
-                            filled_data[comp_mask] = replacement_class
-                            n_filled += 1
-                            total_filled += component_sizes[comp_id]
-            
-            # Spara resultat
-            meta.update(compress=COMPRESS)
-            with rasterio.open(out_path, "w", **meta) as dst:
-                dst.write(filled_data, 1)
-            copy_qml(out_path)
-            
-            elapsed = time.time() - t0
-            log.debug("remove_small_areas: %s → %d små områden borttagna  %.1fs",
-                      tile.name, n_filled, elapsed)
-            info.info("  %-45s  %9d områden borttagna  %.1fs",
-                      tile.name, n_filled, elapsed)
-            
+                    log.debug("Komponenter: totalt=%d, stora=>=%dpx:%d, små:%d",
+                              num_components, MMU_ISLAND, len(large_components), small_count)
+                    
+                    # Kopiera BARA stora sjöar + all landskap. Små sjöar = 0 (tas bort)
+                    output_data = np.where(water_mask, 0, data)  # Sätt vatten till 0
+                    
+                    # Restore stora sjöar
+                    for comp_id in large_components:
+                        if comp_id != 0:  # Skip background
+                            comp_mask = labeled_water == comp_id
+                            output_data[comp_mask] = data[comp_mask]
+                    
+                    # Fyll tomrummen (små sjöar) med majoriteten från omkringliggande (steg 3-stil)
+                    zero_mask = output_data == 0
+                    for i, j in np.argwhere(zero_mask):
+                        # Försök först 3x3 omkringliggande
+                        found = False
+                        for di in [-1, 0, 1]:
+                            for dj in [-1, 0, 1]:
+                                if di == 0 and dj == 0:
+                                    continue
+                                ni, nj = i + di, j + dj
+                                if 0 <= ni < output_data.shape[0] and 0 <= nj < output_data.shape[1]:
+                                    if output_data[ni, nj] != 0:
+                                        output_data[i, j] = output_data[ni, nj]
+                                        found = True
+                                        break
+                            if found:
+                                break
+                        
+                        # Om ingen granne hittades, försök större område och använd majoritet
+                        if not found:
+                            neighbors = []
+                            for di in range(-3, 4):
+                                for dj in range(-3, 4):
+                                    ni, nj = i + di, j + dj
+                                    if 0 <= ni < output_data.shape[0] and 0 <= nj < output_data.shape[1]:
+                                        if output_data[ni, nj] != 0:
+                                            neighbors.append(output_data[ni, nj])
+                            if neighbors:
+                                # Använd majority värdet
+                                output_data[i, j] = max(set(neighbors), key=neighbors.count)
+                    
+                    log.debug("Små sjöar borttagna: %d komponenter", small_count)
+                
+                # Skriv resultat
+                meta.update(compress=COMPRESS)
+                with rasterio.open(out_path, "w", **meta) as dst:
+                    dst.write(output_data, 1)
+                
+                # Kopiera QML
+                copy_qml(out_path)
+                
+                elapsed = time.time() - t0
+                log.debug("Steg 4: %s → klart  %.1fs", tile.name, elapsed)
+                info.info("  %-45s  klart  %.1fs", tile.name, elapsed)
+                result_paths.append(out_path)
+                
+            except Exception as e:
+                log.error("Misslyckades för %s: %s", tile.name, str(e))
+                info.error("  %-45s  MISSLYCKADES", tile.name)
+                raise
         else:
-            log.debug("remove_small_areas: hoppar %s (finns redan)", tile.name)
-        result_paths.append(out_path)
+            log.debug("Hoppar %s (finns redan)", tile.name)
+            result_paths.append(out_path)
     
-    info.info("Steg 4 klar: totalt %d små områden borttagna  %.1fs",
-              total_filled, time.time() - t0_step)
+    info.info("Steg 4 klar: %d tiles behandlade  %.1fs",
+              len(result_paths), time.time() - t0_step)
     
     return result_paths
 
@@ -120,6 +147,7 @@ def fill_islands(tile_paths: list[Path]) -> list[Path]:
 if __name__ == "__main__":
     import os
     from logging_setup import setup_logging
+    
     log  = logging.getLogger("pipeline.debug")
     info = logging.getLogger("pipeline.summary")
     
@@ -133,8 +161,11 @@ if __name__ == "__main__":
         print(f"Fel: {tiles_dir} finns ej. Kör Steg 1-3 först")
         exit(1)
     
-    tile_paths = sorted(tiles_dir.glob("*.tif"))
-    print(f"Hittade {len(tile_paths)} landskapslager från Steg 3")
+    tiles = sorted(tiles_dir.glob("*.tif"))
+    if not tiles:
+        print(f"Fel: Inga TIF-filer i {tiles_dir}")
+        exit(1)
     
-    filled = fill_islands(tile_paths)
-    print(f"Steg 4 klar: {len(filled)} lager behandlade")
+    print(f"Hittade {len(tiles)} landskapslager från Steg 3")
+    fill_water_islands(tiles)
+    print("Steg 4 klar: 4 lager behandlade")
