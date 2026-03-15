@@ -19,8 +19,7 @@ Kräver: Mapshaper installerat och i PATH
 """
 
 import subprocess
-import re as _re
-import json
+import shutil
 import os
 import logging
 from pathlib import Path
@@ -28,117 +27,202 @@ from datetime import datetime
 import sys
 from config import OUT_BASE, SIMPLIFICATION_TOLERANCES
 
-# Filer större än detta förenklas i rader för att undvika Node.js minnesgräns
-LARGE_FILE_THRESHOLD_MB = 400
-# Antal rader att dela upp i (välj ett rimligt tal; 7 ger ~200 MB per rad för 10%-körningen)
-N_CHUNKS = 7
+
+def _find_node_path():
+    """
+    Hittar NODE_PATH för 'require("mapshaper")' baserat på var mapshaper-binären finns.
+    Returnerar sträng (env-värde) eller None om mapshaper inte hittas.
+    """
+    mapshaper_bin = shutil.which("mapshaper")
+    if not mapshaper_bin:
+        return None
+    real = subprocess.run(["realpath", mapshaper_bin], capture_output=True, text=True).stdout.strip()
+    # real = …/lib/node_modules/mapshaper/bin/mapshaper  → parent×3 = node_modules
+    return str(Path(real).parent.parent.parent)
 
 
-def _get_gpkg_extent(gpkg_path):
-    """Returnerar (xmin, ymin, xmax, ymax) för ett GeoPackage-lager."""
-    r = subprocess.run(["ogrinfo", "-al", "-so", str(gpkg_path)], capture_output=True, text=True)
-    m = _re.search(r'Extent: \(([0-9.]+), ([0-9.]+)\) - \(([0-9.]+), ([0-9.]+)\)', r.stdout)
-    if m:
-        return float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))
-    return None
+def _find_node_bin():
+    """Returnerar sökväg till node-binären (följer nvm-symlänkar)."""
+    node_bin = shutil.which("node")
+    return node_bin or "node"
 
 
-def _simplify_chunked(input_path, output_path, variant_name, tolerances, log):
-    """Förenklar ett stort GeoPackage genom att dela upp det i N horisontella rader."""
-    ext = _get_gpkg_extent(input_path)
-    if not ext:
-        log.error("Kunde inte hämta extent från %s", input_path)
-        return
+NODE_PATH = _find_node_path()
+NODE_BIN = _find_node_bin()
+_JS_SCRIPT = Path(__file__).parent / "mapshaper_ndjson_simplify.js"
 
-    xmin, ymin, xmax, ymax = ext
-    chunk_height = (ymax - ymin) / N_CHUNKS
-    log.info("Stor fil (%.0f MB) — processar i %d rader à %.0f m",
-             input_path.stat().st_size / 1e6, N_CHUNKS, chunk_height)
+# Features per batch: ~500K ≈ 340 MB ndjson ≈ 1.5 GB som Node.js-objekt.
+# Passar på 6.4 GB RAM-system med 3 GB Node-heap.
+FEATURES_PER_BATCH = 500_000
+NODE_HEAP_MB = 3000
+
+
+def _count_lines(path):
+    """Räknar antal rader i en fil (= antalet features i en ndjson-fil)."""
+    n = 0
+    with open(path, "rb") as f:
+        for _ in f:
+            n += 1
+    return n
+
+
+def _write_batch(src_path, batch_path, start, count):
+    """Skriver ut 'count' rader från rad 'start' i src_path till batch_path."""
+    with open(src_path, "rb") as src, open(batch_path, "wb") as dst:
+        for i, line in enumerate(src):
+            if i < start:
+                continue
+            if i >= start + count:
+                break
+            dst.write(line)
+
+
+def simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances=None, log=None):
+    """
+    Förenklar ett GeoPackage med Mapshaper via Node.js-API:t.
+
+    Flöde:
+      1. GPkg → GeoJSONSeq (ndjson, en feature/rad)                 [ogr2ogr]
+      2. Dela ndjson i batchar om FEATURES_PER_BATCH rader           [Python]
+      3. Per batch: ndjson → Node.js API → GeoJSON-buffer → GPkg temp   [Node.js]
+      4. Slå ihop alla batch-GPkg till en fil med korrekt lagernamn  [ogr2ogr]
+
+    Fördel: hela datasetet (oavsett storlek) passar i minnet batch-vis.
+    Topologin bevaras INOM varje batch (shared arcs).  Seam-artefakter vid
+    batch-gränser är sub-pixel vid typiska visningsskalor (1:50 000+).
+    """
+    if tolerances is None:
+        tolerances = [90, 75, 50, 25, 15]
+    if log is None:
+        log = logging.getLogger("pipeline.simplify")
+
+    if NODE_PATH is None:
+        log.error("mapshaper hittades inte i PATH — installera med: npm install -g mapshaper")
+        sys.exit(1)
+
+    input_path = Path(input_file)
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    if not input_path.exists():
+        log.error("Input-fil saknas: %s", input_file)
+        sys.exit(1)
+
+    file_size_mb = input_path.stat().st_size / 1e6
+    log.info("Input : %s (%.0f MB)", input_path, file_size_mb)
+    log.info("Output: %s", output_path)
+
+    # ── Steg 1: GPkg → GeoJSONSeq (ndjson) ────────────────────────────────
+    ndjson_file = Path(f"/tmp/_steg8_{variant_name}.geojsonl")
+    ndjson_file.unlink(missing_ok=True)
+    log.info("Konverterar GeoPackage → GeoJSONSeq (WGS84, ogr2ogr-standard)...")
+    r = subprocess.run(
+        ["ogr2ogr", "-f", "GeoJSONSeq",
+         # GeoJSONSeq reprojicerar alltid till WGS84. Koordinaterna är i grader.
+         # Mapshaper förenklar med planar (flat 2D), liten anisotropi vid 58°N —
+         # osynlig vid normal kartvisning (1:50 000+).
+         # Slutkonverteringen reprojicerar WGS84 → EPSG:3006.
+         str(ndjson_file), str(input_path)],
+        capture_output=True, text=True
+    )
+    if r.returncode != 0 or not ndjson_file.exists():
+        log.error("ogr2ogr GeoJSONSeq misslyckades: %s", r.stderr)
+        sys.exit(1)
+    ndjson_mb = ndjson_file.stat().st_size / 1e6
+    total_features = _count_lines(ndjson_file)
+    n_batches = max(1, (total_features + FEATURES_PER_BATCH - 1) // FEATURES_PER_BATCH)
+    log.info("GeoJSONSeq: %.0f MB, %d features → %d batch(ar) à %d",
+             ndjson_mb, total_features, n_batches, FEATURES_PER_BATCH)
+
+    # ── Steg 2: Förenkla varje toleransnivå ───────────────────────────────
+    env = {**os.environ, "NODE_PATH": NODE_PATH}
+    log.info("Förenklar %s med Mapshaper Node.js-API (topologibevarand):", variant_name)
+    log.info("(percentage = %% kvarvarande borttagbara hörn)")
 
     for tolerance in tolerances:
         print(f"  p{tolerance}%: ", end="", flush=True)
-        chunk_gpkgs = []
+        output_gpkg = output_path / f"{variant_name}_simplified_p{tolerance}.gpkg"
+        output_gpkg.unlink(missing_ok=True)
 
-        for i in range(N_CHUNKS):
-            chunk_ymin = ymin + i * chunk_height
-            chunk_ymax = ymin + (i + 1) * chunk_height
-            base = f"/tmp/_steg8_{variant_name}_p{tolerance}_c{i:02d}"
+        batch_gpkgs = []
+        ok = True
 
-            # 1. Extrahera spatial subset
-            raw_gpkg = Path(f"{base}_raw.gpkg")
-            subprocess.run(
-                ["ogr2ogr", "-f", "GPKG", "-spat",
-                 str(xmin), str(chunk_ymin), str(xmax), str(chunk_ymax),
-                 str(raw_gpkg), str(input_path)],
-                capture_output=True
-            )
-            if not raw_gpkg.exists() or raw_gpkg.stat().st_size < 1000:
-                raw_gpkg.unlink(missing_ok=True)
-                continue
+        for b in range(n_batches):
+            start = b * FEATURES_PER_BATCH
+            batch_ndjson = Path(f"/tmp/_steg8_{variant_name}_p{tolerance}_b{b:03d}.geojsonl")
+            batch_geojson = Path(f"/tmp/_steg8_{variant_name}_p{tolerance}_b{b:03d}.geojson")
+            batch_gpkg = Path(f"/tmp/_steg8_{variant_name}_p{tolerance}_b{b:03d}.gpkg")
 
-            # 2. GPkg → GeoJSON
-            raw_geojson = Path(f"{base}_raw.geojson")
-            subprocess.run(
-                ["ogr2ogr", "-f", "GeoJSON", str(raw_geojson), str(raw_gpkg)],
-                capture_output=True
-            )
-            raw_gpkg.unlink(missing_ok=True)
-            if not raw_geojson.exists():
-                continue
+            _write_batch(ndjson_file, batch_ndjson, start, FEATURES_PER_BATCH)
 
-            # 3. Mapshaper-förenkling
-            simp_geojson = Path(f"{base}_simp.geojson")
+            # Node.js: ndjson → Mapshaper API → Buffer → fil
             r = subprocess.run(
-                ["mapshaper", str(raw_geojson),
-                 "-simplify", f"percentage={tolerance}%", "planar", "keep-shapes",
-                 "-o", "format=geojson", str(simp_geojson)],
+                [NODE_BIN, f"--max-old-space-size={NODE_HEAP_MB}",
+                 str(_JS_SCRIPT),
+                 str(batch_ndjson), str(batch_geojson), str(tolerance)],
+                capture_output=True, text=True, env=env
+            )
+            batch_ndjson.unlink(missing_ok=True)
+
+            if r.returncode != 0 or not batch_geojson.exists():
+                print(f"\n    ❌ batch {b} misslyckades")
+                log.error("Node.js stderr batch %d: %s", b, r.stderr)
+                batch_geojson.unlink(missing_ok=True)
+                ok = False
+                break
+
+            # GeoJSON (WGS84) → GPkg (EPSG:3006): reprojicera från WGS84
+            r2 = subprocess.run(
+                ["ogr2ogr", "-f", "GPKG", "-t_srs", "EPSG:3006",
+                 str(batch_gpkg), str(batch_geojson)],
                 capture_output=True, text=True
             )
-            raw_geojson.unlink(missing_ok=True)
-            if r.returncode != 0 or not simp_geojson.exists():
-                simp_geojson.unlink(missing_ok=True)
-                continue
+            batch_geojson.unlink(missing_ok=True)
+            if r2.returncode != 0 or not batch_gpkg.exists():
+                print(f"\n    ❌ batch {b} GPkg-konvertering misslyckades")
+                log.error("ogr2ogr batch %d: %s", b, r2.stderr)
+                ok = False
+                break
+            batch_gpkgs.append(batch_gpkg)
+            print(".", end="", flush=True)
 
-            # 4. GeoJSON → GPkg
-            simp_gpkg = Path(f"{base}_simp.gpkg")
-            subprocess.run(
-                ["ogr2ogr", "-f", "GPKG", "-a_srs", "EPSG:3006",
-                 str(simp_gpkg), str(simp_geojson)],
-                capture_output=True
-            )
-            simp_geojson.unlink(missing_ok=True)
-            if simp_gpkg.exists() and simp_gpkg.stat().st_size > 1000:
-                chunk_gpkgs.append(simp_gpkg)
-
-        # 5. Slå ihop alla rad-GPkg till slut-fil
-        output_gpkg = output_path / f"{variant_name}_simplified_p{tolerance}.gpkg"
-        if output_gpkg.exists():
-            output_gpkg.unlink()
-
-        if not chunk_gpkgs:
-            print("❌ inga rader lyckades")
+        if not ok or not batch_gpkgs:
+            for g in batch_gpkgs:
+                g.unlink(missing_ok=True)
+            print(" ❌")
             continue
 
-        subprocess.run(
-            ["ogr2ogr", "-f", "GPKG", str(output_gpkg), str(chunk_gpkgs[0])],
-            capture_output=True
+        # ── Slå ihop batch-GPkg till en enda fil med rätt lagernamn ───────
+        # Första batch skapar filen, sedan -append med -nln för enhetligt lagernamn
+        r0 = subprocess.run(
+            ["ogr2ogr", "-f", "GPKG", "-a_srs", "EPSG:3006",
+             "-nln", variant_name,
+             str(output_gpkg), str(batch_gpkgs[0])],
+            capture_output=True, text=True
         )
-        for c in chunk_gpkgs[1:]:
+        for g in batch_gpkgs[1:]:
             subprocess.run(
-                ["ogr2ogr", "-f", "GPKG", "-update", "-append", str(output_gpkg), str(c)],
-                capture_output=True
+                ["ogr2ogr", "-f", "GPKG", "-update", "-append",
+                 "-nln", variant_name,
+                 str(output_gpkg), str(g)],
+                capture_output=True, text=True
             )
-        for c in chunk_gpkgs:
-            c.unlink(missing_ok=True)
+        for g in batch_gpkgs:
+            g.unlink(missing_ok=True)
 
-        if output_gpkg.exists():
-            sz = output_gpkg.stat().st_size / 1e6
-            print(f"  GeoPackage: {sz:.1f} MB ✓")
-        else:
-            print("❌ merge misslyckades")
+        if not output_gpkg.exists():
+            print(" ❌ sammanslagning misslyckades")
+            continue
 
-    log.info("Simplification complete!")
-    log.info("Output files in: %s", output_path)
+        gpkg_size_mb = output_gpkg.stat().st_size / 1e6
+        print(f" → {gpkg_size_mb:.0f} MB ✓")
+
+    # ── Städa upp ndjson-tempfilen ─────────────────────────────────────────
+    ndjson_file.unlink(missing_ok=True)
+
+    log.info("Förenkling klar!")
+    log.info("Utdata i: %s", output_path)
+
 
 def setup_logging(out_base):
     """Setup logging with step-aware filenames."""
@@ -193,115 +277,6 @@ def setup_logging(out_base):
     
     return log
 
-def simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances=[90, 75, 50, 25, 15], log=None):
-    """
-    Simplify GeoPackage using Mapshaper CLI with topology preservation.
-    Stora filer (> LARGE_FILE_THRESHOLD_MB) delas upp i rader för att undvika
-    Node.js minnesgränsen.
-    """
-
-    if log is None:
-        log = logging.getLogger("pipeline.simplify")
-
-    input_path = Path(input_file)
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    if not input_path.exists():
-        log.error(f"Input file not found: {input_file}")
-        sys.exit(1)
-
-    log.info(f"Input: {input_path}")
-    log.info(f"Output: {output_path}")
-
-    file_size_mb = input_path.stat().st_size / 1e6
-
-    if file_size_mb > LARGE_FILE_THRESHOLD_MB:
-        log.info(f"Simplifying {variant_name} with Mapshaper (chunked, topology-preserving):")
-        log.info(f"(percentage = %% of removable vertices to retain)")
-        _simplify_chunked(input_path, output_path, variant_name, tolerances, log)
-        return
-
-    # ── Liten fil: befintlig metod ──────────────────────────────────────────
-
-    # Convert GeoPackage to GeoJSON for Mapshaper
-    geojson_file = output_path / "temp_input.geojson"
-    log.info(f"Converting GeoPackage to GeoJSON...")
-    ogr_cmd = [
-        "ogr2ogr",
-        "-f", "GeoJSON",
-        str(geojson_file),
-        str(input_path)
-    ]
-    result = subprocess.run(ogr_cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        log.error(f"GeoJSON conversion failed: {result.stderr}")
-        sys.exit(1)
-    log.info(f"GeoJSON created: {geojson_file.stat().st_size / 1024 / 1024:.1f} MB")
-    
-    # Simplify with Mapshaper for each tolerance
-    log.info(f"Simplifying {variant_name} with Mapshaper (topology-preserving):")
-    log.info(f"(percentage = %% of removable vertices to retain)")
-    
-    for tolerance in tolerances:
-        output_geojson = output_path / f"{variant_name}_simplified_p{tolerance}.geojson"
-        output_gpkg = output_path / f"{variant_name}_simplified_p{tolerance}.gpkg"
-        
-        # Mapshaper command with topology preservation
-        # percentage=X retains X% of removable vertices
-        # Higher percentage = less simplification, Lower percentage = more simplification
-        # 90% = minimal simplification, 25% = aggressive simplification
-        mapshaper_cmd = [
-            "mapshaper",
-            str(geojson_file),
-            "-simplify",
-            f"percentage={tolerance}%",  # Keep X% of removable vertices
-            "planar",                     # Use planar projection (2D)
-            "keep-shapes",                # Preserve polygon shapes
-            "-o",
-            "format=geojson",
-            str(output_geojson)
-        ]
-        
-        print(f"  p{tolerance}%: ", end="", flush=True)
-        result = subprocess.run(mapshaper_cmd, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            print(f"❌ Failed")
-            print(f"     Error: {result.stderr}")
-            continue
-        
-        geojson_size = output_geojson.stat().st_size / 1024 / 1024
-        print(f"  GeoJSON: {geojson_size:.1f} MB", end="", flush=True)
-        
-        # Convert back to GeoPackage with correct CRS (EPSG:3006)
-        # The GeoJSON coordinates are already in EPSG:3006, so use -a_srs to assign the CRS
-        ogr_cmd = [
-            "ogr2ogr",
-            "-f", "GPKG",
-            "-a_srs", "EPSG:3006",      # Assign CRS without reprojection
-            str(output_gpkg),
-            str(output_geojson)
-        ]
-        result = subprocess.run(ogr_cmd, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            print(f" ❌ GeoPackage conversion failed")
-            print(f"     stderr: {result.stderr}")
-            print(f"     stdout: {result.stdout}")
-            continue
-        
-        gpkg_size = output_gpkg.stat().st_size / 1024 / 1024
-        print(f" → GeoPackage: {gpkg_size:.1f} MB ✓")
-        
-        # Clean up GeoJSON (only keep final GPKG)
-        output_geojson.unlink()
-    
-    # Clean up temp GeoJSON
-    geojson_file.unlink()
-    
-    log.info(f"Simplification complete!")
-    log.info(f"Output files in: {output_path}")
 
 if __name__ == "__main__":
     # Setup logging with step-aware filename
