@@ -146,7 +146,7 @@ def fill_water_islands(tile_paths: list[Path]) -> list[Path]:
 
 if __name__ == "__main__":
     import os
-    from logging_setup import setup_logging
+    from logging_setup import setup_logging, log_step_header
     
     log  = logging.getLogger("pipeline.debug")
     info = logging.getLogger("pipeline.summary")
@@ -154,6 +154,10 @@ if __name__ == "__main__":
     step_num = os.getenv("STEP_NUMBER")
     step_name = os.getenv("STEP_NAME")
     setup_logging(OUT_BASE, step_num, step_name)
+    
+    log_step_header(info, 4, "Fylla små sjöar",
+                    str(OUT_BASE / "steg3_landscape"),
+                    str(OUT_BASE / "steg4_filled"))
     
     # Läs tiles från Steg 3
     tiles_dir = OUT_BASE / "steg3_landscape"

@@ -1,5 +1,5 @@
 """
-steg_5_generalize.py — Steg 5: Landskapsgeneralisering med halo-teknik.
+steg_6_generalize.py — Steg 6: Landskapsgeneralisering med halo-teknik.
 
 Som pipeline_1024_halo.py men nu som separat steg. Använder halo/överlapp vid generalisering
 för att säkerställa att ytor som korsar tilekanter generaliseras korrekt.
@@ -13,7 +13,7 @@ Nyckelskillnad mot tidigare pipeline:
   - Varje steg läser HALO px extra från granntilesna via VRT.
   - Bara den inre kärnan (utan halo) skrivs till utfilen.
 
-Kör: python3 src/steg_5_generalize.py
+Kör: python3 src/steg_6_generalize.py
 
 Kräver: rasterio, numpy, scipy (i venv) + gdal_sieve.py + gdalbuildvrt (system)
 """
@@ -622,7 +622,7 @@ def step4_fill(tile_paths: list[Path]) -> list[Path]:
 
 def step5_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int):
     label    = f"conn{conn}"
-    out_dir  = OUT_BASE / f"steg5_generalized_{label}"
+    out_dir = OUT_BASE / f"steg6_generalized_{label}"
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step  = time.time()
 
@@ -630,7 +630,7 @@ def step5_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
-    info.info("Steg 4 sieve-%s: %d MMU-steg × %d tiles (halo=%dpx)",
+    info.info("Steg 6 Sieve-%s: %d MMU-steg × %d tiles (halo=%dpx)",
               label, len(MMU_STEPS), len(tile_paths), HALO)
 
     for mmu in MMU_STEPS:
@@ -674,11 +674,11 @@ def step5_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int
         info.info("  %-10s mmu=%3dpx  totalt %9d px ändrade  %.1fs",
                   label, mmu, total_changed, elapsed)
 
-    info.info("Steg 4 sieve-%s KLAR  %.1fs", label, time.time() - t0_step)
+    info.info("Steg 6 Sieve-%s KLAR  %.1fs", label, time.time() - t0_step)
 
 
 def step5_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
-    out_dir = OUT_BASE / "steg5_generalized_modal"
+    out_dir  = OUT_BASE / f"steg6_generalized_modal"
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step = time.time()
 
@@ -686,7 +686,7 @@ def step5_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
-    info.info("Steg 4 modal: %d kernelstorlekar × %d tiles (halo=%dpx)",
+    info.info("Steg 6 Modal: %d kernelstorlekar × %d tiles (halo=%dpx)",
               len(KERNEL_SIZES), len(tile_paths), HALO)
 
     for k in KERNEL_SIZES:
@@ -728,11 +728,11 @@ def step5_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
         info.info("  modal      k=%2d          totalt %9d px ändrade  %.1fs",
                   k, total_changed, elapsed)
 
-    info.info("Steg 4 modal KLAR  %.1fs", time.time() - t0_step)
+    info.info("Steg 6 Modal KLAR  %.1fs", time.time() - t0_step)
 
 
 def step5_semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
-    out_dir = OUT_BASE / "steg5_generalized_semantic"
+    out_dir = OUT_BASE / f"steg6_generalized_semantic"
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step = time.time()
 
@@ -740,7 +740,7 @@ def step5_semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
-    info.info("Steg 4 semantisk: %d MMU-steg × %d tiles (halo=%dpx)",
+    info.info("Steg 6 Semantisk: %d MMU-steg × %d tiles (halo=%dpx)",
               len(MMU_STEPS), len(tile_paths), HALO)
 
     for mmu in MMU_STEPS:
@@ -782,7 +782,7 @@ def step5_semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
         info.info("  semantic   mmu=%3dpx  totalt %9d px ändrade  %.1fs",
                   mmu, total_changed, elapsed)
 
-    info.info("Steg 4 semantisk KLAR  %.1fs", time.time() - t0_step)
+    info.info("Steg 6 Semantisk KLAR  %.1fs", time.time() - t0_step)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -801,8 +801,8 @@ if __name__ == "__main__":
     ts_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     info.info("══════════════════════════════════════════════════════════")
-    info.info("Steg 4: Landskapsgeneralisering (halo-teknik)")
-    info.info("Källbild  : %s", SRC)
+    info.info("Steg 6: Landskapsgeneralisering (halo-teknik)")
+    info.info("Källmapp  : %s", SRC)
     info.info("Utmapp    : %s", OUT_BASE)
     info.info("Halo      : %d px", HALO)
     info.info("Skyddade klasser: %s", sorted(PROTECTED))
@@ -811,16 +811,16 @@ if __name__ == "__main__":
     info.info("Kernelstorlekar (modal): %s", KERNEL_SIZES)
     info.info("══════════════════════════════════════════════════════════")
 
-    info.info("\nSteg 4a: Sieve conn4 (med halo)")
-    # Steg 5 (Generalisering) läser från steg4_filled eller steg4b_islands_filled (efter att små områden togs bort)
-    # Kolla först om steg 4b (fylla öar) kördes
-    landscape_dir = OUT_BASE / "steg4b_islands_filled"
+    info.info("\nSteg 6a: Sieve conn4 (med halo)")
+    # Steg 6 (Generalisering) läser från steg4_filled eller steg5_islands_filled (efter att små områden togs bort)
+    # Kolla först om steg 5 (fylla öar) kördes
+    landscape_dir = OUT_BASE / "steg5_islands_filled"
     if not landscape_dir.exists():
         landscape_dir = OUT_BASE / "steg4_filled"
     
     if not landscape_dir.exists():
-        info.error("❌ Ingen input-katalog hittad. Kör Steg 1-4 först (eller Steg 4b).")
-        raise FileNotFoundError(f"Varken steg4_filled/ eller steg4b_islands_filled/")
+        info.error("❌ Ingen input-katalog hittad. Kör Steg 1-5 först.")
+        raise FileNotFoundError(f"Varken steg4_filled/ eller steg5_islands_filled/")
     
     landscape_paths = sorted(landscape_dir.glob("*.tif"))
     tile_paths = sorted((OUT_BASE / "steg1_tiles").glob("*.tif")) if (OUT_BASE / "steg1_tiles").exists() else []
@@ -838,6 +838,6 @@ if __name__ == "__main__":
 
     elapsed = time.time() - t_total
     info.info("══════════════════════════════════════════════════════════")
-    info.info("Steg 4 KLAR  totaltid: %.0fs (%.1f min)", elapsed, elapsed / 60)
+    info.info("Steg 6 KLAR  totaltid: %.0fs (%.1f min)", elapsed, elapsed / 60)
     info.info("Utdata: %s", OUT_BASE)
     info.info("════════════════════════════════════════════════════════════")

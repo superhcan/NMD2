@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-steg_4b_filter_lakes.py — Steg 4b (valfritt): Fyller små landöar < MMU_ISLAND px omringade av vatten.
+steg_5_filter_lakes.py — Steg 5 (valfritt): Fyller små landöar < MMU_ISLAND px omringade av vatten.
 
 En "ö" är ett sammanhängande landområde (klass ≠ 61, 62) vars samtliga grannar
 (ortogonalt, konnektivitet 4) är vatten (61, 62). Ersätts med dominant vattenklass.
 
 Körs efter steg 4 (filled/) för att rensa upp små landöar i sjöar innan generalisering.
 
-Kör: python3 src/steg_4b_fill_islands.py
+Kör: python3 src/steg_5_filter_lakes.py
 """
 
 import logging
@@ -80,12 +80,12 @@ def fill_small_islands(data: np.ndarray, water_classes: set, mmu: int) -> tuple[
 def fill_islands(tile_paths: list[Path]) -> list[Path]:
     """Fyller landöar < MMU_ISLAND px omringade av vatten i alla tiles."""
     t0_step = time.time()
-    out_dir = OUT_BASE / "steg4b_islands_filled"
+    out_dir = OUT_BASE / "steg5_islands_filled"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths = []
     total_islands = 0
     
-    info.info("Steg 4b: Fyller små landöar < %d px (%.2f ha) omringade av vatten ...",
+    info.info("Steg 5: Fyller små landöar < %d px (%.2f ha) omringade av vatten ...",
               MMU_ISLAND, MMU_ISLAND * 100 / 10000)
     
     for tile in tile_paths:
@@ -118,13 +118,13 @@ def fill_islands(tile_paths: list[Path]) -> list[Path]:
         
         result_paths.append(out_path)
     
-    info.info("Steg 4b klar: totalt %d öar fyllda  %.1fs",
+    info.info("Steg 5 klar: totalt %d öar fyllda  %.1fs",
               total_islands, time.time() - t0_step)
     
     return result_paths
 
 if __name__ == "__main__":
-    from logging_setup import setup_logging
+    from logging_setup import setup_logging, log_step_header
     log  = logging.getLogger("pipeline.debug")
     info = logging.getLogger("pipeline.summary")
     
@@ -132,6 +132,10 @@ if __name__ == "__main__":
     step_num = os.getenv("STEP_NUMBER")
     step_name = os.getenv("STEP_NAME")
     setup_logging(OUT_BASE, step_num, step_name)
+    
+    log_step_header(info, 5, "Fylla små landöar",
+                    str(OUT_BASE / "steg4_filled"),
+                    str(OUT_BASE / "steg5_islands_filled"))
     
     # Läs tiles från Steg 4 (steg4_filled/)
     filled_dir = OUT_BASE / "steg4_filled"
@@ -143,4 +147,4 @@ if __name__ == "__main__":
     print(f"Hittade {len(tile_paths)} tiles från Steg 4")
     
     result_paths = fill_islands(tile_paths)
-    print(f"Steg 4b klar: {len(result_paths)} lager bearbetade")
+    print(f"Steg 5 klar: {len(result_paths)} lager bearbetade")

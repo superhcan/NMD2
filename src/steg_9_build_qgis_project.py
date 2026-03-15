@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-steg_8_build_qgis_project.py — Steg 9: Bygg QGIS-projekt från alla steg.
+steg_9_build_qgis_project.py — Steg 9: Bygg QGIS-projekt från alla steg.
 
 Läser generaliserad data från alla tidigare steg (1-8) och bygger ett komplett
 QGIS-projekt med alla lager organiserade i grupper.
 
-Kör: python3 src/steg_8_build_qgis_project.py
+Kör: python3 src/steg_9_build_qgis_project.py
 
 Kräver: QGIS installerat (qgis.core)
 """
@@ -97,14 +97,16 @@ def build_qgis_project():
     """Bygg QGIS-projekt med alla steg."""
     
     # Skapa steg8-katalog
-    output_dir = OUT_BASE / "steg8_qgis_project"
+    output_dir = OUT_BASE / "steg9_qgis_project"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     project_path = output_dir / "Pipeline.qgs"
     
-    log.info("═" * 70)
-    log.info("Steg 8: Bygger QGIS-projekt från alla generer lager")
-    log.info("═" * 70)
+    log.info("══════════════════════════════════════════════════════════")
+    log.info("Steg 9: Bygga QGIS-projekt från alla generaliserade lager")
+    log.info("Källmapp : %s", OUT_BASE)
+    log.info("Utmapp   : %s", output_dir)
+    log.info("══════════════════════════════════════════════════════════")
     
     # Öppna eller skapa projekt
     log.info(f"\nÖppnar projekt: {project_path.name}")
@@ -131,10 +133,10 @@ def build_qgis_project():
     # Uppdaterad för ny numrering: steg 1-9 (tidigare 1-8)
     steps = [
         (9, "Steg 9 - QGIS-projekt", None),  # Denna steg - ingen egen katalog
-        (8, "Steg 8 - Förenklad (Mapshaper)", OUT_BASE / "steg7_simplified"),
-        (7, "Steg 7 - Vektoriserad", OUT_BASE / "steg6_vectorized"),
-        (6, "Steg 6 - Generaliserad", OUT_BASE / "steg5_generalized_modal"),
-        (5, "Steg 5 - Fylld öar", OUT_BASE / "steg4b_islands_filled"),
+        (8, "Steg 8 - Förenklad (Mapshaper)", OUT_BASE / "steg8_simplified"),
+        (7, "Steg 7 - Vektoriserad", OUT_BASE / "steg7_vectorized"),
+        (6, "Steg 6 - Generaliserad", OUT_BASE / "steg6_generalized_modal"),
+        (5, "Steg 5 - Fylld öar", OUT_BASE / "steg5_islands_filled"),
         (4, "Steg 4 - Fyllda sjöar", OUT_BASE / "steg4_filled"),
         (3, "Steg 3 - Landskapsbild", OUT_BASE / "steg3_landscape"),
         (2, "Steg 2 - Skyddade klasser", OUT_BASE / "steg2_protected"),
@@ -164,7 +166,7 @@ def build_qgis_project():
             methods = ["conn4", "conn8", "modal", "semantic"]
             
             for method in methods:
-                method_dir = step_dir.parent / f"steg5_generalized_{method}"
+                method_dir = step_dir.parent / f"steg6_generalized_{method}"
                 if not method_dir.exists():
                     log.debug(f"  Metodkatalog saknas: {method_dir.name}")
                     continue
@@ -247,6 +249,78 @@ def build_qgis_project():
                 
                 log.info(f"  {step_name:45s} {method.upper():6s} ({len(layer_files)} lager totalt)\n")
         
+        # Speciell hantering för Steg 8 – skapa sub_groups för varje variant + tolerance
+        elif step_num == 8:
+            # Läs GPKG-filer från steg8_simplified
+            layer_files = sorted(step_dir.glob("*.gpkg"))
+            
+            if not layer_files:
+                log.warning(f"⚠️  {step_name:40s} – inga filer hittade")
+                continue
+            
+            # Identifiera unika varianter (conn4_mmu008, conn8_mmu008, modal_k15)
+            variants_dict = {}
+            for layer_file in layer_files:
+                layer_name = layer_file.stem
+                # Exempel: conn4_mmu008_simplified_p90
+                # Extrahera variant: conn4_mmu008, conn8_mmu008, modal_k15
+                parts = layer_name.split("_simplified_")
+                if len(parts) == 2:
+                    variant = parts[0]  # conn4_mmu008, etc
+                    tolerance = parts[1]  # p90, p75, etc
+                    if variant not in variants_dict:
+                        variants_dict[variant] = []
+                    variants_dict[variant].append((tolerance, layer_file))
+            
+            # Lägg till lager grupperat per variant och tolerance
+            for variant in sorted(variants_dict.keys()):
+                # Skapa sub_group för variant
+                variant_label = variant.replace("_", " ").upper()  # CONN4 MMU008, etc
+                variant_group = QgsLayerTreeGroup(f"Förenklad ({variant_label})")
+                variant_group.setExpanded(False)
+                group.addChildNode(variant_group)
+                
+                # Sortera tolerances: p90, p75, p50, p25, p15 (fallande aggression)
+                tolerance_dict = {}
+                for tolerance, layer_file in variants_dict[variant]:
+                    if tolerance not in tolerance_dict:
+                        tolerance_dict[tolerance] = []
+                    tolerance_dict[tolerance].append(layer_file)
+                
+                # Ordning: p90 (överst/minimal) → p15 (underst/aggressiv)
+                tolerance_order = ["p90", "p75", "p50", "p25", "p15"]
+                for tolerance in tolerance_order:
+                    if tolerance not in tolerance_dict:
+                        continue
+                    
+                    # Skapa sub_sub_group för tolerance
+                    tolerance_group = QgsLayerTreeGroup(tolerance)
+                    tolerance_group.setExpanded(False)
+                    variant_group.addChildNode(tolerance_group)
+                    
+                    # Lägg till lager för denna tolerance
+                    for layer_file in tolerance_dict[tolerance]:
+                        layer_name = layer_file.stem
+                        try:
+                            layer = QgsVectorLayer(str(layer_file), layer_name, "ogr")
+                            if not layer.isValid():
+                                log.debug(f"  ✗ {layer_name:45s} (ej giltig)")
+                                continue
+                            
+                            project.addMapLayer(layer, addToLegend=False)
+                            tree_layer = QgsLayerTreeLayer(layer)
+                            tree_layer.setExpanded(False)
+                            tolerance_group.addChildNode(tree_layer)
+                            
+                            log.info(f"  ✓ {layer_name:45s}")
+                            total_layers += 1
+                            
+                        except Exception as e:
+                            log.warning(f"  ✗ {layer_name:45s} ({e})")
+                            continue
+                
+                log.info(f"  {variant_label:45s} ({len(variants_dict[variant])} lager totalt)\n")
+        
         else:
             # Standard-hantering för andra steg
             # Bestäm filtyp
@@ -318,12 +392,11 @@ def build_qgis_project():
     size_kb = project_path.stat().st_size / 1024
     
     log.info("")
-    log.info("═" * 70)
-    log.info(f"✅ Steg 9 KLART")
-    log.info(f"   Projekt: {project_path.name} ({size_kb:.1f} KB)")
-    log.info(f"   Totalt lager: {total_layers}")
-    log.info(f"   Ordning: Steg 8 (top) → Steg 1 (bottom)")
-    log.info("═" * 70)
+    log.info("══════════════════════════════════════════════════════════")
+    log.info(f"Steg 9 KLAR")
+    log.info(f"Projekt: {project_path.name} ({size_kb:.1f} KB)")
+    log.info(f"Totalt lager: {total_layers}")
+    log.info("══════════════════════════════════════════════════════════")
     
     return True
 

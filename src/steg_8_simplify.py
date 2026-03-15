@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """
-steg_7_simplify.py — Steg 7: Mapshaper-baserad vektorförenkling med topologibevarand.
+steg_8_simplify.py — Steg 8: Mapshaper-baserad vektorförenkling med topologibevarand.
 
-Läser vektoriserade GeoPackage-filer från Steg 6 och förenklar dem med Mapshaper CLI
+Läser vektoriserade GeoPackage-filer från Steg 7 och förenklar dem med Mapshaper CLI
 med topologibevarand (shared arcs istället för individ polygoner).
 
-Kör: python3 src/steg_7_simplify.py
+Processas:
+  - generalized_conn4_mmu008.gpkg
+  - generalized_conn8_mmu008.gpkg
+  - generalized_modal_k15.gpkg
+
+Tolerances: [90, 75, 50, 25, 15]% of removable vertices to retain
+
+Kör: python3 src/steg_8_simplify.py
 
 Kräver: Mapshaper installerat och i PATH
 	npm install -g mapshaper
@@ -70,15 +77,16 @@ def setup_logging(out_base):
     
     return log
 
-def simplify_with_mapshaper(input_file, output_dir, tolerances=[90, 75, 50, 25], log=None):
+def simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances=[90, 75, 50, 25, 15], log=None):
     """
     Simplify GeoPackage using Mapshaper CLI with topology preservation.
     
     Args:
         input_file: Path to input GeoPackage
         output_dir: Directory for output files
+        variant_name: Name of variant (e.g. 'conn4_mmu008', 'conn8_mmu008', 'modal_k15')
         tolerances: List of percentage values (% of removable vertices to retain)
-                   90% = minimal simplification, 25% = aggressive simplification
+                   90% = minimal simplification, 15% = very aggressive
         log: Logger instance
     """
     
@@ -121,12 +129,12 @@ def simplify_with_mapshaper(input_file, output_dir, tolerances=[90, 75, 50, 25],
     log.info(f"GeoJSON created: {geojson_file.stat().st_size / 1024 / 1024:.1f} MB")
     
     # Simplify with Mapshaper for each tolerance
-    log.info(f"Simplifying with Mapshaper (topology-preserving):")
+    log.info(f"Simplifying {variant_name} with Mapshaper (topology-preserving):")
     log.info(f"(percentage = %% of removable vertices to retain)")
     
     for tolerance in tolerances:
-        output_geojson = output_path / f"modal_k15_simplified_p{tolerance}.geojson"
-        output_gpkg = output_path / f"modal_k15_simplified_p{tolerance}.gpkg"
+        output_geojson = output_path / f"{variant_name}_simplified_p{tolerance}.geojson"
+        output_gpkg = output_path / f"{variant_name}_simplified_p{tolerance}.gpkg"
         
         # Mapshaper command with topology preservation
         # percentage=X retains X% of removable vertices
@@ -188,8 +196,39 @@ if __name__ == "__main__":
     # Setup logging with step-aware filename
     log = setup_logging(OUT_BASE)
     
-    # Get paths
-    input_file = OUT_BASE / "steg6_vectorized" / "generalized_modal_k15.gpkg"
-    output_dir = OUT_BASE / "steg7_simplified"
+    log.info("══════════════════════════════════════════════════════════")
+    log.info("Steg 8: Mapshaper-förenkling av vektoriserade data")
+    log.info("Källmapp : %s", OUT_BASE / "steg7_vectorized")
+    log.info("Utmapp   : %s", OUT_BASE / "steg8_simplified")
+    log.info("══════════════════════════════════════════════════════════")
     
-    simplify_with_mapshaper(input_file, output_dir, log=log)
+    output_dir = OUT_BASE / "steg8_simplified"
+    tolerances = [90, 75, 50, 25, 15]  # Updated: added p15
+    
+    # Process CONN4 MMU008
+    input_file = OUT_BASE / "steg7_vectorized" / "generalized_conn4_mmu008.gpkg"
+    if input_file.exists():
+        log.info(f"\n➤ CONN4 MMU008")
+        simplify_with_mapshaper(input_file, output_dir, "conn4_mmu008", tolerances, log)
+    else:
+        log.warning(f"Skipped (not found): {input_file.name}")
+    
+    # Process CONN8 MMU008
+    input_file = OUT_BASE / "steg7_vectorized" / "generalized_conn8_mmu008.gpkg"
+    if input_file.exists():
+        log.info(f"\n➤ CONN8 MMU008")
+        simplify_with_mapshaper(input_file, output_dir, "conn8_mmu008", tolerances, log)
+    else:
+        log.warning(f"Skipped (not found): {input_file.name}")
+    
+    # Process MODAL K15
+    input_file = OUT_BASE / "steg7_vectorized" / "generalized_modal_k15.gpkg"
+    if input_file.exists():
+        log.info(f"\n➤ MODAL K15")
+        simplify_with_mapshaper(input_file, output_dir, "modal_k15", tolerances, log)
+    else:
+        log.warning(f"Skipped (not found): {input_file.name}")
+    
+    log.info("\n══════════════════════════════════════════════════════════")
+    log.info(f"Steg 8 KLAR: Output i {output_dir}")
+    log.info("══════════════════════════════════════════════════════════")

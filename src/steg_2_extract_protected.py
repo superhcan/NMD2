@@ -80,13 +80,17 @@ def extract_protected_classes(tile_paths: list[Path]) -> list[Path]:
 
 if __name__ == "__main__":
     import os
-    from logging_setup import setup_logging
+    from logging_setup import setup_logging, log_step_header
     log  = logging.getLogger("pipeline.debug")
     info = logging.getLogger("pipeline.summary")
     
     step_num = os.getenv("STEP_NUMBER")
     step_name = os.getenv("STEP_NAME")
     setup_logging(OUT_BASE, step_num, step_name)
+    
+    log_step_header(info, 2, "Extrahera skyddade klasser", 
+                    str(OUT_BASE / "steg1_tiles"), 
+                    str(OUT_BASE / "steg2_protected"))
     
     # Läs tiles från Steg 1
     tiles_dir = OUT_BASE / "steg1_tiles"

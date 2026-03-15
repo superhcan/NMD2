@@ -72,6 +72,25 @@ def setup_logging(out_base: Path, step_num: int = None, step_name: str = None):
     console_handler.setFormatter(fmt_summary)
     summary.addHandler(console_handler)
     
-    summary.info(f"Pipeline startat")
+    summary.info("Pipeline startat")
     summary.info(f"Debug-logg: {debug_log}")
     summary.info(f"Summary-logg: {summary_log}")
+
+
+def log_step_header(logger, step_num: int, step_name: str, source: str = None, output: str = None):
+    """Log a standardized step header with separator lines.
+    
+    Args:
+        logger: Logger instance (pipeline.summary)
+        step_num: Step number (1-9)
+        step_name: Step description
+        source: Source directory path (optional)
+        output: Output directory path (optional)
+    """
+    logger.info("══════════════════════════════════════════════════════════")
+    logger.info(f"Steg {step_num}: {step_name}")
+    if source:
+        logger.info(f"Källmapp : {source}")
+    if output:
+        logger.info(f"Utmapp   : {output}")
+    logger.info("══════════════════════════════════════════════════════════")

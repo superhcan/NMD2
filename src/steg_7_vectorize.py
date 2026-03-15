@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """
-steg_6_vectorize.py — Steg 6: Vektorisering av generaliserat raster.
+steg_7_vectorize.py — Steg 7: Vektorisering av generaliserat raster.
 
-Läser generaliserade raster från Steg 5 (sieve, modal, semantic, semantic) 
+Läser generaliserade raster från Steg 6 (CONN4, CONN8, modal, semantic) 
 och konverterar dem till GeoPackage-vektorer med GDAL.
 
-Kör: python3 src/steg_6_vectorize.py
+Processas:
+  - CONN4 MMU008
+  - CONN8 MMU008
+  - MODAL K15
+
+Kör: python3 src/steg_7_vectorize.py
 
 Kräver: GDAL/OGR, rasterio, shapely
 """
@@ -70,13 +75,13 @@ def _setup_logging(out_base):
     return log
 
 PIPE = OUT_BASE
-OUT = PIPE / "steg6_vectorized"
+OUT = PIPE / "steg7_vectorized"
 LN = "markslag"
 
 def vectorize_sieve(conn):
     log = logging.getLogger("pipeline.vectorize")
     method = f"conn{conn}"
-    in_dir = PIPE / f"steg5_generalized_{method}"
+    in_dir = PIPE / f"steg6_generalized_{method}"
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))
@@ -86,7 +91,9 @@ def vectorize_sieve(conn):
         if m:
             mmu_set.add(int(m.group(1)))
     for mmu in sorted(mmu_set):
-        if mmu < 16:  # Skip small MMU values
+        if mmu == 8:  # Only process mmu008 for CONN variants
+            pass
+        else:
             continue
         mmu_str = f"{mmu:03d}"
         mmu_ha = mmu * 100 / 10000
@@ -110,7 +117,7 @@ def vectorize_sieve(conn):
 
 def vectorize_modal():
     log = logging.getLogger("pipeline.vectorize")
-    in_dir = PIPE / "steg5_generalized_modal"
+    in_dir = PIPE / "steg6_generalized_modal"
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))
@@ -144,7 +151,7 @@ def vectorize_modal():
 
 def vectorize_semantic():
     log = logging.getLogger("pipeline.vectorize")
-    in_dir = PIPE / "steg5_generalized_semantic"
+    in_dir = PIPE / "steg6_generalized_semantic"
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))
@@ -180,16 +187,22 @@ if __name__ == "__main__":
     t0 = time.time()
     
     log.info("══════════════════════════════════════════════════════════")
-    log.info("Vektorisering av pipeline_1024_halo-resultat")
-    log.info("Källmapp: %s", PIPE)
-    log.info("Utmapp  : %s", OUT)
+    log.info("Steg 7: Vektorisering av generaliserat raster")
+    log.info("Källmapp : %s", PIPE)
+    log.info("Utmapp   : %s", OUT)
     log.info("══════════════════════════════════════════════════════════")
+    
+    log.info("\nCONN4 (mmu008)")
+    vectorize_sieve(4)
+    
+    log.info("\nCONN8 (mmu008)")
+    vectorize_sieve(8)
     
     log.info("\nModal filter k15")
     vectorize_modal()
     
     elapsed = time.time() - t0
     log.info("══════════════════════════════════════════════════════════")
-    log.info("KLAR: %.0fs (%.1f min)", elapsed, elapsed / 60)
+    log.info("Steg 7 KLAR: %.0fs (%.1f min)", elapsed, elapsed / 60)
     log.info("GeoPackage-filer: %s", OUT)
     log.info("══════════════════════════════════════════════════════════")

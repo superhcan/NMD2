@@ -27,19 +27,19 @@ All aktiv pipeline-kod läggs här. Pipeline är organiserad som **separata steg
 - **`steg_4_fill_islands.py`** - Tar bort små sjöar < 1 ha från landskapsbild och fyller med omgivande värden (< 100 pixlar)
 
 **Steg 5: Fylla små öar** (valfritt)
-- **`steg_4b_filter_lakes.py`** - Fyller landöar < 1 ha helt omringade av vatten med dominant vattenklass
+- **`steg_5_filter_lakes.py`** - Fyller landöar < 1 ha helt omringade av vatten med dominant vattenklass
 
 **Steg 6: Generalisering**
-- **`steg_5_generalize.py`** - Generaliserar med 4 metoder (sieve conn4/8, modal, semantic) och halo-teknik
+- **`steg_6_generalize.py`** - Generaliserar med 4 metoder (CONN4, CONN8, modal, semantic) och halo-teknik
 
 **Steg 7: Vektorisering**
-- **`steg_6_vectorize.py`** - Konverterar generaliserade raster till GeoPackage-vektorer (20,624 polygoner)
+- **`steg_7_vectorize.py`** - Konverterar generaliserade raster till GeoPackage-vektorer (CONN4 MMU008, CONN8 MMU008, MODAL K15)
 
 **Steg 8: Mapshaper-förenkling**
-- **`steg_7_simplify.py`** - Förenklar vektorer med topologi-bevarad Mapshaper (4 nivåer: p90/p75/p50/p25)
+- **`steg_8_simplify.py`** - Förenklar vektorer med topologi-bevarad Mapshaper (5 nivåer: p90/p75/p50/p25/p15)
 
 **Steg 9: Bygga QGIS-projekt**
-- **`steg_8_build_qgis_project.py`** - Bygger QGIS-projekt från alla steg, organiserar lager i grupper
+- **`steg_9_build_qgis_project.py`** - Bygger QGIS-projekt från alla steg, organiserar lager i sub_groups per variant
 
 ### 🧩 Support & Verktyg
 - **`config.py`** - Centraliserad konfiguration (vägar, parametrar, etc.)
@@ -81,21 +81,21 @@ python3 steg_3_extract_landscape.py
 python3 steg_4_fill_islands.py
 
 # Steg 5 (valfritt): Fylla små öar
-python3 steg_4b_filter_lakes.py
+python3 steg_5_filter_lakes.py
 
 # Steg 6: Generalisering
-python3 steg_5_generalize.py
+python3 steg_6_generalize.py
 
 # Steg 7: Vektorisering
-python3 steg_6_vectorize.py
+python3 steg_7_vectorize.py
 
 # Steg 8: Mapshaper-förenkling
 export NVM_DIR="$HOME/.config/nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-python3 steg_7_simplify.py
+python3 steg_8_simplify.py
 
 # Steg 9: Bygga QGIS-projekt (kräver QGIS installerat)
-python3 steg_8_build_qgis_project.py
+python3 steg_9_build_qgis_project.py
 ```
 
 ---

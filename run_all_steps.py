@@ -7,11 +7,11 @@ Kör alla 9 steg i rätt ordning:
   Steg 2: Extrahera skyddade klasser (steg_2_extract_protected.py)
   Steg 3: Extrahera landskapsbild (steg_3_extract_landscape.py)
   Steg 4: Ta bort små sjöar < 1 ha (steg_4_fill_islands.py)
-  Steg 5: Fylla små öar omringade av vatten (steg_4b_filter_lakes.py) [VALFRITT]
-  Steg 6: Generalisering (steg_5_generalize.py)
-  Steg 7: Vektorisering (steg_6_vectorize.py)
-  Steg 8: Mapshaper-förenkling (steg_7_simplify.py)
-  Steg 9: Bygga QGIS-projekt (steg_8_build_qgis_project.py)
+  Steg 5: Fylla små öar omringade av vatten (steg_5_filter_lakes.py) [VALFRITT]
+  Steg 6: Generalisering (steg_6_generalize.py)
+  Steg 7: Vektorisering (steg_7_vectorize.py)
+  Steg 8: Mapshaper-förenkling (steg_8_simplify.py)
+  Steg 9: Bygga QGIS-projekt (steg_9_build_qgis_project.py)
 
 Användning:
   python3 run_all_steps.py              # Kör alla steg
@@ -79,34 +79,34 @@ STEPS = {
     },
     5: {
         "name": "Fylla små öar",
-        "script": "steg_4b_filter_lakes.py",
+        "script": "steg_5_filter_lakes.py",
         "description": "Fyller små landöar < 1 ha omringade av vatten",
         "requires_dir": "steg4_filled",
         "optional": True
     },
     6: {
         "name": "Generalisering",
-        "script": "steg_5_generalize.py",
+        "script": "steg_6_generalize.py",
         "description": "Generaliserar landskapsbild med sieve, modal, semantic och halo-teknik",
-        "requires_dir": None  # Kan läsa från steg4_filled eller steg4b_islands_filled
+        "requires_dir": None  # Kan läsa från steg4_filled eller steg5_islands_filled
     },
     7: {
         "name": "Vektorisering",
-        "script": "steg_6_vectorize.py",
+        "script": "steg_7_vectorize.py",
         "description": "Konverterar generaliserade raster till GeoPackage-vektorer",
-        "requires_dir": "steg5_generalized_modal"
+        "requires_dir": "steg6_generalized_modal"
     },
     8: {
         "name": "Mapshaper-förenkling",
-        "script": "steg_7_simplify.py",
+        "script": "steg_8_simplify.py",
         "description": "Förenklar vektorer med topologi-bevarad Mapshaper",
-        "requires_dir": "steg6_vectorized"
+        "requires_dir": "steg7_vectorized"
     },
     9: {
         "name": "Bygga QGIS-projekt",
-        "script": "steg_8_build_qgis_project.py",
+        "script": "steg_9_build_qgis_project.py",
         "description": "Bygger QGIS-projekt med alla steg organiserade i grupper",
-        "requires_dir": "steg7_simplified"
+        "requires_dir": "steg8_simplified"
     }
 }
 

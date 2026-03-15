@@ -18,21 +18,23 @@ Följande steg är nu **helt separerade** och kan köras oberoende:
 | 2 | `steg_2_extract_protected.py` | ✅ Separat | tiles/ → protected/ (vägar, byggnader, vatten) |
 | 3 | `steg_3_extract_landscape.py` | ✅ Separat | tiles/ → landscape/ (ersätter vägar/byggnader) |
 | 4 | `steg_4_fill_islands.py` | ✅ Separat | landscape/ → filled/ (tar bort små sjöar < 1 ha) |
-| 5 | `steg_4b_filter_lakes.py` | ✅ Separat (valfritt) | filled/ → islands_filled/ (fyller öar omringade av vatten) |
-| 6 | `steg_5_generalize.py` | ✅ Separat | landscape/ → generalized/ (sieve, modal, semantic + halo) |
-| 7 | `steg_6_vectorize.py` | ✅ Separat | generalized/ → vectorized/ (raster → GeoPackage) |
-| 8 | `steg_7_simplify.py` | ✅ Separat | vectorized/ → simplified/ (Mapshaper-förenkling) |
-| 9 | `steg_8_build_qgis_project.py` | ✅ Separat | simplified/ → Pipeline.qgs (QGIS-projekt) |
+| 5 | `steg_5_filter_lakes.py` | ✅ Separat (valfritt) | filled/ → islands_filled/ (fyller öar omringade av vatten) |
+| 6 | `steg_6_generalize.py` | ✅ Separat | filled/ → generalized/ (CONN4/CONN8/modal/semantic + halo) |
+| 7 | `steg_7_vectorize.py` | ✅ Separat | generalized/ → vectorized/ (raster → GeoPackage: CONN4, CONN8, MODAL) |
+| 8 | `steg_8_simplify.py` | ✅ Separat | vectorized/ → simplified/ (Mapshaper: p90/p75/p50/p25/p15) |
+| 9 | `steg_9_build_qgis_project.py` | ✅ Separat | simplified/ → Pipeline.qgs (QGIS-projekt med sub_groups) |
 
 **Orkestrering**: Alla steg 1-9 kan köras via [`run_all_steps.py`](../run_all_steps.py) orchestrator.
 
 ---
 
-## 🎯 Framtida Plan: Fullständig Separation
+## 🎯 Moderniseringsstatus
 
-**Nästa fas** (ej implementerad ännu):
-1. Extrahera `steg_5_generalize.py` → separera Steg 5a-5d i egna filer (valfritt)
-2. Separera Steg 5a-5d i egen fil (`steg_5a_sieve_conn4.py`, etc.) om behövs för bättre modularitet
+**Fullständig**: ✅
+1. ✅ Alla 9 steg separerade i egna filer
+2. ✅ Master orchestrator (`run_all_steps.py`) för linjär körning
+3. ✅ Steg 5 optional marker
+4. ✅ QGIS-projekt generering med sub_groups
 
 Status: ✅ **QGIS-projektet är nu separerat!** (Steg 8)
 

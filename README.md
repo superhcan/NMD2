@@ -1,6 +1,6 @@
 # NMD2 2023 Landskapsförenkling Pipeline
 
-**Status:** Komplett (8 steg) ✅ | Pipeline modernisering: ~70% färdig
+**Status:** Komplett (9 steg) ✅ | Pipeline modernisering: ~95% färdig
 
 ---
 
@@ -12,12 +12,12 @@
 cd /home/hcn/projects/NMD2
 source .venv/bin/activate
 
-# Kör alla 8 steg via orchestrator
+# Kör alla 9 steg via orchestrator
 python3 run_all_steps.py
 
 # Eller bara vissa steg
 python3 run_all_steps.py --step 1 4    # Bara steg 1-4
-python3 run_all_steps.py --step 5 8    # Bara steg 5-8 (generalisering-QGIS)
+python3 run_all_steps.py --step 6 9    # Bara steg 6-9 (generalisering-QGIS)
 python3 run_all_steps.py --list        # Visa alla steg
 ```
 
@@ -33,29 +33,30 @@ cd src
 python3 steg_1_split_tiles.py
 python3 steg_2_extract_protected.py
 python3 steg_3_extract_landscape.py
-python3 steg_4a_fill_islands.py
+python3 steg_4_fill_islands.py
 
-# Steg 5-8: Generalisering å QGIS
-python3 steg_5_generalize.py
-python3 steg_6_vectorize.py
-python3 steg_7_simplify.py
-python3 steg_8_build_qgis_project.py
+# Steg 5-9: Generalisering & QGIS
+python3 steg_5_filter_lakes.py        # [VALFRITT] Fylla öar
+python3 steg_6_generalize.py
+python3 steg_7_vectorize.py
+python3 steg_8_simplify.py
+python3 steg_9_build_qgis_project.py
 ```
 
 ---
 
-## 📂 Projektstruktur - 8 Steg
+## 📂 Projektstruktur - 9 Steg
 
 **Nya separata steg-filer (i ordning):**
 - `steg_1_split_tiles.py` — Tileluppdelning (1024×1024 px)
 - `steg_2_extract_protected.py` — Extrahera skyddade klasser
 - `steg_3_extract_landscape.py` — Extrahera landskapsbild
-- `steg_4a_fill_islands.py` — Fyll små öar
-- `steg_4b_filter_lakes.py` — Filtrera små sjöar (valfritt)
-- `steg_5_generalize.py` — Generalisering (sieve, modal, semantic)
-- `steg_6_vectorize.py` — Vektorisering
-- `steg_7_simplify.py` — Mapshaper-förenkling
-- `steg_8_build_qgis_project.py` — Bygga QGIS-projekt (NYT steg!)
+- `steg_4_fill_islands.py` — Ta bort små sjöar
+- `steg_5_filter_lakes.py` — Fylla små öar [VALFRITT]
+- `steg_6_generalize.py` — Generalisering (CONN4, CONN8, modal, semantic)
+- `steg_7_vectorize.py` — Vektorisering (CONN4, CONN8, MODAL)
+- `steg_8_simplify.py` — Mapshaper-förenkling (p90/p75/p50/p25/p15)
+- `steg_9_build_qgis_project.py` — Bygga QGIS-projekt med sub_groups
 
 Se [ARKITEKTUR.md](ARKITEKTUR.md) för detaljgranskning av moderniseringsstatusen.
 
