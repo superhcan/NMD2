@@ -49,15 +49,6 @@ if __name__ == "__main__":
 - `info.info("Steg 4: Tar bort små sjöar < %d px (%.2f ha) och fyller med omkringliggande ...", ...)`
 
 ---
-
-### Steg 4alt: steg_4_generalize.py (DENNA ÄR FAKTISKT STEG 6!)
-**Setup-funktion:** `_setup_logging()` (eget implementerat)  
-**Separator lines:** ✅ **JA** - Dubbelrad separator: `"══════════════════════════════════════════════════════════"`  
-**__main__ Loggning:**
-```python
-if __name__ == "__main__":
-    OUT_BASE.mkdir(parents=True, exist_ok=True)
-    _setup_logging(OUT_BASE)
     log  = _LOGGERS["debug"]
     info = _LOGGERS["summary"]
     
@@ -236,5 +227,5 @@ if __name__ == "__main__":
 
 ### Felaktigheter i Koden:
 - **Steg 9:** Rubrik säger "Steg 8" men är faktiskt Steg 9 (`log.info("Steg 8: Bygger QGIS-projekt...")`)
-- **Steg 4alt (steg_4_generalize.py):** Denna är faktiskt Steg 6 (generalisering), inte Steg 4
+  - ⚠️ FIXAD i senare versioner
 
