@@ -47,8 +47,8 @@ _LOGGERS = {}
 
 def _setup_logging(out_base: Path):
     """Skapar två loggfiler:
-      debug   – alla level (DEBUG+)  → log/debug_<ts>.log
-      summary – INFO+                → summary/summary_<ts>.log + console
+      debug   – alla level (DEBUG+)  → log/debug_ts.log
+      summary – INFO+                → summary/summary_ts.log + console
     """
     log_dir = out_base / "log"
     summary_dir = out_base / "summary"
