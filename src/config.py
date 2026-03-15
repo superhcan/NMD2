@@ -17,7 +17,7 @@ SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.ti
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_1024_halo_v7"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_v9"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
@@ -129,7 +129,7 @@ MMU_STEPS    = [2, 4, 8, 16, 32, 64, 100]
 #   - Kernel måste pågå helt inom tile + HALO område
 #   - Begränsning: k≤(2*HALO+1) för att undvika edge-artefakter
 #
-KERNEL_SIZES = [3, 5, 7, 11, 13, 15]
+KERNEL_SIZES = [3, 7]
 
 # Mapshaper Simplification Tolerances (Steg 8)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -162,14 +162,14 @@ KERNEL_SIZES = [3, 5, 7, 11, 13, 15]
 #   - Använd p15-p5 för extrem förenkling (lätta filer)
 #   - Fler nivåer = längre körtid men bättre att jämföra resultat
 #
-SIMPLIFICATION_TOLERANCES = [90, 75, 50, 25, 15]
+SIMPLIFICATION_TOLERANCES = [25, 15]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PIPELINE CONFIGURATION — Vilka steg ska köras?
 # ══════════════════════════════════════════════════════════════════════════════
 
 ENABLE_STEPS = {
-    1: False,   # Tileluppdelning (hoppa över - tiles finns redan)
+    1: True,   # Tileluppdelning (hoppa över - tiles finns redan)
     2: True,    # Extrahera skyddade klasser
     3: True,    # Extrahera landskapsbild
     4: True,    # Ta bort små sjöar < 1 ha
@@ -192,7 +192,7 @@ ENABLE_STEPS = {
 #   GENERALIZATION_METHODS = {"conn4", "conn8"}            # Bara sieve-metoder
 #
 
-GENERALIZATION_METHODS = {"conn4", "modal"}  # Test: endast conn4 och modal
+GENERALIZATION_METHODS = {"conn8", "modal"}  # Test: endast conn4 och modal
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GDAL & RASTERIO SETTINGS

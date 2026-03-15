@@ -208,7 +208,17 @@ if __name__ == "__main__":
     log.info("Källmapp : %s", vectorized_dir)
     log.info("Utmapp   : %s", output_dir)
     log.info("══════════════════════════════════════════════════════════")
-    
+
+    # Rensa inaktuella gpkg-filer (metoder som tagits bort från config)
+    import shutil
+    from config import GENERALIZATION_METHODS
+    all_methods = {"conn4", "conn8", "modal", "semantic"}
+    if output_dir.exists():
+        for method in all_methods - GENERALIZATION_METHODS:
+            for stale in output_dir.glob(f"{method}_*_simplified_*.gpkg"):
+                stale.unlink()
+                log.info("  Raderat inaktuell fil: %s", stale.name)
+
     # Dynamiskt hämta alla GeoPackage-filer från steg 7 (skapade av de aktiva metoderna)
     if vectorized_dir.exists():
         gpkg_files = sorted(vectorized_dir.glob("generalized_*.gpkg"))

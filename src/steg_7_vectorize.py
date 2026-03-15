@@ -21,7 +21,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from config import OUT_BASE, GENERALIZATION_METHODS
+from config import OUT_BASE, GENERALIZATION_METHODS, MMU_STEPS, KERNEL_SIZES
 
 _LOG = None
 
@@ -95,10 +95,6 @@ def vectorize_sieve(conn):
         if m:
             mmu_set.add(int(m.group(1)))
     for mmu in sorted(mmu_set):
-        if mmu == 8:  # Only process mmu008 for CONN variants
-            pass
-        else:
-            continue
         mmu_str = f"{mmu:03d}"
         mmu_ha = mmu * 100 / 10000
         mmu_tifs = [t for t in tifs if f"mmu{mmu_str}" in t.name]
@@ -131,8 +127,6 @@ def vectorize_modal():
         if m:
             kernel_set.add(int(m.group(1)))
     for k in sorted(kernel_set):
-        if k != 15:  # Only process kernel 15
-            continue
         k_str = f"{k:02d}"
         eff_mmu = k * k // 2
         k_tifs = [t for t in tifs if f"_k{k_str}" in t.name and t.name.endswith('.tif')]
@@ -196,18 +190,46 @@ if __name__ == "__main__":
     log.info("Utmapp   : %s", OUT)
     log.info("Aktiva metoder: %s", sorted(GENERALIZATION_METHODS))
     log.info("══════════════════════════════════════════════════════════")
-    
+
+    # Rensa inaktuella gpkg-filer (metoder som tagits bort från config)
+    import shutil
+    all_methods = {"conn4", "conn8", "modal", "semantic"}
+    for method in all_methods - GENERALIZATION_METHODS:
+        for stale in OUT.glob(f"generalized_{method}_*.gpkg"):
+            stale.unlink()
+            log.info("  Raderat inaktuell metod-fil: %s", stale.name)
+
+    # Rensa gpkg för inaktuella MMU-värden inom aktiva sieve-metoder
+    active_mmu_labels = {f"mmu{mmu:03d}" for mmu in MMU_STEPS}
+    for conn in ("conn4", "conn8"):
+        if conn not in GENERALIZATION_METHODS:
+            continue
+        for gpkg in OUT.glob(f"generalized_{conn}_mmu*.gpkg"):
+            mmu_part = re.search(r'mmu(\d+)', gpkg.stem)
+            if mmu_part and f"mmu{int(mmu_part.group(1)):03d}" not in active_mmu_labels:
+                gpkg.unlink()
+                log.info("  Raderat inaktuell MMU-fil: %s", gpkg.name)
+
+    # Rensa gpkg för inaktuella kernel-värden inom aktiv modal
+    active_k_labels = {f"k{k:02d}" for k in KERNEL_SIZES}
+    if "modal" in GENERALIZATION_METHODS:
+        for gpkg in OUT.glob("generalized_modal_k*.gpkg"):
+            k_part = re.search(r'_k(\d+)', gpkg.stem)
+            if k_part and f"k{int(k_part.group(1)):02d}" not in active_k_labels:
+                gpkg.unlink()
+                log.info("  Raderat inaktuell kernel-fil: %s", gpkg.name)
+
     # Vektorisera endast aktiverade metoder
     if "conn4" in GENERALIZATION_METHODS:
-        log.info("\nCONN4 (mmu008)")
+        log.info("\nCONN4")
         vectorize_sieve(4)
     
     if "conn8" in GENERALIZATION_METHODS:
-        log.info("\nCONN8 (mmu008)")
+        log.info("\nCONN8")
         vectorize_sieve(8)
     
     if "modal" in GENERALIZATION_METHODS:
-        log.info("\nModal filter k15")
+        log.info("\nModal filter")
         vectorize_modal()
     
     if "semantic" in GENERALIZATION_METHODS:

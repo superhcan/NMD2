@@ -16,8 +16,8 @@ steps = [
     (2, "steg_2_extract_protected", "Steg 2: Extrahera skyddade klasser"),
     (3, "steg_3_extract_landscape", "Steg 3: Extrahera landskapsbild"),
     (4, "steg_4_fill_islands", "Steg 4: Fylla små öar och sjöar"),
-    (5, "steg_5_generalize", "Steg 5: Generalisera"),
-    (6, "steg_6_vectorize", "Steg 6: Vektorisera"),
+    (5, "steg_5_filter_lakes", "Steg 5: Filtrera sjöar"),
+    (6, "steg_6_generalize", "Steg 6: Generalisera"),
 ]
 
 project_root = Path("/home/hcn/projects/NMD2")

@@ -670,6 +670,16 @@ def step5_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int
         info.info("  %-10s mmu=%3dpx  totalt %9d px ändrade  %.1fs",
                   label, mmu, total_changed, elapsed)
 
+    # Rensa intermediära filer — behåll bara det högsta MMU-steget
+    last_mmu = max(MMU_STEPS)
+    for tif in out_dir.glob("*.tif"):
+        if f"_mmu{last_mmu:03d}" not in tif.stem:
+            tif.unlink()
+            log.debug("  Rensat intermediate: %s", tif.name)
+    for vrt in out_dir.glob("_vrt_mmu*.vrt"):
+        vrt.unlink()
+    log.debug("  Behåller endast mmu%03d", last_mmu)
+
     info.info("Steg 6 Sieve-%s KLAR  %.1fs", label, time.time() - t0_step)
 
 
@@ -723,6 +733,9 @@ def step5_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
         elapsed  = time.time() - t0
         info.info("  modal      k=%2d          totalt %9d px ändrade  %.1fs",
                   k, total_changed, elapsed)
+
+    for vrt in out_dir.glob("_vrt_k*.vrt"):
+        vrt.unlink()
 
     info.info("Steg 6 Modal KLAR  %.1fs", time.time() - t0_step)
 
@@ -807,6 +820,37 @@ if __name__ == "__main__":
     info.info("Kernelstorlekar (modal): %s", KERNEL_SIZES)
     info.info("Aktiva generaliseringsmetoder: %s", sorted(GENERALIZATION_METHODS))
     info.info("══════════════════════════════════════════════════════════")
+
+    # Rensa inaktuella metod-mappar (metoder som tagits bort från config)
+    import shutil
+    all_methods = {"conn4", "conn8", "modal", "semantic"}
+    for method in all_methods - GENERALIZATION_METHODS:
+        stale_dir = OUT_BASE / f"steg6_generalized_{method}"
+        if stale_dir.exists():
+            shutil.rmtree(stale_dir)
+            info.info("  Raderat inaktuell metod-mapp: %s", stale_dir.name)
+
+    # Rensa inaktuella MMU-filer inom aktiva sieve-mappar
+    active_mmu_labels = {f"_mmu{mmu:03d}" for mmu in MMU_STEPS}
+    for conn in ("conn4", "conn8"):
+        if conn not in GENERALIZATION_METHODS:
+            continue
+        sieve_dir = OUT_BASE / f"steg6_generalized_{conn}"
+        if not sieve_dir.exists():
+            continue
+        for tif in sieve_dir.glob("*.tif"):
+            if not any(lbl in tif.stem for lbl in active_mmu_labels):
+                tif.unlink()
+                info.info("  Raderat inaktuell MMU-fil: %s", tif.name)
+
+    # Rensa inaktuella kernel-filer inom aktiv modal-mapp
+    active_k_labels = {f"_k{k:02d}" for k in KERNEL_SIZES}
+    modal_dir = OUT_BASE / "steg6_generalized_modal"
+    if modal_dir.exists():
+        for tif in modal_dir.glob("*.tif"):
+            if not any(lbl in tif.stem for lbl in active_k_labels):
+                tif.unlink()
+                info.info("  Raderat inaktuell kernel-fil: %s", tif.name)
 
     info.info("\nSteg 6a: Sieve conn4 (med halo)")
     # Steg 6 (Generalisering) läser från steg4_filled eller steg5_islands_filled (efter att små områden togs bort)

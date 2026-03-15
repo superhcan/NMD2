@@ -13,18 +13,17 @@ SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.tif")
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
 
 # Test-outputmapp
-OUT_DIR = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_4tiles_ext/steg1_tiles")
+OUT_DIR = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_4tiles_v8/steg1_tiles")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 TILE_SIZE = 1024
 
-# Välj 4 tiles från längre norrut i Sverige (högre radnummer)
-# Rader 60-61, Kolumner 35-36
+# 4 tiles med riklig landmassa i södra Sverige (matchar PARENT_TILES i config.py)
 TILE_COORDS = [
-    (60, 35),  # Rad 60, Col 35
-    (60, 36),  # Rad 60, Col 36
-    (61, 35),  # Rad 61, Col 35
-    (61, 36),  # Rad 61, Col 36
+    (0, 19),  # Rad 0, Col 19
+    (0, 20),  # Rad 0, Col 20
+    (1, 19),  # Rad 1, Col 19
+    (1, 20),  # Rad 1, Col 20
 ]
 
 print("="*70)
@@ -68,5 +67,5 @@ with rasterio.open(SRC) as src:
 
 print(f"\n✅ 4 test-tiles sparade i: {OUT_DIR}")
 print(f"\nKör pipelinen med:")
-print(f"  export OUT_BASE=/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_4tiles_ext")
-print(f"  python3 run_all_steps.py")
+print(f"  export OUT_BASE=/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_4tiles_v8")
+print(f"  python3 run_test_4tiles_v8.py")

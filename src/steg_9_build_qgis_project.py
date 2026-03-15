@@ -127,6 +127,7 @@ def build_qgis_project():
     
     for child in list(root.children()):
         root.removeChildNode(child)
+    project.removeAllMapLayers()
     
     log.info("✓ Gamla lager rensade\n")
     
@@ -250,77 +251,144 @@ def build_qgis_project():
                 
                 log.info(f"  {step_name:45s} {method.upper():6s} ({len(layer_files)} lager totalt)\n")
         
-        # Speciell hantering för Steg 8 – skapa sub_groups för varje variant + tolerance
-        elif step_num == 8:
-            # Läs GPKG-filer från steg8_simplified
+        # Speciell hantering för Steg 7 – metod → MMU/kernel → lager
+        elif step_num == 7:
             layer_files = sorted(step_dir.glob("*.gpkg"))
-            
             if not layer_files:
                 log.warning(f"⚠️  {step_name:40s} – inga filer hittade")
                 continue
-            
-            # Identifiera unika varianter (conn4_mmu008, conn8_mmu008, modal_k15)
-            variants_dict = {}
-            for layer_file in layer_files:
-                layer_name = layer_file.stem
-                # Exempel: conn4_mmu008_simplified_p90
-                # Extrahera variant: conn4_mmu008, conn8_mmu008, modal_k15
-                parts = layer_name.split("_simplified_")
-                if len(parts) == 2:
-                    variant = parts[0]  # conn4_mmu008, etc
-                    tolerance = parts[1]  # p90, p75, etc
-                    if variant not in variants_dict:
-                        variants_dict[variant] = []
-                    variants_dict[variant].append((tolerance, layer_file))
-            
-            # Lägg till lager grupperat per variant och tolerance
-            for variant in sorted(variants_dict.keys()):
-                # Skapa sub_group för variant
-                variant_label = variant.replace("_", " ").upper()  # CONN4 MMU008, etc
-                variant_group = QgsLayerTreeGroup(f"Förenklad ({variant_label})")
-                variant_group.setExpanded(False)
-                group.addChildNode(variant_group)
-                
-                # Sortera tolerances: p90, p75, p50, p25, p15 (fallande aggression)
-                tolerance_dict = {}
-                for tolerance, layer_file in variants_dict[variant]:
-                    if tolerance not in tolerance_dict:
-                        tolerance_dict[tolerance] = []
-                    tolerance_dict[tolerance].append(layer_file)
-                
-                # Ordning: p90 (överst/minimal) → p15 (underst/aggressiv)
-                tolerance_order = ["p90", "p75", "p50", "p25", "p15"]
-                for tolerance in tolerance_order:
-                    if tolerance not in tolerance_dict:
-                        continue
-                    
-                    # Skapa sub_sub_group för tolerance
-                    tolerance_group = QgsLayerTreeGroup(tolerance)
-                    tolerance_group.setExpanded(False)
-                    variant_group.addChildNode(tolerance_group)
-                    
-                    # Lägg till lager för denna tolerance
-                    for layer_file in tolerance_dict[tolerance]:
-                        layer_name = layer_file.stem
+
+            known_methods = ["conn4", "conn8", "modal", "semantic"]
+
+            def _parse_steg7(stem):
+                """generalized_conn4_mmu008 → (method, setting_label)"""
+                s = stem.replace("generalized_", "", 1)
+                for m in known_methods:
+                    if s.startswith(m + "_"):
+                        rest = s[len(m) + 1:]
+                        if rest.startswith("mmu"):
+                            return m, f"MMU {rest[3:]}px"
+                        elif rest.startswith("k"):
+                            return m, f"Klusterradie k={rest[1:]}"
+                return None, None
+
+            # Bygg metod → {setting_label: [filer]}
+            methods_dict = {}
+            for lf in layer_files:
+                method, setting_label = _parse_steg7(lf.stem)
+                if method is None:
+                    continue
+                methods_dict.setdefault(method, {}).setdefault(setting_label, []).append(lf)
+
+            for method in [m for m in known_methods if m in methods_dict]:
+                method_group = QgsLayerTreeGroup(f"Vektoriserad ({method.upper()})")
+                method_group.setExpanded(False)
+                group.addChildNode(method_group)
+
+                settings = methods_dict[method]
+                def _sort_setting(lbl):
+                    if "MMU" in lbl:
+                        return (0, -int(lbl.split()[1].replace("px", "")))
+                    k_val = int(lbl.split("k=")[-1])
+                    return (1, -k_val)
+
+                for setting_label in sorted(settings.keys(), key=_sort_setting):
+                    setting_group = QgsLayerTreeGroup(setting_label)
+                    setting_group.setExpanded(False)
+                    method_group.addChildNode(setting_group)
+                    for lf in settings[setting_label]:
                         try:
-                            layer = QgsVectorLayer(str(layer_file), layer_name, "ogr")
+                            layer = QgsVectorLayer(str(lf), lf.stem, "ogr")
                             if not layer.isValid():
-                                log.debug(f"  ✗ {layer_name:45s} (ej giltig)")
+                                log.debug(f"  ✗ {lf.stem:45s} (ej giltig)")
                                 continue
-                            
                             project.addMapLayer(layer, addToLegend=False)
                             tree_layer = QgsLayerTreeLayer(layer)
                             tree_layer.setExpanded(False)
-                            tolerance_group.addChildNode(tree_layer)
-                            
-                            log.info(f"  ✓ {layer_name:45s}")
+                            setting_group.addChildNode(tree_layer)
+                            log.info(f"  ✓ {lf.stem:45s}")
                             total_layers += 1
-                            
                         except Exception as e:
-                            log.warning(f"  ✗ {layer_name:45s} ({e})")
-                            continue
-                
-                log.info(f"  {variant_label:45s} ({len(variants_dict[variant])} lager totalt)\n")
+                            log.warning(f"  ✗ {lf.stem:45s} ({e})")
+
+                log.info(f"  {method.upper():45s} ({sum(len(v) for v in settings.values())} lager)\n")
+
+        # Speciell hantering för Steg 8 – metod → MMU/kernel → tolerance → lager
+        elif step_num == 8:
+            layer_files = sorted(step_dir.glob("*.gpkg"))
+            if not layer_files:
+                log.warning(f"⚠️  {step_name:40s} – inga filer hittade")
+                continue
+
+            known_methods = ["conn4", "conn8", "modal", "semantic"]
+
+            def _parse_steg8(stem):
+                """conn4_mmu008_simplified_p25 → (method, setting_label, tolerance)"""
+                parts = stem.split("_simplified_")
+                if len(parts) != 2:
+                    return None, None, None
+                variant, tolerance = parts[0], parts[1]
+                for m in known_methods:
+                    if variant.startswith(m + "_"):
+                        rest = variant[len(m) + 1:]
+                        if rest.startswith("mmu"):
+                            return m, f"MMU {rest[3:]}px", tolerance
+                        elif rest.startswith("k"):
+                            return m, f"Klusterradie k={rest[1:]}", tolerance
+                return None, None, None
+
+            # Bygg metod → setting_label → tolerance → [filer]
+            methods_dict = {}
+            for lf in layer_files:
+                method, setting_label, tolerance = _parse_steg8(lf.stem)
+                if method is None:
+                    continue
+                methods_dict \
+                    .setdefault(method, {}) \
+                    .setdefault(setting_label, {}) \
+                    .setdefault(tolerance, []) \
+                    .append(lf)
+
+            for method in [m for m in known_methods if m in methods_dict]:
+                method_group = QgsLayerTreeGroup(f"Förenklad ({method.upper()})")
+                method_group.setExpanded(False)
+                group.addChildNode(method_group)
+
+                settings = methods_dict[method]
+                def _sort_setting8(lbl):
+                    if "MMU" in lbl:
+                        return (0, -int(lbl.split()[1].replace("px", "")))
+                    k_val = int(lbl.split("k=")[-1])
+                    return (1, -k_val)
+
+                tolerance_order = ["p90", "p75", "p50", "p25", "p15"]
+
+                for setting_label in sorted(settings.keys(), key=_sort_setting8):
+                    setting_group = QgsLayerTreeGroup(setting_label)
+                    setting_group.setExpanded(False)
+                    method_group.addChildNode(setting_group)
+
+                    tols = settings[setting_label]
+                    for tolerance in [t for t in tolerance_order if t in tols]:
+                        tol_group = QgsLayerTreeGroup(tolerance)
+                        tol_group.setExpanded(False)
+                        setting_group.addChildNode(tol_group)
+                        for lf in tols[tolerance]:
+                            try:
+                                layer = QgsVectorLayer(str(lf), lf.stem, "ogr")
+                                if not layer.isValid():
+                                    log.debug(f"  ✗ {lf.stem:45s} (ej giltig)")
+                                    continue
+                                project.addMapLayer(layer, addToLegend=False)
+                                tree_layer = QgsLayerTreeLayer(layer)
+                                tree_layer.setExpanded(False)
+                                tol_group.addChildNode(tree_layer)
+                                log.info(f"  ✓ {lf.stem:45s}")
+                                total_layers += 1
+                            except Exception as e:
+                                log.warning(f"  ✗ {lf.stem:45s} ({e})")
+
+                log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
         
         else:
             # Standard-hantering för andra steg
