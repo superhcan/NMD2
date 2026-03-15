@@ -137,7 +137,7 @@ def build_qgis_project():
         (9, "Steg 9 - QGIS-projekt", None),  # Denna steg - ingen egen katalog
         (8, "Steg 8 - Förenklad (Mapshaper)", OUT_BASE / "steg8_simplified"),
         (7, "Steg 7 - Vektoriserad", OUT_BASE / "steg7_vectorized"),
-        (6, "Steg 6 - Generaliserad", OUT_BASE / "steg6_generalized_modal"),
+        (6, "Steg 6 - Generaliserad", None),  # Kontrolleras dynamiskt nedan
         (5, "Steg 5 - Fylld öar", OUT_BASE / "steg5_islands_filled"),
         (4, "Steg 4 - Fyllda sjöar", OUT_BASE / "steg4_filled"),
         (3, "Steg 3 - Landskapsbild", OUT_BASE / "steg3_landscape"),
@@ -154,7 +154,14 @@ def build_qgis_project():
         if step_num == 9:
             continue
         
-        if not step_dir.exists():
+        # Steg 6: kontrollera dynamiskt att minst en metodkatalog finns
+        if step_num == 6:
+            all_methods = ["conn4", "conn8", "modal", "semantic"]
+            existing_method_dirs = [OUT_BASE / f"steg6_generalized_{m}" for m in all_methods if (OUT_BASE / f"steg6_generalized_{m}").exists()]
+            if not existing_method_dirs:
+                log.warning(f"⚠️  {step_name:40s} – inga metodkataloger hittades")
+                continue
+        elif not step_dir.exists():
             log.warning(f"⚠️  {step_name:40s} – katalog saknas")
             continue
         
@@ -168,7 +175,7 @@ def build_qgis_project():
             methods = ["conn4", "conn8", "modal", "semantic"]
             
             for method in methods:
-                method_dir = step_dir.parent / f"steg6_generalized_{method}"
+                method_dir = OUT_BASE / f"steg6_generalized_{method}"
                 if not method_dir.exists():
                     log.debug(f"  Metodkatalog saknas: {method_dir.name}")
                     continue
