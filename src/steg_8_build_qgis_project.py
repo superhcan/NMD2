@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-steg_8_build_qgis_project.py — Steg 8: Bygg QGIS-projekt från alla steg.
+steg_8_build_qgis_project.py — Steg 9: Bygg QGIS-projekt från alla steg.
 
-Läser generaliserad data från alla tidigare steg (1-7) och bygger ett komplett
+Läser generaliserad data från alla tidigare steg (1-8) och bygger ett komplett
 QGIS-projekt med alla lager organiserade i grupper.
 
 Kör: python3 src/steg_8_build_qgis_project.py
@@ -37,8 +37,8 @@ from config import OUT_BASE
 # ══════════════════════════════════════════════════════════════════════════════
 
 def setup_logging(out_base):
-    """Setup steg-märkad loggning för Steg 8."""
-    step_num = os.getenv("STEP_NUMBER", "8")
+    """Setup steg-märkad loggning för Steg 9."""
+    step_num = os.getenv("STEP_NUMBER", "9")
     step_name = os.getenv("STEP_NAME", "bygga_qgis_projekt").lower()
     
     # Logg-kataloger
@@ -128,11 +128,14 @@ def build_qgis_project():
     log.info("✓ Gamla lager rensade\n")
     
     # Definiera steg och deras katalog (med steg-prefix)
+    # Uppdaterad för ny numrering: steg 1-9 (tidigare 1-8)
     steps = [
-        (7, "Steg 7 - Förenklad (Mapshaper)", OUT_BASE / "steg7_simplified"),
-        (6, "Steg 6 - Vektoriserad", OUT_BASE / "steg6_vectorized"),
-        (5, "Steg 5 - Generaliserad", OUT_BASE / "steg5_generalized_modal"),
-        (4, "Steg 4 - Fyllda områden", OUT_BASE / "steg4_filled"),
+        (9, "Steg 9 - QGIS-projekt", None),  # Denna steg - ingen egen katalog
+        (8, "Steg 8 - Förenklad (Mapshaper)", OUT_BASE / "steg7_simplified"),
+        (7, "Steg 7 - Vektoriserad", OUT_BASE / "steg6_vectorized"),
+        (6, "Steg 6 - Generaliserad", OUT_BASE / "steg5_generalized_modal"),
+        (5, "Steg 5 - Fylld öar", OUT_BASE / "steg4b_islands_filled"),
+        (4, "Steg 4 - Fyllda sjöar", OUT_BASE / "steg4_filled"),
         (3, "Steg 3 - Landskapsbild", OUT_BASE / "steg3_landscape"),
         (2, "Steg 2 - Skyddade klasser", OUT_BASE / "steg2_protected"),
         (1, "Steg 1 - Tiles", OUT_BASE / "steg1_tiles"),
@@ -143,6 +146,10 @@ def build_qgis_project():
     total_layers = 0
     for step_num, step_name, step_dir in steps:
         
+        # Hoppa över denna steg (steg 9)
+        if step_num == 9:
+            continue
+        
         if not step_dir.exists():
             log.warning(f"⚠️  {step_name:40s} – katalog saknas")
             continue
@@ -152,8 +159,8 @@ def build_qgis_project():
         group.setExpanded(False)
         root.addChildNode(group)
         
-        # Speciell hantering för Steg 5 – skapa sub_groups för varje metod + setting
-        if step_num == 5:
+        # Speciell hantering för Steg 6 – skapa sub_groups för varje metod + setting
+        if step_num == 6:
             methods = ["conn4", "conn8", "modal", "semantic"]
             
             for method in methods:
@@ -243,7 +250,7 @@ def build_qgis_project():
         else:
             # Standard-hantering för andra steg
             # Bestäm filtyp
-            if step_num <= 5:
+            if step_num <= 6:
                 # Raster-filer
                 layer_files = sorted(step_dir.glob("*.tif"))
             else:
@@ -312,10 +319,10 @@ def build_qgis_project():
     
     log.info("")
     log.info("═" * 70)
-    log.info(f"✅ Steg 8 KLART")
+    log.info(f"✅ Steg 9 KLART")
     log.info(f"   Projekt: {project_path.name} ({size_kb:.1f} KB)")
     log.info(f"   Totalt lager: {total_layers}")
-    log.info(f"   Ordning: Steg 7 (top) → Steg 1 (bottom)")
+    log.info(f"   Ordning: Steg 8 (top) → Steg 1 (bottom)")
     log.info("═" * 70)
     
     return True
