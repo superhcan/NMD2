@@ -43,19 +43,91 @@ ROADS_BUILDINGS = {51, 53}                       # Väg/järnväg och byggnader 
 
 MMU_ISLAND   = 100              # Minsta storlek på öar innan fyllnad (px)
 
-# Sieve MMU-steg för conn4 och conn8 metoder
-# Större värden = mer generalisering
-# Exempel:
-#   MMU_STEPS = [2, 4, 8]              # Snabb test (3 nivåer)
-#   MMU_STEPS = [2, 4, 8, 16, 32, 64, 100]  # Full upplösning (7 nivåer)
+# Sieve MMU-steg för conn4 och conn8 metoder (Steg 6a & 6b)
+# ═════════════════════════════════════════════════════════════════════════════
+# MMU = Minimum Mapping Unit i pixlar för sieve-filtren (conn4 och conn8).
+#
+# Teknisk förklaring:
+#   - Pixelgrupper mindre än MMU-värde blir bort-sievade (sållas ut)
+#   - Större MMU = mer generalisering = färre små detaljer
+#   - Mindre MMU = mindre generalisering = mer original detalj
+#
+# Effekt på output:
+#   MMU=2:   Nästan original, mycket liten förenkling (detaljer bevarade)
+#   MMU=8:   Liten-medium förenkling (några små bitar försvinner)
+#   MMU=16:  Medium-stark förenkling (märkbar förenkling visas)
+#   MMU=32:  Stark förenkling (många små detaljer försvinner)
+#   MMU=64:  Mycket stark förenkling (bara större områden kvar)
+#   MMU=100: Extrem förenkling (bara mycket stora områden kvar)
+#
+# Filstorlek-päverkan (ca guide för steg 7 vectorizer output):
+#   MMU=2:    ~100% (baseline)
+#   MMU=8:    ~90-95% (små minskning)
+#   MMU=16:   ~80-85%
+#   MMU=32:   ~60-70%
+#   MMU=64:   ~40-50%
+#   MMU=100:  ~20-30%
+#
+# Praktiska val:
+#   Snabb test (3 steg, ~40% snabbare):
+#     MMU_STEPS = [2, 8, 32]
+#
+#   Standard (7 steg, rekommenderat):
+#     MMU_STEPS = [2, 4, 8, 16, 32, 64, 100]
+#
+#   Detaljerad analys (9 steg, långsamt men många värdepunkter):
+#     MMU_STEPS = [1, 2, 4, 8, 16, 32, 64, 100, 128]
+#
+# Tips:
+#   - Första värdet bör oftast vara 2-4 px (annars för lite förenkling)
+#   - Sista värdet bör förenligt med `HALO` för att undvika edge-artefakter
+#   - Fler steg = längre körtid men bättre för att jämföra resultat
 #
 MMU_STEPS    = [2, 4, 8, 16, 32, 64, 100]
 
-# Kernel-storlekar för modal filter
-# Större värden = mer generalisering, mindre detalj
-# Exempel:
-#   KERNEL_SIZES = [3, 7, 13]           # Snabb test (3 nivåer)
-#   KERNEL_SIZES = [3, 5, 7, 11, 13, 15]  # Full upplösning (6 nivåer)
+# Kernel-storlekar för modal filter (Steg 6c)
+# ═════════════════════════════════════════════════════════════════════════════
+# k-värde för modal filter genomför "majority voting" över ett k×k pixelfönster.
+#
+# Teknisk förklaring:
+#   - Större k = större fönster = mer generalisering
+#   - Mindre k = mindre fönster = mindre generalisering
+#   - Algoritm: Ersätt pixel med vanligaste värde i k×k område
+#
+# Effekt på output:
+#   k=3:   Minimal generalisering, nästan original (små brus-borttagning)
+#   k=5:   Liten förenkling (små detaljer börjar försvinna)
+#   k=7:   Medium generalisering (märkbar förenkling visas)
+#   k=9:   Medium-stark generalisering
+#   k=11:  Stark generalisering (många små områden borta)
+#   k=13:  Mycket stark generalisering
+#   k=15:  Extrem generalisering (mycket få smådetaljer kvar)
+#
+# Filstorlek-påverkan (ca guide för steg 7 vectorizer output):
+#   k=3:    ~100% (baseline)
+#   k=5:    ~95-98%
+#   k=7:    ~90-95%
+#   k=9:    ~85-90%
+#   k=11:   ~75-85%
+#   k=13:   ~60-75%
+#   k=15:   ~50-65%
+#
+# Praktiska val:
+#   Snabb test (3 steg, ~50% snabbare):
+#     KERNEL_SIZES = [3, 7, 13]
+#
+#   Standard (6 steg, rekommenderat):
+#     KERNEL_SIZES = [3, 5, 7, 11, 13, 15]
+#
+#   Detaljerad analys (9 steg, långsamt men många värdepunkter):
+#     KERNEL_SIZES = [3, 5, 7, 9, 11, 13, 15, 17, 19]
+#
+# Tips:
+#   - Börja med k=3 eller k=5 för att behålla mestadels original detalj
+#   - ODD mängd är standard (3, 5, 7, 9, 11, ...) för symmetrisk pixel-fönstring
+#   - Större kernel = längre körtid (ungefär kvadratisk komplexitet)
+#   - Kernel måste pågå helt inom tile + HALO område
+#   - Begränsning: k≤(2*HALO+1) för att undvika edge-artefakter
 #
 KERNEL_SIZES = [3, 5, 7, 11, 13, 15]
 

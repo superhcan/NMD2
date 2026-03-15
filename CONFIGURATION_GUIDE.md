@@ -38,7 +38,25 @@ GENERALIZATION_METHODS = {"conn4", "conn8", "modal", "semantic"}
 
 ## 2. MMU-steg för Sieve (Steg 6a & 6b)
 
-MMU (Minimum Mapping Unit) i pixlar för sieve-filtren.
+**VIKTIGT: MMU = Minimum Mapping Unit. Större värde = mer generalisering (mindre detalj bevarad).**
+
+### Så Fungerar Det
+
+MMU (Minimum Mapping Unit) i pixlar definierar den minsta pixelgruppstorlek som ska bevaras. Alla pixelgrupper mindre än MMU-värdet "sållas bort" (sieveras ut):
+
+```
+MMU=2   = Behåll pixelgrupper >= 2 px
+          → Nästan original, mycket små detaljer kvar
+          → Minimal generalisering
+
+MMU=16  = Behåll pixelgrupper >= 16 px
+          → Medium generalisering
+          → Märkbar förenkling visas
+
+MMU=64  = Behåll pixelgrupper >= 64 px
+          → Stark generalisering
+          → Många små omraden försvinner
+```
 
 ### Konfigurera
 ```python
@@ -47,34 +65,85 @@ MMU_STEPS = [2, 4, 8, 16, 32, 64, 100]
 
 ### Exempel
 
-**Snabb test** (färre steg = snabbare):
+**Snabb test** (3 steg = ~40% snabbare):
 ```python
-MMU_STEPS = [2, 4, 8]
+MMU_STEPS = [2, 8, 32]
 ```
-- Dock: Färre utgångspunkter för jämförelse
+- Färre utgångspunkter men representativ täckning
 
-**Standard** (bra balans):
+**Standard** (7 steg, rekommenderat):
 ```python
 MMU_STEPS = [2, 4, 8, 16, 32, 64, 100]
 ```
-- Rekommenderat för fullt resultat
+- Bra balans mellan körtid och resultatkvalitet
 
-**Detaljerad analys** (många steg):
+**Detaljerad analys** (9 steg, långsamt):
 ```python
-MMU_STEPS = [1, 2, 4, 8, 16, 32, 64, 100]
+MMU_STEPS = [1, 2, 4, 8, 16, 32, 64, 100, 128]
 ```
-- Längre körtid men finner optimalt värde
+- Många nivåer för detaljerad analys av effekt
+
+### Effekt på Filstorlek & Detalj
+
+| MMU | Filstorlek (ungefär) | Detalj | Användning |
+|-----|---|---|---|
+| 2 | 100% av original | Nästan original | Presentationskvalitet |
+| 4 | 95-98% av original | Nästan original | Webbaserade kartor |
+| 8 | 85-95% av original | Bra detalj kvar | Standard visualisering |
+| 16 | 75-85% av original | Medium detalj | Överblick med viss detalj |
+| 32 | 50-70% av original | Reducerad detalj | Generell överblick |
+| 64 | 30-50% av original | Mycket reducerad | Grov kartöversikt |
+| 100 | 15-30% av original | Minimal detalj | Extrem förenkling |
+
+### Praktiska Exempel
+
+**För kartpresentationer** (behål mycket detalj):
+```python
+MMU_STEPS = [2, 4, 8]
+```
+- Behål nästan original upplösning med endast bort-sievning av brus
+
+**För webkarta/överblick** (balanserad förenkling):
+```python
+MMU_STEPS = [8, 16, 32]
+```
+- Medium generalisering lätt att ta åt sig
+
+**För grov kartöversikt** (aggressiv förenkling):
+```python
+MMU_STEPS = [32, 64, 100]
+```
+- Bara större strukturer kvar, mycket små omraden borta
 
 ### Tips
-- Större MMU-värden = mer generalisering (mindre detalj)
-- Första värdet bör oftast vara 2-4 px
-- Max-värdet bör matcha eller överstiga `HALO`
+- Första värdet bör oftast vara 2-4 px (annars för liten förenkling)
+- Sista värdet bör matcha eller överstiga `HALO` för att undvika edge-artefakter
+- Större steg mellan värden = snabbare körtid men färre utgångspunkter
+- Fler steg = längre körtid men bättre för jämförelse
 
 ---
 
 ## 3. Kernel-storlekar för Modal Filter (Steg 6c)
 
-Kernel-storlek k för modal filter. Större k = större generalisering.
+**VIKTIGT: K-värde = fönsterstorlek för "majority voting". Större K = mer generalisering (mindre detalj bevarad).**
+
+### Så Fungerar Det
+
+Modal filter använder "majority voting" i ett K×K pixelfönster. Varje pixel ersätts med det vanligaste värdet i sitt fönster:
+
+```
+k=3   = 3×3 pixel fönster
+        → Nästan original, bara små brus tas bort
+        → Minimal generalisering
+
+k=7   = 7×7 pixel fönster
+        → Medium generalisering
+        → Märkbar förenkling visas
+
+k=15  = 15×15 pixel fönster
+        → Stark generalisering
+        → Många små omraden försvinner
+```
 
 ### Konfigurera
 ```python
@@ -83,31 +152,62 @@ KERNEL_SIZES = [3, 5, 7, 11, 13, 15]
 
 ### Exempel
 
-**Snabb test**:
+**Snabb test** (3 steg = ~50% snabbare):
 ```python
 KERNEL_SIZES = [3, 7, 13]
 ```
-- 3 nivåer istället för 6 → ~50% snabbare
+- Representativ täckning från liten till stor kernel
 
-**Standard**:
+**Standard** (6 steg, rekommenderat):
 ```python
 KERNEL_SIZES = [3, 5, 7, 11, 13, 15]
 ```
-- Bra täckning från fin till grov
+- Bra täckning från fin till grov generalisering
 
-**Detaljerad**:
+**Detaljerad analys** (9 steg, långsamt):
 ```python
 KERNEL_SIZES = [3, 5, 7, 9, 11, 13, 15, 17, 19]
 ```
-- Många nivåer för att analysera effekt
+- Många nivåer för detaljerad analys
 
-### Effekt
-| Kernel | Effekt |
-|--------|--------|
-| k=3 | Mycket liten - nästan ingen skillnad |
-| k=5 | Liten förenkling |
-| k=7-11 | Medium förenkling |
-| k=13-15 | Stark förenkling |
+### Effekt på Filstorlek & Detalj
+
+| Kernel | Fönster | Filstorlek (ungefär) | Detalj | Användning |
+|--------|---------|---|---|---|
+| k=3 | 3×3 | 100% av original | Nästan original | Brus-borttagning |
+| k=5 | 5×5 | 95-98% av original | Nästan original | Presentationskvalitet |
+| k=7 | 7×7 | 85-95% av original | Bra detalj kvar | Webbaserade kartor |
+| k=9 | 9×9 | 75-85% av original | Medium detalj | Standard visualisering |
+| k=11 | 11×11 | 65-75% av original | Reducerad detalj | Överblick |
+| k=13 | 13×13 | 50-65% av original | Mycket reducerad | Grov kartöversikt |
+| k=15 | 15×15 | 40-55% av original | Minimal detalj | Extrem förenkling |
+
+### Praktiska Exempel
+
+**För kartpresentationer** (behål mycket detalj):
+```python
+KERNEL_SIZES = [3, 5, 7]
+```
+- Liten till medium generalisering behål detaljerna
+
+**För webkarta/överblick** (balanserad förenkling):
+```python
+KERNEL_SIZES = [5, 7, 11]
+```
+- Bra balans mellan förenkling och bevarad detalj
+
+**För grov kartöversikt** (aggressiv förenkling):
+```python
+KERNEL_SIZES = [11, 13, 15]
+```
+- Stark generalisering, bara större strukturer kvar
+
+### Tips
+- ODD värden (3, 5, 7, 9, ...) är standard för symmetrisk pixel-fönstring
+- Börja med k=3 eller k=5 för att behål mestadels original detalj
+- Kernel måste passa helt inom tile + HALO område
+- Begränsning: k ≤ (2×HALO+1) för att undvika edge-artefakter
+- Större kernel = längre körtid (ungefär kvadratisk komplexitet)
 
 ---
 
