@@ -33,7 +33,7 @@ from rasterio.windows import Window
 from scipy import ndimage
 from scipy.ndimage import uniform_filter
 
-from config import OUT_BASE, SRC, QML_SRC, PARENT_TILES, PARENT_TILE_SIZE, SUB_TILE_SIZE, PROTECTED, WATER_CLASSES, COMPRESS
+from config import OUT_BASE, SRC, QML_SRC, PARENT_TILES, PARENT_TILE_SIZE, SUB_TILE_SIZE, PROTECTED, WATER_CLASSES, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Logging – två loggers + console
@@ -809,6 +809,7 @@ if __name__ == "__main__":
     info.info("Vattenkl. (öfyllnad): %s", sorted(WATER_CLASSES))
     info.info("MMU-steg  : %s px", MMU_STEPS)
     info.info("Kernelstorlekar (modal): %s", KERNEL_SIZES)
+    info.info("Aktiva generaliseringsmetoder: %s", sorted(GENERALIZATION_METHODS))
     info.info("══════════════════════════════════════════════════════════")
 
     info.info("\nSteg 6a: Sieve conn4 (med halo)")
@@ -825,16 +826,22 @@ if __name__ == "__main__":
     landscape_paths = sorted(landscape_dir.glob("*.tif"))
     tile_paths = sorted((OUT_BASE / "steg1_tiles").glob("*.tif")) if (OUT_BASE / "steg1_tiles").exists() else []
     
-    step5_sieve_halo(tile_paths, landscape_paths, conn=4)
-
-    info.info("\nSteg 4b: Sieve conn8 (med halo)")
-    step5_sieve_halo(tile_paths, landscape_paths, conn=8)
-
-    info.info("\nSteg 4c: Modal filter (med halo)")
-    step5_modal_halo(tile_paths, landscape_paths)
-
-    info.info("\nSteg 4d: Semantisk generalisering (med halo)")
-    step5_semantic_halo(tile_paths, landscape_paths)
+    # Kör bara aktiverade generaliseringsmetoder
+    if "conn4" in GENERALIZATION_METHODS:
+        info.info("\nSteg 6a: Sieve conn4 (med halo)")
+        step5_sieve_halo(tile_paths, landscape_paths, conn=4)
+    
+    if "conn8" in GENERALIZATION_METHODS:
+        info.info("\nSteg 6b: Sieve conn8 (med halo)")
+        step5_sieve_halo(tile_paths, landscape_paths, conn=8)
+    
+    if "modal" in GENERALIZATION_METHODS:
+        info.info("\nSteg 6c: Modal filter (med halo)")
+        step5_modal_halo(tile_paths, landscape_paths)
+    
+    if "semantic" in GENERALIZATION_METHODS:
+        info.info("\nSteg 6d: Semantisk generalisering (med halo)")
+        step5_semantic_halo(tile_paths, landscape_paths)
 
     elapsed = time.time() - t_total
     info.info("══════════════════════════════════════════════════════════")

@@ -199,38 +199,28 @@ if __name__ == "__main__":
     # Setup logging with step-aware filename
     log = setup_logging(OUT_BASE)
     
-    log.info("══════════════════════════════════════════════════════════")
-    log.info("Steg 8: Mapshaper-förenkling av vektoriserade data")
-    log.info("Källmapp : %s", OUT_BASE / "steg7_vectorized")
-    log.info("Utmapp   : %s", OUT_BASE / "steg8_simplified")
-    log.info("══════════════════════════════════════════════════════════")
-    
+    vectorized_dir = OUT_BASE / "steg7_vectorized"
     output_dir = OUT_BASE / "steg8_simplified"
     tolerances = [90, 75, 50, 25, 15]  # Updated: added p15
     
-    # Process CONN4 MMU008
-    input_file = OUT_BASE / "steg7_vectorized" / "generalized_conn4_mmu008.gpkg"
-    if input_file.exists():
-        log.info(f"\n➤ CONN4 MMU008")
-        simplify_with_mapshaper(input_file, output_dir, "conn4_mmu008", tolerances, log)
-    else:
-        log.warning(f"Skipped (not found): {input_file.name}")
+    log.info("══════════════════════════════════════════════════════════")
+    log.info("Steg 8: Mapshaper-förenkling av vektoriserade data")
+    log.info("Källmapp : %s", vectorized_dir)
+    log.info("Utmapp   : %s", output_dir)
+    log.info("══════════════════════════════════════════════════════════")
     
-    # Process CONN8 MMU008
-    input_file = OUT_BASE / "steg7_vectorized" / "generalized_conn8_mmu008.gpkg"
-    if input_file.exists():
-        log.info(f"\n➤ CONN8 MMU008")
-        simplify_with_mapshaper(input_file, output_dir, "conn8_mmu008", tolerances, log)
+    # Dynamiskt hämta alla GeoPackage-filer från steg 7 (skapade av de aktiva metoderna)
+    if vectorized_dir.exists():
+        gpkg_files = sorted(vectorized_dir.glob("generalized_*.gpkg"))
+        if not gpkg_files:
+            log.warning("Inga GeoPackage-filer hittades i %s", vectorized_dir)
+        else:
+            for input_file in gpkg_files:
+                variant_name = input_file.stem.replace("generalized_", "")
+                log.info(f"\n➤ {variant_name.upper()}")
+                simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances, log)
     else:
-        log.warning(f"Skipped (not found): {input_file.name}")
-    
-    # Process MODAL K15
-    input_file = OUT_BASE / "steg7_vectorized" / "generalized_modal_k15.gpkg"
-    if input_file.exists():
-        log.info(f"\n➤ MODAL K15")
-        simplify_with_mapshaper(input_file, output_dir, "modal_k15", tolerances, log)
-    else:
-        log.warning(f"Skipped (not found): {input_file.name}")
+        log.error("❌ Vektoriserad katalog saknas: %s", vectorized_dir)
     
     log.info("\n══════════════════════════════════════════════════════════")
     log.info(f"Steg 8 KLAR: Output i {output_dir}")

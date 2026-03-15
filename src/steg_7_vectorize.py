@@ -21,7 +21,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from config import OUT_BASE
+from config import OUT_BASE, GENERALIZATION_METHODS
 
 _LOG = None
 
@@ -194,16 +194,26 @@ if __name__ == "__main__":
     log.info("Steg 7: Vektorisering av generaliserat raster")
     log.info("Källmapp : %s", PIPE)
     log.info("Utmapp   : %s", OUT)
+    log.info("Aktiva metoder: %s", sorted(GENERALIZATION_METHODS))
     log.info("══════════════════════════════════════════════════════════")
     
-    log.info("\nCONN4 (mmu008)")
-    vectorize_sieve(4)
+    # Vektorisera endast aktiverade metoder
+    if "conn4" in GENERALIZATION_METHODS:
+        log.info("\nCONN4 (mmu008)")
+        vectorize_sieve(4)
     
-    log.info("\nCONN8 (mmu008)")
-    vectorize_sieve(8)
+    if "conn8" in GENERALIZATION_METHODS:
+        log.info("\nCONN8 (mmu008)")
+        vectorize_sieve(8)
     
-    log.info("\nModal filter k15")
-    vectorize_modal()
+    if "modal" in GENERALIZATION_METHODS:
+        log.info("\nModal filter k15")
+        vectorize_modal()
+    
+    if "semantic" in GENERALIZATION_METHODS:
+        log.info("\nSemantisk generalisering")
+        # Denna funktion är bara en stub i nuläget - modal är prioriterad
+        log.warning("  ⚠ Semantic vektorisering ännu ej implementerad")
     
     elapsed = time.time() - t0
     log.info("══════════════════════════════════════════════════════════")

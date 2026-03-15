@@ -62,6 +62,20 @@ ENABLE_STEPS = {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
+# GENERALIZATION METHODS — Vilka metoder i Steg 6 ska köras?
+# ══════════════════════════════════════════════════════════════════════════════
+# Möjliga metoder: "conn4", "conn8", "modal", "semantic"
+# Steg 7 och 8 kör automatiskt samma metoder som här är aktiverade
+# 
+# Exempel:
+#   GENERALIZATION_METHODS = {"conn4", "conn8", "modal"}  # Skippa semantic
+#   eller
+#   GENERALIZATION_METHODS = {"conn4", "conn8"}            # Bara sieve-metoder
+#
+
+GENERALIZATION_METHODS = {"conn4", "conn8", "modal"}  # "semantic" hoppad
+
+# ══════════════════════════════════════════════════════════════════════════════
 # GDAL & RASTERIO SETTINGS
 # ══════════════════════════════════════════════════════════════════════════════
 
