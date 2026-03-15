@@ -33,7 +33,7 @@ import argparse
 
 # Import pipeline configuration
 sys.path.insert(0, str(Path(__file__).parent / "src"))
-from config import ENABLE_STEPS
+from config import ENABLE_STEPS, OUT_BASE
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SETUP
@@ -47,7 +47,6 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 SRC_DIR = Path(__file__).parent / "src"
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_1024_halo_v7"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEG-DEFINITIONER

@@ -67,5 +67,4 @@ with rasterio.open(SRC) as src:
 
 print(f"\n✅ 4 test-tiles sparade i: {OUT_DIR}")
 print(f"\nKör pipelinen med:")
-print(f"  export OUT_BASE=/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_4tiles_v8")
-print(f"  python3 run_test_4tiles_v8.py")
+print(f"  python3 run_all_steps.py")
