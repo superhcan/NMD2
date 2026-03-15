@@ -25,7 +25,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 import sys
-from config import OUT_BASE
+from config import OUT_BASE, SIMPLIFICATION_TOLERANCES
 
 def setup_logging(out_base):
     """Setup logging with step-aware filenames."""
@@ -201,7 +201,7 @@ if __name__ == "__main__":
     
     vectorized_dir = OUT_BASE / "steg7_vectorized"
     output_dir = OUT_BASE / "steg8_simplified"
-    tolerances = [90, 75, 50, 25, 15]  # Updated: added p15
+    tolerances = SIMPLIFICATION_TOLERANCES  # From config
     
     log.info("══════════════════════════════════════════════════════════")
     log.info("Steg 8: Mapshaper-förenkling av vektoriserade data")

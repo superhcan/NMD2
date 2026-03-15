@@ -114,13 +114,9 @@ info = logging.getLogger("pipeline.summary")
 # ══════════════════════════════════════════════════════════════════════════════
 # HALO-parameters
 # ══════════════════════════════════════════════════════════════════════════════
+# Dessa värden importeras från config.py och bör inte omdefinieras här
 
-HALO = 100
 NODATA_TMP    = 65535
-MMU_ISLAND    = 100
-MMU_STEPS     = [2, 4, 8, 16, 32, 64, 100]
-KERNEL_SIZES  = [3, 5, 7, 11, 13, 15]
-HALO          = 100   # px – kant på varje sida, >= max(MMU_STEPS)
 
 STRUCT_4 = np.array([[0, 1, 0],
                      [1, 1, 1],
