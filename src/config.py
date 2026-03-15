@@ -44,21 +44,20 @@ ROADS_BUILDINGS = {51, 53}                       # Väg/järnväg och byggnader 
 MMU_ISLAND   = 100              # Minsta storlek på öar innan fyllnad (px)
 
 # Sieve MMU-steg för conn4 och conn8 metoder
+# Större värden = mer generalisering
 # Exempel:
-#   MMU_STEPS = [2, 4, 8]              # Snabb test
-#   MMU_STEPS = [2, 4, 8, 16, 32, 64, 100]  # Full upplösning
+#   MMU_STEPS = [2, 4, 8]              # Snabb test (3 nivåer)
+#   MMU_STEPS = [2, 4, 8, 16, 32, 64, 100]  # Full upplösning (7 nivåer)
 #
 MMU_STEPS    = [2, 4, 8, 16, 32, 64, 100]
 
 # Kernel-storlekar för modal filter
 # Större värden = mer generalisering, mindre detalj
 # Exempel:
-#   KERNEL_SIZES = [3, 7, 13]           # Fast bara 3 kernelstorlekar
-#   KERNEL_SIZES = [3, 5, 7, 11, 13, 15]  # Full upplösning
+#   KERNEL_SIZES = [3, 7, 13]           # Snabb test (3 nivåer)
+#   KERNEL_SIZES = [3, 5, 7, 11, 13, 15]  # Full upplösning (6 nivåer)
 #
 KERNEL_SIZES = [3, 5, 7, 11, 13, 15]
-
-# Mapshaper förenkling tolerance-nivåer (steg 8)
 # Värden mellan 0-100 för procentuell förenkling av removable vertices
 # Lägre = mer förenkling, högre = mindre förenkling (mer detalj)
 #
