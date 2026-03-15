@@ -22,17 +22,50 @@ GENERALIZATION_METHODS = {"conn4", "conn8", "modal"}
 | `modal` | Modal filter | Medium |
 | `semantic` | Semantisk generalisering | Långsam |
 
-**Exempel:**
-```python
-# Bara snabb test
-GENERALIZATION_METHODS = {"modal"}
+---
 
-# Standard produktionsval
-GENERALIZATION_METHODS = {"conn4", "modal"}
+### Så Fungerar "semantic" Generalisering
 
-# Alla metoder för jämförelse
-GENERALIZATION_METHODS = {"conn4", "conn8", "modal", "semantic"}
+**Semantisk generalisering** använder en kombination av kontext, klassrelationer och omgivande landskap för att förenkla raster:
+
+1. **Identifiera semantiska regioner**: Algoritmen analyserar inte bara pixelvärden utan även deras betydelse (t.ex. skog, vatten, väg).
+2. **Klasshierarki & prioritet**: Vissa klasser har högre prioritet att bevaras (t.ex. skyddade områden, vatten) medan andra kan "absorberas" av omgivningen.
+3. **Omgivningsanalys**: Om en pixelgrupp är liten och omgiven av en annan klass, men har semantisk betydelse (t.ex. en liten sjö i skog), kan den bevaras eller slås ihop beroende på konfiguration.
+4. **Förenkling med semantisk logik**: Små grupper som saknar semantisk betydelse (t.ex. små bitar av väg i skog) slås ihop med omgivningen, medan viktiga grupper (t.ex. skyddade klasser) bevaras.
+
+#### Konkret Exempel
+
+Originaldata:
 ```
+  1 1 1 1 1
+  1 2 2 1 1
+  1 2 3 1 1
+  1 1 1 1 1
+  1 1 1 1 1
+```
+- 1 = Skog
+- 2 = Väg
+- 3 = Skyddad klass
+
+**Semantisk generalisering**:
+- Om "väg" (2) är liten och omgiven av skog (1), och inte är skyddad, slås den ihop med skog.
+- Om "skyddad klass" (3) är liten men har hög prioritet, bevaras den även om den är omgiven av skog.
+
+Resultat:
+```
+  1 1 1 1 1
+  1 1 1 1 1
+  1 1 3 1 1
+  1 1 1 1 1
+  1 1 1 1 1
+```
+
+**Algoritmen är långsam** eftersom den gör flera pass och analyserar både klassrelationer och omgivande landskap.
+
+#### Typiska användningsområden
+- Bevara viktiga landskapselement (t.ex. skyddade områden, vatten)
+- Förenkla raster utan att förlora semantisk information
+- Används när klassernas betydelse är viktigare än ren pixelgruppstorlek
 
 ---
 
