@@ -18,7 +18,7 @@ from pathlib import Path
 import rasterio
 from rasterio.windows import Window
 
-from config import SRC, QML_SRC, OUT_BASE, COMPRESS
+from config import SRC, QML_SRC, OUT_BASE, COMPRESS, PARENT_TILES
 
 log = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -50,14 +50,22 @@ with rasterio.open(SRC) as src:
     n_rows = (height + TILE_SIZE - 1) // TILE_SIZE
     total  = n_rows * n_cols
 
+    # Filtrera om PARENT_TILES är satt
+    tile_set = set(PARENT_TILES) if PARENT_TILES else None
+    n_selected = len(tile_set) if tile_set else total
+
     print(f"Källbild : {width} × {height} px")
     print(f"Tile-size: {TILE_SIZE} × {TILE_SIZE} px")
-    print(f"Tiles    : {n_cols} kolumner × {n_rows} rader = {total} st")
+    print(f"Tiles    : {n_cols} kolumner × {n_rows} rader = {total} st totalt")
+    if tile_set:
+        print(f"Filter   : PARENT_TILES aktivt → {n_selected} tiles ({n_selected/total*100:.1f}% av total)")
     print(f"Utmapp   : {OUT_DIR}\n")
 
     count = 0
     for row in range(n_rows):
         for col in range(n_cols):
+            if tile_set is not None and (row, col) not in tile_set:
+                continue
             x_off = col * TILE_SIZE
             y_off = row * TILE_SIZE
             w     = min(TILE_SIZE, width  - x_off)
@@ -81,9 +89,9 @@ with rasterio.open(SRC) as src:
                 shutil.copy2(QML_SRC, tile_path.with_suffix(".qml"))
 
             count += 1
-            if count % 50 == 0 or count == total:
-                pct = count / total * 100
-                print(f"  {count}/{total} ({pct:.0f}%)", flush=True)
+            if count % 50 == 0 or count == n_selected:
+                pct = count / n_selected * 100
+                print(f"  {count}/{n_selected} ({pct:.0f}%)", flush=True)
 
 elapsed = time.time() - t_start
 print(f"\nKlart! ({elapsed:.1f}s)")
