@@ -48,28 +48,32 @@ def _setup_logging(out_base):
     debug_log = log_dir / f"debug_{step_suffix}.log"
     summary_log = summary_dir / f"summary_{step_suffix}.log"
     
-    # Debug logger
-    dbg = logging.getLogger("pipeline.vectorize.debug")
-    dbg.setLevel(logging.DEBUG)
-    dbg_handler = logging.FileHandler(debug_log)
-    dbg_handler.setLevel(logging.DEBUG)
     fmt_detail = logging.Formatter("%(asctime)s [%(levelname)-8s] %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
-    dbg_handler.setFormatter(fmt_detail)
-    dbg.addHandler(dbg_handler)
+    fmt_summary = logging.Formatter("%(asctime)s [%(levelname)-6s] %(message)s", datefmt="%H:%M:%S")
     
-    # Summary logger
+    # Root logger for both debug and summary
     log = logging.getLogger("pipeline.vectorize")
-    log.setLevel(logging.INFO)
+    log.setLevel(logging.DEBUG)
+    log.propagate = False
     
-    # Remove existing handlers to avoid duplicates
+    # Clear ALL handlers first
     log.handlers.clear()
     
+    # Debug handler
+    dbg_handler = logging.FileHandler(debug_log)
+    dbg_handler.setLevel(logging.DEBUG)
+    dbg_handler.setFormatter(fmt_detail)
+    log.addHandler(dbg_handler)
+    
+    # Summary logger
     h1 = logging.FileHandler(summary_log)
-    h2 = logging.StreamHandler()
-    fmt = logging.Formatter("%(asctime)s [%(levelname)-6s] %(message)s", datefmt="%H:%M:%S")
-    h1.setFormatter(fmt)
-    h2.setFormatter(fmt)
+    h1.setLevel(logging.INFO)
+    h1.setFormatter(fmt_summary)
     log.addHandler(h1)
+    
+    h2 = logging.StreamHandler()
+    h2.setLevel(logging.INFO)
+    h2.setFormatter(fmt_summary)
     log.addHandler(h2)
     _LOG = log
     return log

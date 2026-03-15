@@ -55,7 +55,7 @@ def setup_logging(out_base):
     debug_log = log_dir / f"debug_{step_suffix}.log"
     debug_handler = logging.FileHandler(str(debug_log))
     debug_handler.setLevel(logging.DEBUG)
-    debug_formatter = logging.Formatter("%(asctime)s [%(levelname)-6s] %(message)s", datefmt="%H:%M:%S")
+    debug_formatter = logging.Formatter("%(asctime)s [%(levelname)-8s] %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
     debug_handler.setFormatter(debug_formatter)
     
     # Summary-logg (INFO-nivå + console)
@@ -69,20 +69,21 @@ def setup_logging(out_base):
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(summary_formatter)
     
-    # Debug-loggare
-    dbg_logger = logging.getLogger("pipeline.build_qgis.debug")
-    dbg_logger.setLevel(logging.DEBUG)
-    dbg_logger.addHandler(debug_handler)
-    dbg_logger.propagate = False
-    
-    # Summary-loggare
+    # Main logger for both debug and summary - using same name as the logger that code writes to
     log_obj = logging.getLogger("pipeline.build_qgis")
-    log_obj.setLevel(logging.INFO)
-    log_obj.addHandler(summary_handler)
-    log_obj.addHandler(console_handler)
+    log_obj.setLevel(logging.DEBUG)
     log_obj.propagate = False
     
-    return log_obj, dbg_logger
+    # Clear handlers to avoid duplicates
+    log_obj.handlers.clear()
+    
+    # Add all handlers
+    log_obj.addHandler(debug_handler)
+    log_obj.addHandler(summary_handler)
+    log_obj.addHandler(console_handler)
+    
+    # For compatibility, return same logger twice (some code uses dbg_logger)
+    return log_obj, log_obj
 
 log, dbg = setup_logging(OUT_BASE)
 
