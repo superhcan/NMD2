@@ -53,11 +53,12 @@ ENABLE_STEPS = {
     1: False,   # Tileluppdelning (hoppa över - tiles finns redan)
     2: True,    # Extrahera skyddade klasser
     3: True,    # Extrahera landskapsbild
-    4: True,    # Ta bort små områden (GDAL sieve)
-    5: True,    # Generalisering
-    6: True,    # Vektorisering
-    7: True,    # Mapshaper-förenkling
-    8: True,    # Bygga QGIS-projekt
+    4: True,    # Ta bort små sjöar < 1 ha
+    5: True,    # Fylla små öar < 1 ha omringade av vatten
+    6: True,    # Generalisering
+    7: True,    # Vektorisering
+    8: True,    # Mapshaper-förenkling
+    9: True,    # Bygga QGIS-projekt
 }
 
 # ══════════════════════════════════════════════════════════════════════════════

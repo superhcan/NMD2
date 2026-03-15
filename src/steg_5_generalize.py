@@ -812,11 +812,15 @@ if __name__ == "__main__":
     info.info("══════════════════════════════════════════════════════════")
 
     info.info("\nSteg 4a: Sieve conn4 (med halo)")
-    # Steg 5 (Generalisering) läser från steg4_filled (efter att små områden togs bort)
-    landscape_dir = OUT_BASE / "steg4_filled"
+    # Steg 5 (Generalisering) läser från steg4_filled eller steg4b_islands_filled (efter att små områden togs bort)
+    # Kolla först om steg 4b (fylla öar) kördes
+    landscape_dir = OUT_BASE / "steg4b_islands_filled"
     if not landscape_dir.exists():
-        info.error("❌ steg4_filled/ katalog saknas. Kör Steg 1-4 först.")
-        raise FileNotFoundError(f"{landscape_dir}")
+        landscape_dir = OUT_BASE / "steg4_filled"
+    
+    if not landscape_dir.exists():
+        info.error("❌ Ingen input-katalog hittad. Kör Steg 1-4 först (eller Steg 4b).")
+        raise FileNotFoundError(f"Varken steg4_filled/ eller steg4b_islands_filled/")
     
     landscape_paths = sorted(landscape_dir.glob("*.tif"))
     tile_paths = sorted((OUT_BASE / "steg1_tiles").glob("*.tif")) if (OUT_BASE / "steg1_tiles").exists() else []

@@ -73,28 +73,35 @@ STEPS = {
     4: {
         "name": "Ta bort små områden",
         "script": "steg_4_fill_islands.py",
-        "description": "Tar bort alla små områden < 1 ha (öar, sjöar, etc)",
+        "description": "Tar bort små sjöar < 1 ha (< 100 px) och fyller med omkringliggande",
         "requires_dir": "steg3_landscape"
     },
     5: {
+        "name": "Fylla små öar",
+        "script": "steg_4b_filter_lakes.py",
+        "description": "Fyller små landöar < 1 ha omringade av vatten",
+        "requires_dir": "steg4_filled",
+        "optional": True
+    },
+    6: {
         "name": "Generalisering",
         "script": "steg_5_generalize.py",
         "description": "Generaliserar landskapsbild med sieve, modal, semantic och halo-teknik",
-        "requires_dir": "steg4_filled"
+        "requires_dir": None  # Kan läsa från steg4_filled eller steg4b_islands_filled
     },
-    6: {
+    7: {
         "name": "Vektorisering",
         "script": "steg_6_vectorize.py",
         "description": "Konverterar generaliserade raster till GeoPackage-vektorer",
         "requires_dir": "steg5_generalized_modal"
     },
-    7: {
+    8: {
         "name": "Mapshaper-förenkling",
         "script": "steg_7_simplify.py",
         "description": "Förenklar vektorer med topologi-bevarad Mapshaper",
         "requires_dir": "steg6_vectorized"
     },
-    8: {
+    9: {
         "name": "Bygga QGIS-projekt",
         "script": "steg_8_build_qgis_project.py",
         "description": "Bygger QGIS-projekt med alla steg organiserade i grupper",
@@ -147,6 +154,9 @@ def check_input_directory(step_key):
         return True  # Steg 1 behöver ingen input-katalog
     
     req_dir = STEPS[step_key]["requires_dir"]
+    if req_dir is None:
+        return True  # Steg hanterar input-katalog själv (t.ex. steg 5)
+    
     input_path = OUT_BASE / req_dir
     
     if not input_path.exists():
@@ -268,10 +278,10 @@ def main():
     # Bestäm vilka steg som ska köras
     if args.step:
         start_step, end_step = args.step
-        step_keys = [k for k in sorted(STEPS.keys(), key=lambda x: (isinstance(x, str), x))
-                     if isinstance(k, int) and start_step <= k <= end_step]
+        step_keys = [k for k in sorted(STEPS.keys())
+                     if start_step <= k <= end_step]
     else:
-        step_keys = [k for k in sorted(STEPS.keys(), key=lambda x: (isinstance(x, str), x))]
+        step_keys = sorted(STEPS.keys())
     
     # Filtrera enligt ENABLE_STEPS i config
     enabled_steps = [k for k in step_keys if ENABLE_STEPS.get(k, True)]

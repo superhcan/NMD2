@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-steg_4b_filter_lakes.py — Steg 4b (valfritt): Tar bort små sjöar < MMU från filled/ rasterdata.
+steg_4b_filter_lakes.py — Steg 4b (valfritt): Fyller små landöar < MMU_ISLAND px omringade av vatten.
 
-Motsvarar steg 4a men ENDAST för sjöar/vatten (klasser 61, 62).
-Små sjöar ersätts med omkringliggande majoritets-värde.
+En "ö" är ett sammanhängande landområde (klass ≠ 61, 62) vars samtliga grannar
+(ortogonalt, konnektivitet 4) är vatten (61, 62). Ersätts med dominant vattenklass.
 
-Kör: python3 src/steg_4b_filter_lakes.py
+Körs efter steg 4 (filled/) för att rensa upp små landöar i sjöar innan generalisering.
+
+Kör: python3 src/steg_4b_fill_islands.py
 """
 
 import logging
@@ -17,7 +19,7 @@ import numpy as np
 import rasterio
 from scipy import ndimage
 
-from config import QML_SRC, OUT_BASE, MMU_ISLAND, COMPRESS
+from config import QML_SRC, OUT_BASE, WATER_CLASSES, MMU_ISLAND, STRUCT_4, COMPRESS
 
 log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -29,95 +31,95 @@ def copy_qml(tif_path: Path):
         log.debug("QML kopierad → %s", tif_path.with_suffix(".qml").name)
 
 
-def filter_small_lakes(tile_paths: list[Path]) -> list[Path]:
-    """
-    Ta bort små sjöar (klasser 61, 62) < MMU_ISLAND px från alla tiles.
-    Ersätt med omkringliggande majoritets-värde.
-    """
+def fill_small_islands(data: np.ndarray, water_classes: set, mmu: int) -> tuple[np.ndarray, int]:
+    """Fyll landöar < mmu px som är helt omringade av vatten."""
+    data_out = data.copy()
+    water = np.isin(data_out, list(water_classes))
+    land = ~water
+    
+    # Märk alla landkomponenter
+    labeled, n_comp = ndimage.label(land, structure=STRUCT_4)
+    log.debug("fill_small_islands: %d landkomponenter hittade", n_comp)
+    
+    filled = 0
+    skipped_land = 0
+    
+    for comp_id in range(1, n_comp + 1):
+        comp_mask = (labeled == comp_id)
+        comp_size = np.sum(comp_mask)
+        
+        # Skippa stora komponenter
+        if comp_size >= mmu:
+            continue
+        
+        # Expandera för att hitta grannar
+        dilated = ndimage.binary_dilation(comp_mask, structure=STRUCT_4)
+        neighbor_mask = dilated & ~comp_mask
+        neighbors = data_out[neighbor_mask]
+        
+        # Kolla om ALLA grannar är vatten
+        if not np.all(np.isin(neighbors, list(water_classes))):
+            # Inte helt omringad av vatten - skippa
+            skipped_land += 1
+            continue
+        
+        # Hitta dominant vattenklass bland grannar
+        vals, counts = np.unique(neighbors, return_counts=True)
+        fill_val = int(vals[counts.argmax()])
+        
+        log.debug("  Ö %d: %d px → ersatt med vattenklass %d", comp_id, int(comp_size), fill_val)
+        data_out[comp_mask] = fill_val
+        filled += 1
+    
+    log.debug("fill_small_islands klar: %d öar fyllda, %d delvis omringade hoppades",
+              filled, skipped_land)
+    
+    return data_out, filled
+
+
+def fill_islands(tile_paths: list[Path]) -> list[Path]:
+    """Fyller landöar < MMU_ISLAND px omringade av vatten i alla tiles."""
     t0_step = time.time()
-    out_dir = OUT_BASE / "steg4b_filled_filtered"
+    out_dir = OUT_BASE / "steg4b_islands_filled"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths = []
-    total_removed = 0
-    total_areas = 0
+    total_islands = 0
     
-    info.info("Steg 4b: Filtrerar små sjöar < %d px (%.2f ha)...",
+    info.info("Steg 4b: Fyller små landöar < %d px (%.2f ha) omringade av vatten ...",
               MMU_ISLAND, MMU_ISLAND * 100 / 10000)
-    
-    struct_4conn = np.array([[0,1,0],[1,1,1],[0,1,0]], dtype=bool)
-    water_classes = np.array([61, 62], dtype=np.uint16)
     
     for tile in tile_paths:
         out_path = out_dir / tile.name
         if not out_path.exists():
             t0 = time.time()
             
-            # Läs original
             with rasterio.open(tile) as src:
-                original_data = src.read(1)
+                data = src.read(1)
                 profile = src.profile
             
-            output_data = original_data.copy()
-            n_removed = 0
+            log.debug("fill_islands: bearbetar %s", tile.name)
+            filled_data, n_islands = fill_small_islands(data, WATER_CLASSES, MMU_ISLAND)
             
-            # Bearbeta ENDAST vattenklasser (61, 62)
-            for class_val in water_classes:
-                class_mask = (original_data == class_val)
-                
-                if not class_mask.any():
-                    continue
-                
-                # Labela sammanhängande sjöar av denna klass
-                labeled, num_features = ndimage.label(class_mask, structure=struct_4conn)
-                
-                if num_features == 0:
-                    continue
-                
-                # Beräkna storlek på varje sjö-komponent
-                component_sizes = ndimage.sum(class_mask, labeled, range(num_features + 1))
-                
-                # Identifiera små sjöar (exkludera label 0 = bakgrund)
-                for comp_id in range(1, num_features + 1):
-                    comp_size = component_sizes[comp_id]
-                    
-                    if comp_size < MMU_ISLAND:
-                        comp_mask = (labeled == comp_id)
-                        
-                        # Expandera masken för att hitta grannar
-                        expanded = ndimage.binary_dilation(comp_mask, structure=struct_4conn, iterations=1)
-                        neighbor_mask = expanded & ~comp_mask
-                        
-                        # Hitta majoritets-värde bland grannar
-                        if neighbor_mask.any():
-                            neighbor_vals = original_data[neighbor_mask]
-                            if len(neighbor_vals) > 0:
-                                counts = np.bincount(neighbor_vals.astype(int))
-                                replacement_class = np.argmax(counts)
-                                output_data[comp_mask] = replacement_class
-                                n_removed += 1
-                                total_areas += comp_size
-                                log.debug(f"  Sjö {comp_id} ({comp_size}px) → ersatt med klass {replacement_class}")
-            
-            # Spara resultat
             profile.update(compress=COMPRESS)
             with rasterio.open(out_path, 'w', **profile) as dst:
-                dst.write(output_data, 1)
+                dst.write(filled_data, 1)
             copy_qml(out_path)
             
+            px_changed = int(np.sum(filled_data != data))
             elapsed = time.time() - t0
-            total_removed += n_removed
-            log.debug("filter_lakes: %s → %d sjöar borttagna  %.1fs",
-                      tile.name, n_removed, elapsed)
-            info.info("  %-45s  %9d sjöar borttagna  %.1fs",
-                      tile.name, n_removed, elapsed)
-                
+            total_islands += n_islands
+            
+            log.debug("fill_islands: %s → %d öar fyllda (%d px)  %.1fs",
+                      tile.name, n_islands, px_changed, elapsed)
+            info.info("  %-45s  %3d öar fyllda  %6d px ändrade  %.1fs",
+                      tile.name, n_islands, px_changed, elapsed)
         else:
-            log.debug("filter_lakes: hoppar %s (finns redan)", tile.name)
+            log.debug("fill_islands: hoppar %s (finns redan)", tile.name)
         
         result_paths.append(out_path)
     
-    info.info("Steg 4b klar: totalt %d sjöar borttagna (%d px)  %.1fs",
-              total_removed, total_areas, time.time() - t0_step)
+    info.info("Steg 4b klar: totalt %d öar fyllda  %.1fs",
+              total_islands, time.time() - t0_step)
     
     return result_paths
 
@@ -131,14 +133,14 @@ if __name__ == "__main__":
     step_name = os.getenv("STEP_NAME")
     setup_logging(OUT_BASE, step_num, step_name)
     
-    # Läs tiles från Steg 4a (filled/)
+    # Läs tiles från Steg 4 (steg4_filled/)
     filled_dir = OUT_BASE / "steg4_filled"
     if not filled_dir.exists():
-        print(f"Fel: {filled_dir} finns ej. Kör Steg 4a först")
+        print(f"Fel: {filled_dir} finns ej. Kör Steg 4 först")
         exit(1)
     
     tile_paths = sorted(filled_dir.glob("*.tif"))
-    print(f"Hittade {len(tile_paths)} tiles från Steg 4a")
+    print(f"Hittade {len(tile_paths)} tiles från Steg 4")
     
-    filtered = filter_small_lakes(tile_paths)
-    print(f"Steg 4b klar: {len(filtered)} lager filtrerade")
+    result_paths = fill_islands(tile_paths)
+    print(f"Steg 4b klar: {len(result_paths)} lager bearbetade")
