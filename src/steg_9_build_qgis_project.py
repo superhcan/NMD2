@@ -154,11 +154,6 @@ def build_qgis_project():
         if step_num == 9:
             continue
 
-        # Hoppa över inaktiverade steg
-        if not ENABLE_STEPS.get(step_num, True):
-            log.info(f"  (Hoppar {step_name} – inaktiverat i ENABLE_STEPS)")
-            continue
-
         if not step_dir.exists():
             log.warning(f"⚠️  {step_name:40s} – katalog saknas")
             continue
