@@ -19,7 +19,7 @@ import numpy as np
 import rasterio
 from scipy import ndimage
 
-from config import QML_SRC, OUT_BASE, WATER_CLASSES, MMU_ISLAND, STRUCT_4, COMPRESS
+from config import QML_SRC, OUT_BASE, WATER_CLASSES, MMU_ISLAND, ISLAND_FILL_SURROUNDS, STRUCT_4, COMPRESS
 
 log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -85,8 +85,8 @@ def fill_islands(tile_paths: list[Path]) -> list[Path]:
     result_paths = []
     total_islands = 0
     
-    info.info("Steg 5: Fyller små landöar < %d px (%.2f ha) omringade av vatten ...",
-              MMU_ISLAND, MMU_ISLAND * 100 / 10000)
+    info.info("Steg 5: Fyller små landöar < %d px (%.2f ha) omringade av %s ...",
+              MMU_ISLAND, MMU_ISLAND * 100 / 10000, sorted(ISLAND_FILL_SURROUNDS))
     
     for tile in tile_paths:
         out_path = out_dir / tile.name
@@ -98,7 +98,7 @@ def fill_islands(tile_paths: list[Path]) -> list[Path]:
                 profile = src.profile
             
             log.debug("fill_islands: bearbetar %s", tile.name)
-            filled_data, n_islands = fill_small_islands(data, WATER_CLASSES, MMU_ISLAND)
+            filled_data, n_islands = fill_small_islands(data, ISLAND_FILL_SURROUNDS, MMU_ISLAND)
             
             profile.update(compress=COMPRESS)
             with rasterio.open(out_path, 'w', **profile) as dst:

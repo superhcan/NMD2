@@ -43,6 +43,11 @@ ROADS_BUILDINGS = {51, 53}                       # Väg/järnväg och byggnader 
 
 MMU_ISLAND   = 100              # Minsta storlek på öar innan fyllnad (px)
 
+# Klasser som räknas som "omgivande yta" när små landöar ska fyllas (Steg 5)
+# En ö fylls bara om ALLA dess grannar tillhör dessa klasser.
+# Exempel: {61, 62} = bara sjöar/vatten; {51, 52, 53, 54, 61, 62} = vatten + vägar/byggnader
+ISLAND_FILL_SURROUNDS = {51, 52, 53, 54, 61, 62}
+
 # Sieve MMU-steg för conn4 och conn8 metoder (Steg 6a & 6b)
 # ═════════════════════════════════════════════════════════════════════════════
 # MMU = Minimum Mapping Unit i pixlar för sieve-filtren (conn4 och conn8).
