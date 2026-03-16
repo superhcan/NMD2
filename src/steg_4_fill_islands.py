@@ -159,11 +159,16 @@ if __name__ == "__main__":
                     str(OUT_BASE / "steg3_landscape"),
                     str(OUT_BASE / "steg4_filled"))
     
-    # Läs tiles från Steg 3
+    # Läs tiles från Steg 3, eller fallback till Steg 1 om Steg 3 är inaktiverat
     tiles_dir = OUT_BASE / "steg3_landscape"
     if not tiles_dir.exists():
-        print(f"Fel: {tiles_dir} finns ej. Kör Steg 1-3 först")
-        exit(1)
+        fallback = OUT_BASE / "steg1_tiles"
+        if fallback.exists():
+            info.info(f"steg3_landscape/ saknas – använder steg1_tiles/ som indata")
+            tiles_dir = fallback
+        else:
+            print(f"Fel: {tiles_dir} finns ej. Kör Steg 1-3 först")
+            exit(1)
     
     tiles = sorted(tiles_dir.glob("*.tif"))
     if not tiles:

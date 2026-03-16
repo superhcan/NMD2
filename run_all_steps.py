@@ -33,7 +33,7 @@ import argparse
 
 # Import pipeline configuration
 sys.path.insert(0, str(Path(__file__).parent / "src"))
-from config import ENABLE_STEPS
+from config import ENABLE_STEPS, OUT_BASE, GENERALIZATION_METHODS
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SETUP
@@ -47,7 +47,6 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 SRC_DIR = Path(__file__).parent / "src"
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_1024_halo_v7"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEG-DEFINITIONER
@@ -75,7 +74,7 @@ STEPS = {
         "name": "Ta bort små områden",
         "script": "steg_4_fill_islands.py",
         "description": "Tar bort små sjöar < 1 ha (< 100 px) och fyller med omkringliggande",
-        "requires_dir": "steg3_landscape"
+        "requires_dir": "steg3_landscape" if ENABLE_STEPS.get(3, True) else "steg1_tiles"
     },
     5: {
         "name": "Fylla små öar",
@@ -94,7 +93,7 @@ STEPS = {
         "name": "Vektorisering",
         "script": "steg_7_vectorize.py",
         "description": "Konverterar generaliserade raster till GeoPackage-vektorer",
-        "requires_dir": "steg6_generalized_modal"
+        "requires_dir": f"steg6_generalized_{next(iter(GENERALIZATION_METHODS))}"
     },
     8: {
         "name": "Mapshaper-förenkling",
