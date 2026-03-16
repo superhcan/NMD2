@@ -107,7 +107,8 @@ def vectorize_sieve(conn):
         
         tif_str = " ".join(f'"{t}"' for t in mmu_tifs)
         vrt_tmp = f"/tmp/_vect_{method}_mmu{mmu_str}.vrt"
-        shell_cmd = f'gdalbuildvrt "{vrt_tmp}" {tif_str} > /dev/null 2>&1 && gdal_polygonize.py "{vrt_tmp}" -f GPKG "{gpkg}" DN {LN} > /dev/null 2>&1; rm -f "{vrt_tmp}"'
+        conn_flag = "-8 " if conn == 8 else ""
+        shell_cmd = f'gdalbuildvrt "{vrt_tmp}" {tif_str} > /dev/null 2>&1 && gdal_polygonize.py "{vrt_tmp}" {conn_flag}-f GPKG "{gpkg}" DN {LN} > /dev/null 2>&1; rm -f "{vrt_tmp}"'
         subprocess.run(shell_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if gpkg.exists() and gpkg.stat().st_size > 1000:
             sz = gpkg.stat().st_size / 1e6
