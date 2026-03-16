@@ -192,7 +192,7 @@ ENABLE_STEPS = {
 #   GENERALIZATION_METHODS = {"conn4", "conn8"}            # Bara sieve-metoder
 #
 
-GENERALIZATION_METHODS = {"conn8", "modal"}  # Test: endast conn4 och modal
+GENERALIZATION_METHODS = {"conn4", "conn8", "modal"}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GDAL & RASTERIO SETTINGS
