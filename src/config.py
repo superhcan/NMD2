@@ -17,7 +17,7 @@ SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.ti
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_v9"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_4tiles_v8b"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
