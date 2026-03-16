@@ -30,7 +30,7 @@ except ImportError as e:
     print("   Installera QGIS först: apt install qgis python3-qgis")
     sys.exit(1)
 
-from config import OUT_BASE
+from config import OUT_BASE, ENABLE_STEPS, SIMPLIFICATION_TOLERANCES
 
 # ══════════════════════════════════════════════════════════════════════════════
 # LOGGING SETUP
@@ -153,7 +153,12 @@ def build_qgis_project():
         # Hoppa över denna steg (steg 9)
         if step_num == 9:
             continue
-        
+
+        # Hoppa över inaktiverade steg
+        if not ENABLE_STEPS.get(step_num, True):
+            log.info(f"  (Hoppar {step_name} – inaktiverat i ENABLE_STEPS)")
+            continue
+
         if not step_dir.exists():
             log.warning(f"⚠️  {step_name:40s} – katalog saknas")
             continue
@@ -337,11 +342,17 @@ def build_qgis_project():
                             return m, f"Klusterradie k={rest[1:]}", tolerance
                 return None, None, None
 
+            # Tillåtna toleranser baserade på config
+            allowed_tolerances = {f"p{t}" for t in SIMPLIFICATION_TOLERANCES}
+
             # Bygg metod → setting_label → tolerance → [filer]
             methods_dict = {}
             for lf in layer_files:
                 method, setting_label, tolerance = _parse_steg8(lf.stem)
                 if method is None:
+                    continue
+                if tolerance not in allowed_tolerances:
+                    log.debug(f"  Hoppar {lf.name} – tolerans {tolerance} ej i SIMPLIFICATION_TOLERANCES")
                     continue
                 methods_dict \
                     .setdefault(method, {}) \

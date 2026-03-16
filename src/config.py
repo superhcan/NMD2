@@ -167,7 +167,7 @@ KERNEL_SIZES = [3, 7]
 #   - Använd p15-p5 för extrem förenkling (lätta filer)
 #   - Fler nivåer = längre körtid men bättre att jämföra resultat
 #
-SIMPLIFICATION_TOLERANCES = [25, 15]
+SIMPLIFICATION_TOLERANCES = [25]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PIPELINE CONFIGURATION — Vilka steg ska köras?
@@ -176,7 +176,7 @@ SIMPLIFICATION_TOLERANCES = [25, 15]
 ENABLE_STEPS = {
     1: True,   # Tileluppdelning (hoppa över - tiles finns redan)
     2: True,    # Extrahera skyddade klasser
-    3: True,    # Extrahera landskapsbild
+    3: False,   # Extrahera landskapsbild
     4: True,    # Ta bort små sjöar < 1 ha
     5: True,    # Fylla små öar < 1 ha omringade av vatten
     6: True,    # Generalisering
@@ -197,7 +197,7 @@ ENABLE_STEPS = {
 #   GENERALIZATION_METHODS = {"conn4", "conn8"}            # Bara sieve-metoder
 #
 
-GENERALIZATION_METHODS = {"conn4", "conn8", "modal"}
+GENERALIZATION_METHODS = {"conn4"}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GDAL & RASTERIO SETTINGS
