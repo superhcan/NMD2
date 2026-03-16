@@ -66,6 +66,66 @@ def _count_lines(path):
     return n
 
 
+def _sort_ndjson_by_y(ndjson_file: Path, log) -> Path:
+    """
+    Sorterar ndjson-filen geografiskt (nord→syd) via två genomläsningar.
+
+    Problem utan sortering:
+      Feature-ordningen i ndjson följer FID-ordning (GDAL polygonize-scan),
+      vilket INTE är geografisk. Batch-gränserna skär tvärs igenom hela
+      datasetet, och polygoner som delar en kant men hamnar i olika batchar
+      förenklas oberoende → luckor syns överallt.
+
+    Med sortering:
+      Batch-gränserna blir approximativt horisontella E-W-linjer. Luckor
+      uppstår bara nära dessa linjer (4 stycken för 5 batchar), vilket ger
+      ett kontrollerbart och skalspecifikt fel.
+
+    Metod (tvåpasss, låg minnesanvändning ~150 MB overhead):
+      Pass 1: läs byte-offset + Y-centroid för varje feature
+      Sortera offsetlistan by Y descending
+      Pass 2: skriv features i sorterad ordning via seek
+    """
+    import json as _json
+
+    dst = Path(str(ndjson_file) + ".sorted")
+
+    # Pass 1: samla (y_centroid, byte_offset)
+    offsets = []  # list of (y: float, byte_offset: int)
+    with open(ndjson_file, "rb") as f:
+        offset = 0
+        for raw in f:
+            s = raw.strip()
+            if s:
+                try:
+                    g = _json.loads(s)["geometry"]
+                    coords = g["coordinates"]
+                    if g["type"] == "Polygon":
+                        ring = coords[0]
+                    elif g["type"] == "MultiPolygon":
+                        ring = coords[0][0]
+                    else:
+                        ring = [[0, 0]]
+                    y = sum(pt[1] for pt in ring) / len(ring)
+                except Exception:
+                    y = 0.0
+                offsets.append((y, offset))
+            offset += len(raw)
+
+    log.info("Sorterar %d features geografiskt (nord\u2192syd)...", len(offsets))
+    offsets.sort(key=lambda t: -t[0])  # Descending = nord f\u00f6rst
+
+    # Pass 2: skriv i sorterad ordning
+    with open(ndjson_file, "rb") as src, open(dst, "wb") as out:
+        for _, off in offsets:
+            src.seek(off)
+            line = src.readline()
+            out.write(line.rstrip(b"\r\n"))
+            out.write(b"\n")
+
+    return dst
+
+
 def _write_batch(src_path, batch_path, start, count):
     """Skriver ut 'count' rader från rad 'start' i src_path till batch_path."""
     with open(src_path, "rb") as src, open(batch_path, "wb") as dst:
@@ -133,7 +193,12 @@ def simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances=Non
     n_batches = max(1, (total_features + FEATURES_PER_BATCH - 1) // FEATURES_PER_BATCH)
     log.info("GeoJSONSeq: %.0f MB, %d features → %d batch(ar) à %d",
              ndjson_mb, total_features, n_batches, FEATURES_PER_BATCH)
-
+    # Sortera features geografiskt s\u00e5 att batch-gr\u00e4nser blir E-W-linjer
+    # ist\u00e4llet f\u00f6r slumpm\u00e4ssigt spridda \u00f6ver datasetet.
+    sorted_ndjson = _sort_ndjson_by_y(ndjson_file, log)
+    ndjson_file.unlink(missing_ok=True)
+    ndjson_file = sorted_ndjson
+    log.info("Geografisk sortering klar: %s", ndjson_file.name)
     # ── Steg 2: Förenkla varje toleransnivå ───────────────────────────────
     env = {**os.environ, "NODE_PATH": NODE_PATH}
     log.info("Förenklar %s med Mapshaper Node.js-API (topologibevarand):", variant_name)

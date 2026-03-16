@@ -51,6 +51,10 @@ rl.on('close', () => {
   const cmd = [
     '-i layer.geojson',
     `-simplify percentage=${tolerancePct}% planar keep-shapes`,
+    // -clean fyller luckor (< 0.00001 grader² ≈ några 100 m²) och fixar
+    // eventuella överlapp inom batchen. Kryss-batch-luckor hanteras av
+    // geografisk sortering i Python-steget.
+    '-clean gap-fill-area=0.00001',
     '-o layer_out.geojson format=geojson',
   ].join(' ');
 
