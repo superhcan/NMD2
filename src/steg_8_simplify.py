@@ -19,7 +19,6 @@ Kräver: Mapshaper installerat och i PATH
 """
 
 import subprocess
-import json
 import os
 import logging
 from pathlib import Path
@@ -142,58 +141,30 @@ def simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances=[90
         print(f"  p{tolerance}%: ", end="", flush=True)
 
         if PROTECTED:
-            # Split: förenkla enbart landskap, håll PROTECTED-klasser opåverkade
-            # Obs: delade kanter mot skyddade klasser kan avvika marginellt
+            # Variabel förenkling i EN gemensam topologi:
+            # PROTECTED-klasser får sp=100 (noll förenkling), landskap får sp=tolerance.
+            # Mapshaper väljer automatiskt max(sp) för delade arcs → byggnads-/
+            # vattengränser förenklas aldrig, även från landskapssidan. Ingen
+            # topologibrytning längs klassgränser.
             js_array = "[" + ", ".join(str(c) for c in sorted(PROTECTED)) + "]"
-            temp_landscape = output_path / f"_temp_landscape_p{tolerance}.geojson"
-            temp_protected = output_path / f"_temp_protected_p{tolerance}.geojson"
-            try:
-                # Steg A: Förenkla icke-skyddade ytor
-                result = subprocess.run([
-                    "mapshaper", str(geojson_file),
-                    "-filter", f"!{js_array}.includes(markslag)",
-                    "-simplify", f"percentage={tolerance}%", "planar", "keep-shapes",
-                    "-o", "format=geojson", str(temp_landscape)
-                ], capture_output=True, text=True)
-                if result.returncode != 0:
-                    print(f"❌ Landscape simplification failed")
-                    log.error(f"Mapshaper (landscape): {result.stderr}")
-                    continue
-
-                # Steg B: Extrahera skyddade ytor utan förenkling
-                result = subprocess.run([
-                    "mapshaper", str(geojson_file),
-                    "-filter", f"{js_array}.includes(markslag)",
-                    "-o", "format=geojson", str(temp_protected)
-                ], capture_output=True, text=True)
-                if result.returncode != 0:
-                    print(f"❌ Protected extraction failed")
-                    log.error(f"Mapshaper (protected): {result.stderr}")
-                    continue
-
-                # Steg C: Slå ihop landskap + skyddade ytor (Python-native JSON-merge)
-                with open(temp_landscape) as f:
-                    merged = json.load(f)
-                with open(temp_protected) as f:
-                    prot = json.load(f)
-                if prot.get("features"):
-                    merged["features"].extend(prot["features"])
-                with open(output_geojson, "w") as f:
-                    json.dump(merged, f)
-            finally:
-                temp_landscape.unlink(missing_ok=True)
-                temp_protected.unlink(missing_ok=True)
+            each_expr = f"sp = {js_array}.includes(markslag) ? 1 : {tolerance / 100}"
+            result = subprocess.run([
+                "mapshaper", str(geojson_file),
+                "-each", each_expr,
+                "-simplify", "percentage=sp", "variable", "planar", "keep-shapes",
+                "-o", "format=geojson", str(output_geojson)
+            ], capture_output=True, text=True)
         else:
-            # Inga skyddade klasser — förenkla allt med topologibevarand
             result = subprocess.run([
                 "mapshaper", str(geojson_file),
                 "-simplify", f"percentage={tolerance}%", "planar", "keep-shapes",
                 "-o", "format=geojson", str(output_geojson)
             ], capture_output=True, text=True)
-            if result.returncode != 0:
-                print(f"❌ Failed")
-                log.error(f"Mapshaper: {result.stderr}")
-                continue
+
+        if result.returncode != 0:
+            print(f"❌ Failed")
+            log.error(f"Mapshaper: {result.stderr}")
+            continue
 
         if not output_geojson.exists():
             print(f"❌ Output GeoJSON missing")
