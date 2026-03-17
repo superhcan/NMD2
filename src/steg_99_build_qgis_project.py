@@ -152,6 +152,7 @@ def build_qgis_project():
     # Uppdaterad för ny numrering: steg 0-9 (0 för verifikation, 1-9 för produktion)
     steps = [
         (99, "Step 99 - QGIS project", None),  # This step - no own directory
+        (9, "Step 9 - With buildings", OUT_BASE / "steg9_with_buildings"),
         (8, "Step 8 - Simplified", OUT_BASE / "steg8_simplified"),
         (7, "Step 7 - Vectorized", OUT_BASE / "steg7_vectorized"),
         (6, "Step 6 - Generalized", OUT_BASE),
@@ -415,7 +416,87 @@ def build_qgis_project():
                                 log.warning(f"  ✗ {lf.stem:45s} ({e})")
 
                 log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
-        
+
+        # Step 9 – With buildings: same file naming as steg 8
+        elif step_num == 9:
+            layer_files = sorted(step_dir.glob("*.gpkg"))
+            if not layer_files:
+                log.warning(f"⚠️  {step_name:40s} – inga filer hittade")
+                continue
+
+            known_methods = ["conn4", "conn8", "modal", "semantic"]
+
+            def _parse_steg9(stem):
+                """conn4_mmu008_simplified_p25 → (method, setting_label, tolerance)"""
+                parts = stem.split("_simplified_")
+                if len(parts) != 2:
+                    return None, None, None
+                variant, tolerance = parts[0], parts[1]
+                for m in known_methods:
+                    if variant.startswith(m + "_"):
+                        rest = variant[len(m) + 1:]
+                        if rest.startswith("mmu"):
+                            return m, f"MMU {rest[3:]}px", tolerance
+                        elif rest.startswith("k"):
+                            return m, f"Kernel radius k={rest[1:]}", tolerance
+                return None, None, None
+
+            allowed_tolerances = {f"p{t}" for t in SIMPLIFICATION_TOLERANCES}
+            methods_dict = {}
+            for lf in layer_files:
+                method, setting_label, tolerance = _parse_steg9(lf.stem)
+                if method is None:
+                    continue
+                if tolerance not in allowed_tolerances:
+                    continue
+                methods_dict \
+                    .setdefault(method, {}) \
+                    .setdefault(setting_label, {}) \
+                    .setdefault(tolerance, []) \
+                    .append(lf)
+
+            for method in [m for m in known_methods if m in methods_dict]:
+                method_group = QgsLayerTreeGroup(f"With buildings ({method.upper()})")
+                method_group.setExpanded(False)
+                group.addChildNode(method_group)
+
+                settings = methods_dict[method]
+                def _sort_setting9(lbl):
+                    if "MMU" in lbl:
+                        return (0, -int(lbl.split()[1].replace("px", "")))
+                    k_val = int(lbl.split("k=")[-1])
+                    return (1, -k_val)
+
+                tolerance_order = ["p90", "p75", "p50", "p25", "p15"]
+
+                for setting_label in sorted(settings.keys(), key=_sort_setting9):
+                    setting_group = QgsLayerTreeGroup(setting_label)
+                    setting_group.setExpanded(False)
+                    method_group.addChildNode(setting_group)
+
+                    tols = settings[setting_label]
+                    for tolerance in [t for t in tolerance_order if t in tols]:
+                        tol_group = QgsLayerTreeGroup(tolerance)
+                        tol_group.setExpanded(False)
+                        setting_group.addChildNode(tol_group)
+                        for lf in tols[tolerance]:
+                            try:
+                                layer = QgsVectorLayer(str(lf), lf.stem, "ogr")
+                                if not layer.isValid():
+                                    log.debug(f"  ✗ {lf.stem:45s} (ej giltig)")
+                                    continue
+                                _apply_no_fill(layer)
+                                project.addMapLayer(layer, addToLegend=False)
+                                tree_layer = QgsLayerTreeLayer(layer)
+                                tree_layer.setExpanded(False)
+                                tol_group.addChildNode(tree_layer)
+                                log.info(f"  ✓ {lf.stem:45s}")
+                                total_layers += 1
+                            except Exception as e:
+                                log.warning(f"  ✗ {lf.stem:45s} ({e})")
+
+                log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
+
         else:
             # Standard-hantering för andra steg
             # Bestäm filtyp

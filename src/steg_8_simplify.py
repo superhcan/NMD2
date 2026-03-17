@@ -25,7 +25,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 import sys
-from config import OUT_BASE, SIMPLIFICATION_TOLERANCES
+from config import OUT_BASE, SIMPLIFICATION_TOLERANCES, PROTECTED
 
 def setup_logging(out_base):
     """Setup logging with step-aware filenames."""
@@ -139,30 +139,66 @@ def simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances=[90
         output_geojson = output_path / f"{variant_name}_simplified_p{tolerance}.geojson"
         output_gpkg = output_path / f"{variant_name}_simplified_p{tolerance}.gpkg"
         
-        # Mapshaper command with topology preservation
-        # percentage=X retains X% of removable vertices
-        # Higher percentage = less simplification, Lower percentage = more simplification
-        # 90% = minimal simplification, 25% = aggressive simplification
-        mapshaper_cmd = [
-            "mapshaper",
-            str(geojson_file),
-            "-simplify",
-            f"percentage={tolerance}%",  # Keep X% of removable vertices
-            "planar",                     # Use planar projection (2D)
-            "keep-shapes",                # Preserve polygon shapes
-            "-o",
-            "format=geojson",
-            str(output_geojson)
-        ]
-        
         print(f"  p{tolerance}%: ", end="", flush=True)
-        result = subprocess.run(mapshaper_cmd, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            print(f"❌ Failed")
-            print(f"     Error: {result.stderr}")
+
+        if PROTECTED:
+            # Split: förenkla enbart landskap, håll PROTECTED-klasser opåverkade
+            # Obs: delade kanter mot skyddade klasser kan avvika marginellt
+            js_array = "[" + ", ".join(str(c) for c in sorted(PROTECTED)) + "]"
+            temp_landscape = output_path / f"_temp_landscape_p{tolerance}.geojson"
+            temp_protected = output_path / f"_temp_protected_p{tolerance}.geojson"
+            try:
+                # Steg A: Förenkla icke-skyddade ytor
+                result = subprocess.run([
+                    "mapshaper", str(geojson_file),
+                    "-filter", f"!{js_array}.includes(markslag)",
+                    "-simplify", f"percentage={tolerance}%", "planar", "keep-shapes",
+                    "-o", "format=geojson", str(temp_landscape)
+                ], capture_output=True, text=True)
+                if result.returncode != 0:
+                    print(f"❌ Landscape simplification failed")
+                    log.error(f"Mapshaper (landscape): {result.stderr}")
+                    continue
+
+                # Steg B: Extrahera skyddade ytor utan förenkling
+                result = subprocess.run([
+                    "mapshaper", str(geojson_file),
+                    "-filter", f"{js_array}.includes(markslag)",
+                    "-o", "format=geojson", str(temp_protected)
+                ], capture_output=True, text=True)
+                if result.returncode != 0:
+                    print(f"❌ Protected extraction failed")
+                    log.error(f"Mapshaper (protected): {result.stderr}")
+                    continue
+
+                # Steg C: Slå ihop landskap + skyddade ytor (Python-native JSON-merge)
+                with open(temp_landscape) as f:
+                    merged = json.load(f)
+                with open(temp_protected) as f:
+                    prot = json.load(f)
+                if prot.get("features"):
+                    merged["features"].extend(prot["features"])
+                with open(output_geojson, "w") as f:
+                    json.dump(merged, f)
+            finally:
+                temp_landscape.unlink(missing_ok=True)
+                temp_protected.unlink(missing_ok=True)
+        else:
+            # Inga skyddade klasser — förenkla allt med topologibevarand
+            result = subprocess.run([
+                "mapshaper", str(geojson_file),
+                "-simplify", f"percentage={tolerance}%", "planar", "keep-shapes",
+                "-o", "format=geojson", str(output_geojson)
+            ], capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"❌ Failed")
+                log.error(f"Mapshaper: {result.stderr}")
+                continue
+
+        if not output_geojson.exists():
+            print(f"❌ Output GeoJSON missing")
             continue
-        
+
         geojson_size = output_geojson.stat().st_size / 1024 / 1024
         print(f"  GeoJSON: {geojson_size:.1f} MB", end="", flush=True)
         

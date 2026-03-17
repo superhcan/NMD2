@@ -33,10 +33,10 @@ HALO             = 100           # px – kant på varje sida vid generalisering
 # CLASSIFICATION CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-PROTECTED        = {61, 62}                        # Skyddade klasser: Inlandsvatten, Hav (maskeras vid generalisering i steg 6, exkluderas från areafilter)
+PROTECTED        = {51, 61, 62}                    # Skyddade klasser: Byggnad, Inlandsvatten, Hav (maskeras vid generalisering i steg 6, exkluderas från areafilter)
 EXTRACT_CLASSES  = {51, 53, 61, 62}                # Klasser som extraheras separat i steg 2 (vektoriseras senare): Byggnad, Väg/järnväg, Vatten
 WATER_CLASSES    = {61, 62}                        # Vatten (för öfyllnad)
-DISSOLVE_CLASSES = {51, 53}                        # Klasser som löses upp i omgivande mark i steg 3: Byggnad, Väg/järnväg
+DISSOLVE_CLASSES = {53}                            # Klasser som löses upp i omgivande mark i steg 3: Väg/järnväg
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CLASS REMAPPING — Omklassificering från NMD till slutklasser (Steg 0)
@@ -264,6 +264,7 @@ ENABLE_STEPS = {
     6: True,    # Generalisering
     7: True,    # Vektorisering
     8: True,    # Mapshaper-förenkling
+    9: False,   # Overlay byggnader från steg 2 på steg 8
     99: True,   # Bygga QGIS-projekt
 }
 

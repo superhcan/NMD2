@@ -12,6 +12,7 @@ Kör alla steg i rätt ordning:
   Steg 6: Generalisering (steg_6_generalize.py)
   Steg 7: Vektorisering (steg_7_vectorize.py)
   Steg 8: Mapshaper-förenkling (steg_8_simplify.py)
+  Steg 9: Overlay buildings (steg_9_overlay_buildings.py)
   Steg 99: Bygga QGIS-projekt (steg_99_build_qgis_project.py)
 
 Användning:
@@ -106,6 +107,12 @@ STEPS = {
         "script": "steg_8_simplify.py",
         "description": "Förenklar vektorer med topologi-bevarad Mapshaper",
         "requires_dir": "steg7_vectorized"
+    },
+    9: {
+        "name": "Overlay buildings",
+        "script": "steg_9_overlay_buildings.py",
+        "description": "Vektoriserar byggnader från steg 2 och lägger till i steg 8-lager",
+        "requires_dir": "steg8_simplified"
     },
     99: {
         "name": "Bygga QGIS-projekt",
