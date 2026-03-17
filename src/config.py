@@ -42,7 +42,7 @@ DISSOLVE_CLASSES = {51, 53}                      # Klasser som löses upp i omgi
 # GENERALIZATION PARAMETERS
 # ══════════════════════════════════════════════════════════════════════════════
 
-MMU_ISLAND   = 100              # Minsta storlek på öar innan fyllnad (px)
+MMU_ISLAND   = 50               # Minsta storlek på öar innan fyllnad (px) — 0,5 ha vid 10 m upplösning
 
 # Klasser som räknas som "omgivande yta" när små landöar ska fyllas (Steg 5)
 # En ö fylls bara om ALLA dess grannar tillhör dessa klasser.
@@ -178,8 +178,8 @@ ENABLE_STEPS = {
     1: False,   # Tileluppdelning (hoppa över - tiles finns redan)
     2: True,    # Extrahera skyddade klasser
     3: True,   # Extrahera landskapsbild
-    4: True,    # Ta bort små sjöar < 1 ha
-    5: True,    # Fylla små öar < 1 ha omringade av vatten
+    4: True,    # Ta bort små sjöar < 0,5 ha
+    5: True,    # Fylla små öar < 0,5 ha omringade av vatten
     6: True,    # Generalisering
     7: True,    # Vektorisering
     8: True,    # Mapshaper-förenkling

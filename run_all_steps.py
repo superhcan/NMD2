@@ -6,7 +6,7 @@ Kör alla 9 steg i rätt ordning:
   Steg 1: Tileluppdelning (steg_1_split_tiles.py)
   Steg 2: Extrahera bevarade klasser (steg_2_bevarade.py)
   Steg 3: Lös upp klasser i omgivande mark (steg_3_dissolve.py)
-  Steg 4: Ta bort små sjöar < 1 ha (steg_4_fill_islands.py)
+  Steg 4: Ta bort små sjöar < 0,5 ha (steg_4_fill_islands.py)
   Steg 5: Fylla små öar omringade av vatten (steg_5_filter_lakes.py) [VALFRITT]
   Steg 6: Generalisering (steg_6_generalize.py)
   Steg 7: Vektorisering (steg_7_vectorize.py)
@@ -73,13 +73,13 @@ STEPS = {
     4: {
         "name": "Ta bort små områden",
         "script": "steg_4_fill_islands.py",
-        "description": "Tar bort små sjöar < 1 ha (< 100 px) och fyller med omkringliggande",
+        "description": "Tar bort små sjöar < 0,5 ha (< 50 px) och fyller med omkringliggande",
         "requires_dir": "steg3_dissolved" if ENABLE_STEPS.get(3, True) else "steg1_tiles"
     },
     5: {
         "name": "Fylla små öar",
         "script": "steg_5_filter_lakes.py",
-        "description": "Fyller små landöar < 1 ha omringade av vatten",
+        "description": "Fyller små landöar < 0,5 ha omringade av vatten",
         "requires_dir": "steg4_filled",
         "optional": True
     },
