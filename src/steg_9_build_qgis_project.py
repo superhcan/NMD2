@@ -132,7 +132,7 @@ def build_qgis_project():
     log.info("✓ Gamla lager rensade\n")
     
     # Definiera steg och deras katalog (med steg-prefix)
-    # Uppdaterad för ny numrering: steg 1-9 (tidigare 1-8)
+    # Uppdaterad för ny numrering: steg 0-9 (0 för verifikation, 1-9 för produktion)
     steps = [
         (9, "Steg 9 - QGIS-projekt", None),  # Denna steg - ingen egen katalog
         (8, "Steg 8 - Förenklad (Mapshaper)", OUT_BASE / "steg8_simplified"),
@@ -142,7 +142,8 @@ def build_qgis_project():
         (4, "Steg 4 - Fyllda sjöar", OUT_BASE / "steg4_filled"),
         (3, "Steg 3 - Upplösta klasser", OUT_BASE / "steg3_dissolved"),
         (2, "Steg 2 - Bevarade klasser", OUT_BASE / "steg2_bevarade"),
-        (1, "Steg 1 - Tiles", OUT_BASE / "steg1_tiles"),
+        (1, "Steg 1 - Tiles med omklassificering", OUT_BASE / "steg1_tiles"),
+        (0, "Steg 0 - Verifikationstiles (original)", OUT_BASE / "steg0_verify_tiles"),
     ]
     
     log.info("Lägger till steg i projekt...\n")
