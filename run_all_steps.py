@@ -5,14 +5,14 @@ run_all_steps.py — Master orchestrator för NMD2 pipeline.
 Kör alla steg i rätt ordning:
   Steg 0: Verifikation - tileluppdelning utan omklassificering (steg_0_verify_tiles.py)
   Steg 1: Tileluppdelning med omklassificering (steg_1_split_tiles.py)
-  Steg 2: Extrahera bevarade klasser (steg_2_bevarade.py)
+  Steg 2: Extract classes (steg_2_extracted.py)
   Steg 3: Lös upp klasser i omgivande mark (steg_3_dissolve.py)
   Steg 4: Ta bort små sjöar < 0,5 ha (steg_4_fill_islands.py)
   Steg 5: Fylla små öar omringade av vatten (steg_5_filter_lakes.py)
   Steg 6: Generalisering (steg_6_generalize.py)
   Steg 7: Vektorisering (steg_7_vectorize.py)
   Steg 8: Mapshaper-förenkling (steg_8_simplify.py)
-  Steg 9: Bygga QGIS-projekt (steg_9_build_qgis_project.py)
+  Steg 99: Bygga QGIS-projekt (steg_99_build_qgis_project.py)
 
 Användning:
   python3 run_all_steps.py              # Kör alla steg
@@ -62,12 +62,13 @@ STEPS = {
     1: {
         "name": "Tileluppdelning med omklassificering",
         "script": "steg_1_split_tiles.py",
-        "description": "Delar original-raster i 1024×1024 px tiles och applicerar CLASS_REMAP"
+        "description": "Applicerar CLASS_REMAP på tiles från steg 0",
+        "requires_dir": "steg0_verify_tiles"
     },
     2: {
-        "name": "Extrahera bevarade klasser",
-        "script": "steg_2_bevarade.py",
-        "description": "Extraherar PROTECTED-klasser till separat lager för senare vektorisering",
+        "name": "Extract classes",
+        "script": "steg_2_extracted.py",
+        "description": "Extracts EXTRACT_CLASSES to separate layer for later vectorization",
         "requires_dir": "steg1_tiles"
     },
     3: {
@@ -106,9 +107,9 @@ STEPS = {
         "description": "Förenklar vektorer med topologi-bevarad Mapshaper",
         "requires_dir": "steg7_vectorized"
     },
-    9: {
+    99: {
         "name": "Bygga QGIS-projekt",
-        "script": "steg_9_build_qgis_project.py",
+        "script": "steg_99_build_qgis_project.py",
         "description": "Bygger QGIS-projekt med alla steg organiserade i grupper",
         "requires_dir": "steg8_simplified"
     }

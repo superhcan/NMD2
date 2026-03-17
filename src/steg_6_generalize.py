@@ -459,13 +459,13 @@ def step1_split() -> list[Path]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Steg 2: Extrahera bevarade klasser
+# Steg 2: Extract classes
 # ══════════════════════════════════════════════════════════════════════════════
 
 def step2_extract_protected(tile_paths: list[Path]) -> list[Path]:
-    """Extrahera bevarade klasser (PROTECTED) från original-tiles."""
+    """Extract EXTRACT_CLASSES from original tiles."""
     t0_step = time.time()
-    out_dir = OUT_BASE / "steg2_bevarade"
+    out_dir = OUT_BASE / "steg2_extracted"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths = []
     total_px_extracted = 0

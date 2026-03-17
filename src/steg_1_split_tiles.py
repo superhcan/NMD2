@@ -1,15 +1,14 @@
 """
-steg_1_split_tiles.py — Steg 1: Tileluppdelning + klassomklassificering.
+steg_1_split_tiles.py — Steg 1: Klassomklassificering från steg 0 tiles.
 
-Delar original-raster (NMD2023bas_v2_0.tif) i 1024×1024 px tiles och
-applicerar CLASS_REMAP för omklassificering från NMD-koder till slutklasser.
+Läser redan uppdelade tiles från steg0_verify_tiles/ och applicerar
+CLASS_REMAP för omklassificering från NMD-koder till slutklasser.
 
-Sparar två versioner per tile:
-  - NMD2023bas_tile_r{rad:03d}_c{kol:03d}.tif (omklassificerad)
-  - NMD2023bas_tile_r{rad:03d}_c{kol:03d}_original_class.tif (original NMD-koder)
+Input:  steg0_verify_tiles/*.tif (original NMD-koder, uppdelade av steg 0)
+Output: steg1_tiles/*.tif (omklassificerade tiles)
 
 Namnkonvention: NMD2023bas_tile_r{rad:03d}_c{kol:03d}.tif
-Varje tile får en kopia av .qml-filen så att QGIS läser in paletten automatiskt.
+Varje tile får en kopia av .qml-filen så att QGIS hittar paletten automatiskt.
 
 Kör: python3 steg_1_split_tiles.py
 """
@@ -22,16 +21,11 @@ from pathlib import Path
 
 import numpy as np
 import rasterio
-from rasterio.windows import Window
 
-from config import SRC, QML_SRC, OUT_BASE, COMPRESS, CLASS_REMAP
+from config import QML_SRC, OUT_BASE, COMPRESS, CLASS_REMAP
 
 log = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
-
-# ──────────────────────────────────────────────────────────────────────────────
-
-TILE_SIZE = 1024  # pixlar per sida
 
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -56,9 +50,14 @@ def remap_classes(tile_data, class_remap):
 
 # ──────────────────────────────────────────────────────────────────────────────
 
-OUT_DIR = OUT_BASE / "steg1_tiles"  # Output-mapp för steg 1 tiles
+STEG0_DIR = OUT_BASE / "steg0_verify_tiles"  # Indata: original tiles från steg 0
+OUT_DIR   = OUT_BASE / "steg1_tiles"           # Output-mapp för steg 1 tiles
 
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+if not STEG0_DIR.exists():
+    print(f"FEL: {STEG0_DIR} saknas — kör steg 0 först.")
+    sys.exit(1)
 
 if not QML_SRC.exists():
     print(f"VARNING: Hittade inte {QML_SRC} – palett-filer kopieras inte.")
@@ -68,64 +67,45 @@ else:
 
 t_start = time.time()
 
-with rasterio.open(SRC) as src:
-    meta = src.meta.copy()
-    width = src.width
-    height = src.height
+# Hämta alla source-tiles (exkludera _original_class om sådana finns)
+src_tiles = sorted(
+    p for p in STEG0_DIR.glob("*.tif")
+    if "_original_class" not in p.name
+)
+total = len(src_tiles)
 
-    n_cols = (width  + TILE_SIZE - 1) // TILE_SIZE
-    n_rows = (height + TILE_SIZE - 1) // TILE_SIZE
-    total  = n_rows * n_cols
+if total == 0:
+    print(f"FEL: Inga tiles hittades i {STEG0_DIR} — kör steg 0 först.")
+    sys.exit(1)
 
-    print(f"Källbild : {width} × {height} px")
-    print(f"Tile-size: {TILE_SIZE} × {TILE_SIZE} px")
-    print(f"Tiles    : {n_cols} kolumner × {n_rows} rader = {total} st")
-    print(f"Utmapp   : {OUT_DIR}")
-    print(f"Klassom- : {len(CLASS_REMAP)} omklassificeringar\n")
+print(f"Källmapp : {STEG0_DIR}")
+print(f"Tiles    : {total} st")
+print(f"Utmapp   : {OUT_DIR}")
+print(f"Klassom- : {len(CLASS_REMAP)} omklassificeringar\n")
 
-    count = 0
-    for row in range(n_rows):
-        for col in range(n_cols):
-            x_off = col * TILE_SIZE
-            y_off = row * TILE_SIZE
-            w     = min(TILE_SIZE, width  - x_off)
-            h     = min(TILE_SIZE, height - y_off)
+for count, src_tile_path in enumerate(src_tiles, 1):
+    tile_name = src_tile_path.name
+    tile_path = OUT_DIR / tile_name
 
-            window    = Window(x_off, y_off, w, h)
-            transform = src.window_transform(window)
+    with rasterio.open(src_tile_path) as src:
+        tile_data = src.read(1)
+        tile_meta = src.meta.copy()
+        tile_meta.update(compress=COMPRESS)
 
-            tile_name = f"NMD2023bas_tile_r{row:03d}_c{col:03d}.tif"
-            tile_path = OUT_DIR / tile_name
+    # Applicera omklassificering
+    tile_remapped = remap_classes(tile_data, CLASS_REMAP)
 
-            # Läs original data
-            tile_original = src.read(1, window=window)  # uint8 från källan
-            
-            # Spara en kopia av original-klasserna för referens
-            original_class_path = tile_path.with_stem(tile_path.stem + "_original_class")
-            
-            tile_meta = meta.copy()
-            tile_meta.update(width=w, height=h, transform=transform,
-                             compress=COMPRESS)
+    # Skriv omklassificerad tile
+    with rasterio.open(tile_path, "w", **tile_meta) as dst:
+        dst.write(tile_remapped.astype(tile_data.dtype), 1)
 
-            # Skriv originalklasser
-            with rasterio.open(original_class_path, "w", **tile_meta) as dst:
-                dst.write(tile_original, 1)
-            
-            # Applicera omklassificering
-            tile_remapped = remap_classes(tile_original, CLASS_REMAP)
-            
-            # Skriv omklassificerad tile
-            with rasterio.open(tile_path, "w", **tile_meta) as dst:
-                dst.write(tile_remapped.astype(src.dtypes[0]), 1)
+    # Kopiera QML så QGIS hittar paletten automatiskt
+    if copy_qml:
+        shutil.copy2(QML_SRC, tile_path.with_suffix(".qml"))
 
-            # Kopiera QML så QGIS hittar paletten automatiskt
-            if copy_qml:
-                shutil.copy2(QML_SRC, tile_path.with_suffix(".qml"))
-
-            count += 1
-            if count % 50 == 0 or count == total:
-                pct = count / total * 100
-                print(f"  {count}/{total} ({pct:.0f}%)", flush=True)
+    if count % 50 == 0 or count == total:
+        pct = count / total * 100
+        print(f"  {count}/{total} ({pct:.0f}%)", flush=True)
 
 elapsed = time.time() - t_start
 print(f"\nKlart! ({elapsed:.1f}s)")
@@ -142,7 +122,7 @@ if __name__ == "__main__":
     info = logging.getLogger("pipeline.summary")
     
     log_step_header(info, 1, "Tileluppdelning",
-                    str(SRC),
+                    str(STEG0_DIR),
                     str(OUT_DIR))
     
     info.info("Steg 1 klar: %d tiles skapade (%.1fs)", len(list(OUT_DIR.glob("*.tif"))), elapsed)

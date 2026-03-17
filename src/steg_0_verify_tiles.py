@@ -22,16 +22,11 @@ from pathlib import Path
 
 import numpy as np
 import rasterio
-from rasterio.windows import Window
 
-from config import SRC, QML_SRC, OUT_BASE, COMPRESS
+from config import SRC, QML_SRC, OUT_BASE, COMPRESS, TILE_SIZE, PARENT_TILES
 
 log = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
-
-# ──────────────────────────────────────────────────────────────────────────────
-
-TILE_SIZE = 1024  # pixlar per sida
 
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -47,54 +42,44 @@ else:
 
 t_start = time.time()
 
+total = len(PARENT_TILES)
+print(f"Källbild : {SRC.name}")
+print(f"Tile-size: {TILE_SIZE} × {TILE_SIZE} px")
+print(f"Tiles    : {total} st (PARENT_TILES)")
+print(f"Utmapp   : {OUT_DIR}")
+print(f"Klassif. : INGEN omklassificering (verifikation av original)\n")
+
 with rasterio.open(SRC) as src:
     meta = src.meta.copy()
-    width = src.width
-    height = src.height
 
-    n_cols = (width  + TILE_SIZE - 1) // TILE_SIZE
-    n_rows = (height + TILE_SIZE - 1) // TILE_SIZE
-    total  = n_rows * n_cols
+    for count, (row, col) in enumerate(PARENT_TILES, 1):
+        x_off = col * TILE_SIZE
+        y_off = row * TILE_SIZE
+        w     = min(TILE_SIZE, src.width  - x_off)
+        h     = min(TILE_SIZE, src.height - y_off)
 
-    print(f"Källbild : {width} × {height} px")
-    print(f"Tile-size: {TILE_SIZE} × {TILE_SIZE} px")
-    print(f"Tiles    : {n_cols} kolumner × {n_rows} rader = {total} st")
-    print(f"Utmapp   : {OUT_DIR}")
-    print(f"Klassif. : INGEN omklassificering (verifikation av original)\n")
+        window    = rasterio.windows.Window(x_off, y_off, w, h)
+        transform = src.window_transform(window)
 
-    count = 0
-    for row in range(n_rows):
-        for col in range(n_cols):
-            x_off = col * TILE_SIZE
-            y_off = row * TILE_SIZE
-            w     = min(TILE_SIZE, width  - x_off)
-            h     = min(TILE_SIZE, height - y_off)
+        tile_name = f"NMD2023bas_tile_r{row:03d}_c{col:03d}.tif"
+        tile_path = OUT_DIR / tile_name
 
-            window    = Window(x_off, y_off, w, h)
-            transform = src.window_transform(window)
+        # Läs original data
+        tile_data = src.read(1, window=window)  # uint8 från källan
 
-            tile_name = f"NMD2023bas_tile_r{row:03d}_c{col:03d}.tif"
-            tile_path = OUT_DIR / tile_name
+        tile_meta = meta.copy()
+        tile_meta.update(width=w, height=h, transform=transform,
+                         compress=COMPRESS)
 
-            # Läs original data
-            tile_data = src.read(1, window=window)  # uint8 från källan
-            
-            tile_meta = meta.copy()
-            tile_meta.update(width=w, height=h, transform=transform,
-                             compress=COMPRESS)
+        # Skriv original data UTAN någon omklassificering
+        with rasterio.open(tile_path, "w", **tile_meta) as dst:
+            dst.write(tile_data.astype(src.dtypes[0]), 1)
 
-            # Skriv original data UTAN någon omklassificering
-            with rasterio.open(tile_path, "w", **tile_meta) as dst:
-                dst.write(tile_data.astype(src.dtypes[0]), 1)
+        # Kopiera QML så QGIS hittar paletten automatiskt
+        if copy_qml:
+            shutil.copy2(QML_SRC, tile_path.with_suffix(".qml"))
 
-            # Kopiera QML så QGIS hittar paletten automatiskt
-            if copy_qml:
-                shutil.copy2(QML_SRC, tile_path.with_suffix(".qml"))
-
-            count += 1
-            if count % 50 == 0 or count == total:
-                pct = count / total * 100
-                print(f"  {count}/{total} ({pct:.0f}%)", flush=True)
+        print(f"  {count}/{total} ({count/total*100:.0f}%)", flush=True)
 
 elapsed = time.time() - t_start
 print(f"\nKlart! ({elapsed:.1f}s)")
