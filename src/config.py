@@ -34,7 +34,7 @@ HALO             = 100           # px – kant på varje sida vid generalisering
 # ══════════════════════════════════════════════════════════════════════════════
 
 GENERALIZE_PROTECTED = {51, 61, 62}                # Skyddade klasser i steg 6 (generalisering): maskeras vid sieve/modal, exkluderas från areafilter.
-SIMPLIFY_PROTECTED   = {51, 61, 62}                # Skyddade klasser i steg 8 (Mapshaper): förenklas aldrig (sp=1.0). Kan skilja sig från GENERALIZE_PROTECTED.
+SIMPLIFY_PROTECTED   = {51}                        # Skyddade klasser i steg 8 (Mapshaper): förenklas aldrig (sp=1.0). Kan skilja sig från GENERALIZE_PROTECTED.
 EXTRACT_CLASSES  = {51, 53, 61, 62}                # Klasser som extraheras separat i steg 2 (vektoriseras senare): Byggnad, Väg/järnväg, Vatten
 WATER_CLASSES    = {61, 62}                        # Vatten (för öfyllnad)
 DISSOLVE_CLASSES = {53}                            # Klasser som löses upp i omgivande mark i steg 3: Väg/järnväg
