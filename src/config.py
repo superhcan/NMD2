@@ -89,7 +89,7 @@ ISLAND_FILL_SURROUNDS = {61, 62}
 #   - Sista värdet bör förenligt med `HALO` för att undvika edge-artefakter
 #   - Fler steg = längre körtid men bättre för att jämföra resultat
 #
-MMU_STEPS    = [2, 4, 8, 16, 32, 64, 100]
+MMU_STEPS    = [2, 4, 8, 16, 32, 50]
 
 # Kernel-storlekar för modal filter (Steg 6c)
 # ═════════════════════════════════════════════════════════════════════════════
