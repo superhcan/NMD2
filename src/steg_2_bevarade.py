@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-from config import QML_SRC, OUT_BASE, PROTECTED, COMPRESS
+from config import QML_SRC, OUT_BASE, EXTRACT_CLASSES, COMPRESS
 
 log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -38,10 +38,10 @@ def extract_protected_classes(tile_paths: list[Path]) -> list[Path]:
     result_paths = []
     total_px_extracted = 0
     
-    info.info("Steg 2: Extraherar bevarade klasser %s från original-tiles...", sorted(PROTECTED))
+    info.info("Steg 2: Extraherar bevarade klasser %s från original-tiles...", sorted(EXTRACT_CLASSES))
     
     # Konvertera till numpy uint16 för att matcha data-typen
-    protected_uint16 = np.array(list(PROTECTED), dtype=np.uint16)
+    protected_uint16 = np.array(list(EXTRACT_CLASSES), dtype=np.uint16)
     
     for tile in tile_paths:
         out_path = out_dir / tile.name
@@ -52,7 +52,7 @@ def extract_protected_classes(tile_paths: list[Path]) -> list[Path]:
                 data = src.read(1)
             meta.update(compress=COMPRESS)
             
-            # Skapa mask för skyddade klasser, sätt allt annat till 0
+            # Skapa mask för EXTRACT_CLASSES, sätt allt annat till 0
             mask = np.isin(data, protected_uint16)
             protected_data = data.copy()
             protected_data[~mask] = 0
