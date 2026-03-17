@@ -7,7 +7,7 @@ Kör alla 9 steg i rätt ordning:
   Steg 2: Extrahera bevarade klasser (steg_2_bevarade.py)
   Steg 3: Lös upp klasser i omgivande mark (steg_3_dissolve.py)
   Steg 4: Ta bort små sjöar < 0,5 ha (steg_4_fill_islands.py)
-  Steg 5: Fylla små öar omringade av vatten (steg_5_filter_lakes.py) [VALFRITT]
+  Steg 5: Fylla små öar omringade av vatten (steg_5_filter_lakes.py)
   Steg 6: Generalisering (steg_6_generalize.py)
   Steg 7: Vektorisering (steg_7_vectorize.py)
   Steg 8: Mapshaper-förenkling (steg_8_simplify.py)
@@ -80,8 +80,7 @@ STEPS = {
         "name": "Fylla små öar",
         "script": "steg_5_filter_lakes.py",
         "description": "Fyller små landöar < 0,5 ha omringade av vatten",
-        "requires_dir": "steg4_filled",
-        "optional": True
+        "requires_dir": "steg4_filled" if ENABLE_STEPS.get(4, True) else "steg3_dissolved"
     },
     6: {
         "name": "Generalisering",
@@ -185,9 +184,6 @@ def run_step(step_key):
     
     # Kontroll av input-katalog
     if not check_input_directory(step_key):
-        if step.get("optional"):
-            log.info(f"⏭️  Hoppar över valfritt steg {step_key}")
-            return True
         return False
     
     # Kör steg
@@ -254,8 +250,7 @@ def list_steps():
     print("\n📋 Tillgängliga steg:\n")
     for step_key in sorted(STEPS.keys(), key=lambda x: (isinstance(x, str), x)):
         step = STEPS[step_key]
-        optional_str = " [VALFRITT]" if step.get("optional") else ""
-        print(f"  Steg {step_key}{optional_str}: {step['name']}")
+        print(f"  Steg {step_key}: {step['name']}")
         print(f"         {step['description']}")
     print()
 
