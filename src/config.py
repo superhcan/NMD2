@@ -33,10 +33,90 @@ HALO             = 100           # px – kant på varje sida vid generalisering
 # CLASSIFICATION CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-PROTECTED        = {61, 62}                      # Skyddade klasser (maskeras vid generalisering i steg 6)
-EXTRACT_CLASSES  = {51, 52, 53, 61, 62}              # Klasser som extraheras separat i steg 2 (vektoriseras senare)
-WATER_CLASSES    = {61, 62}                      # Vatten (för öfyllnad)
-DISSOLVE_CLASSES = {51, 53}                      # Klasser som löses upp i omgivande mark i steg 3
+PROTECTED        = {51, 61, 62}                    # Skyddade klasser: Byggnad, Inlandsvatten, Hav (maskeras vid generalisering i steg 6, exkluderas från areafilter)
+EXTRACT_CLASSES  = {51, 52, 54, 61, 62}            # Klasser som extraheras separat i steg 2 (vektoriseras senare): Byggnad, Anlagd mark, Torvtäkt, Vatten
+WATER_CLASSES    = {61, 62}                        # Vatten (för öfyllnad)
+DISSOLVE_CLASSES = {52, 54}                        # Klasser som löses upp i omgivande mark i steg 3: Anlagd mark, Torvtäkt
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CLASS REMAPPING — Omklassificering från NMD till slutklasser (Steg 0)
+# ══════════════════════════════════════════════════════════════════════════════
+# Mappning: NMD-källkod → nya slutkod för förenkling och anpassning till kravspec.
+# Originalklasser sparas i separat _original_class-lager per tile.
+
+CLASS_REMAP = {
+    # Skogsklasser — sammanför fastmark och våtmark till samma klass
+    111: 111,  # Tallskog på fastmark → 111
+    121: 111,  # Tallskog på våtmark → 111
+    112: 112,  # Granskog på fastmark → 112
+    122: 112,  # Granskog på våtmark → 112
+    113: 113,  # Barrblandskog på fastmark → 113
+    123: 113,  # Barrblandskog på våtmark → 113
+    114: 114,  # Lövblandad barrskog på fastmark → 114
+    124: 114,  # Lövblandad barrskog på våtmark → 114
+    115: 115,  # Triviallövskog på fastmark → 115
+    125: 115,  # Triviallövskog på våtmark → 115
+    116: 116,  # Ädellövskog på fastmark → 116
+    126: 116,  # Ädellövskog på våtmark → 116
+    117: 117,  # Triviallövskog m. ädellövinslag på fastmark → 117
+    127: 117,  # Triviallövskog m. ädellövinslag på våtmark → 117
+    118: 118,  # Temporärt ej skog på fastmark → 118
+    128: 118,  # Temporärt ej skog på våtmark → 118
+    
+    # Våtmarksklasser — grupperas till två huvudgrupper
+    200: 21,   # Öppen våtmark utan underindelning → 21 (Öppen våtmark på myr)
+    211: 21,   # Buskmyr → 21
+    212: 21,   # Ristuvemyr → 21
+    213: 21,   # Fastmattemyr, mager → 21
+    214: 21,   # Fastmattemyr, frodig → 21
+    215: 21,   # Sumpcärr → 21
+    216: 21,   # Mjukmattemyr → 21
+    217: 21,   # Lösbottenmyr → 21
+    218: 21,   # Övrig öppen myr → 21
+    
+    221: 22,   # Våtmark med buskar → 22 (Öppen våtmark ej på myr)
+    222: 22,   # Risdominerad våtmark → 22
+    223: 22,   # Gräsdominerad våtmark, mager → 22
+    224: 22,   # Gräsdominerad våtmark, frodvuxen → 22
+    225: 22,   # Gräsdominerad våtmark, högvuxen → 22
+    226: 22,   # Mossdominerad våtmark → 22
+    227: 22,   # Våtmark utan växtäcke → 22
+    228: 22,   # Övrig öppen våtmark → 22
+    
+    # Fjällskogar — sammanför fastmark och våtmark
+    23: 23,    # Låg fjällskog på våtmark → 23
+    43: 23,    # Låg fjällskog på fastmark → 23
+    
+    # Åkermark
+    3: 3,      # Åkermark → 3 (ingen förändring)
+    
+    # Öppen mark
+    411: 41,   # Öppen fastmark utan vegetation (ej glaciär, varaktigt snöfält) → 41
+    412: 41,   # Samma som 411 → 41
+    413: 41,   # Samma som 411 → 41
+    
+    4211: 421, # Torr buskdominerad mark → 421
+    4212: 421, # Frisk buskdominerad mark → 421
+    4213: 421, # Frisk-fuktig buskdominerad mark → 421
+    
+    4221: 422, # Torr risdominerad mark → 422
+    4222: 422, # Frisk risdominerad mark → 422
+    4223: 422, # Frisk-fuktig risdominerad mark → 422
+    
+    4231: 423, # Torr gräsdominerad mark → 423
+    4232: 423, # Frisk gräsdominerad mark → 423
+    4233: 423, # Frisk-fuktig gräsdominerad mark → 423
+    
+    # Bebyggelse och infrastruktur
+    51: 51,    # Byggnad → 51 (ingen förändring)
+    52: 52,    # Anlagd mark, ej byggnad eller väg/järnväg → 52 (ingen förändring)
+    53: 53,    # Väg eller järnväg → 53 (ingen förändring)
+    54: 54,    # Torvtäkt → 54 (ingen förändring)
+    
+    # Vatten
+    61: 61,    # Inlandsvatten → 61 (ingen förändring, skyddad klass)
+    62: 62,    # Hav → 62 (ingen förändring, skyddad klass)
+}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GENERALIZATION PARAMETERS
@@ -175,7 +255,8 @@ SIMPLIFICATION_TOLERANCES = [25]
 # ══════════════════════════════════════════════════════════════════════════════
 
 ENABLE_STEPS = {
-    1: False,   # Tileluppdelning (hoppa över - tiles finns redan)
+    0: False,   # Verifikation - tileluppdelning utan omklassificering
+    1: True,    # Tileluppdelning med omklassificering
     2: True,    # Extrahera skyddade klasser
     3: True,   # Extrahera landskapsbild
     4: False,   # Ta bort små sjöar < 0,5 ha

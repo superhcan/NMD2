@@ -2,8 +2,9 @@
 """
 run_all_steps.py — Master orchestrator för NMD2 pipeline.
 
-Kör alla 9 steg i rätt ordning:
-  Steg 1: Tileluppdelning (steg_1_split_tiles.py)
+Kör alla steg i rätt ordning:
+  Steg 0: Verifikation - tileluppdelning utan omklassificering (steg_0_verify_tiles.py)
+  Steg 1: Tileluppdelning med omklassificering (steg_1_split_tiles.py)
   Steg 2: Extrahera bevarade klasser (steg_2_bevarade.py)
   Steg 3: Lös upp klasser i omgivande mark (steg_3_dissolve.py)
   Steg 4: Ta bort små sjöar < 0,5 ha (steg_4_fill_islands.py)
@@ -53,10 +54,15 @@ SRC_DIR = Path(__file__).parent / "src"
 # ══════════════════════════════════════════════════════════════════════════════
 
 STEPS = {
+    0: {
+        "name": "Verifikation - Tileluppdelning (original)",
+        "script": "steg_0_verify_tiles.py",
+        "description": "Delar original-raster i 1024×1024 px tiles utan omklassificering (för verifikation)"
+    },
     1: {
-        "name": "Tileluppdelning",
+        "name": "Tileluppdelning med omklassificering",
         "script": "steg_1_split_tiles.py",
-        "description": "Delar original-raster i 1024×1024 px tiles"
+        "description": "Delar original-raster i 1024×1024 px tiles och applicerar CLASS_REMAP"
     },
     2: {
         "name": "Extrahera bevarade klasser",
