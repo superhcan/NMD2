@@ -1,7 +1,12 @@
 """
-steg_1_split_tiles.py — Steg 1: Tileluppdelning.
+steg_1_split_tiles.py — Steg 1: Tileluppdelning + klassomklassificering.
 
-Delar original-raster (NMD2023bas_v2_0.tif) i 1024×1024 px tiles.
+Delar original-raster (NMD2023bas_v2_0.tif) i 1024×1024 px tiles och
+applicerar CLASS_REMAP för omklassificering från NMD-koder till slutklasser.
+
+Sparar två versioner per tile:
+  - NMD2023bas_tile_r{rad:03d}_c{kol:03d}.tif (omklassificerad)
+  - NMD2023bas_tile_r{rad:03d}_c{kol:03d}_original_class.tif (original NMD-koder)
 
 Namnkonvention: NMD2023bas_tile_r{rad:03d}_c{kol:03d}.tif
 Varje tile får en kopia av .qml-filen så att QGIS läser in paletten automatiskt.
@@ -15,10 +20,11 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import rasterio
 from rasterio.windows import Window
 
-from config import SRC, QML_SRC, OUT_BASE, COMPRESS
+from config import SRC, QML_SRC, OUT_BASE, COMPRESS, CLASS_REMAP
 
 log = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -26,6 +32,27 @@ info = logging.getLogger("pipeline.summary")
 # ──────────────────────────────────────────────────────────────────────────────
 
 TILE_SIZE = 1024  # pixlar per sida
+
+# ──────────────────────────────────────────────────────────────────────────────
+
+def remap_classes(tile_data, class_remap):
+    """
+    Applicerar CLASS_REMAP på en tile.
+    
+    Args:
+        tile_data: np.ndarray med pixelvärden
+        class_remap: dict {old_code: new_code}
+    
+    Returns:
+        Omklassificerad tile
+    """
+    remapped = tile_data.copy()
+    for old_code, new_code in class_remap.items():
+        if new_code is not None:  # None betyder kod elimineras (sätts till 0)
+            remapped[tile_data == old_code] = new_code
+        else:
+            remapped[tile_data == old_code] = 0
+    return remapped
 
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -53,7 +80,8 @@ with rasterio.open(SRC) as src:
     print(f"Källbild : {width} × {height} px")
     print(f"Tile-size: {TILE_SIZE} × {TILE_SIZE} px")
     print(f"Tiles    : {n_cols} kolumner × {n_rows} rader = {total} st")
-    print(f"Utmapp   : {OUT_DIR}\n")
+    print(f"Utmapp   : {OUT_DIR}")
+    print(f"Klassom- : {len(CLASS_REMAP)} omklassificeringar\n")
 
     count = 0
     for row in range(n_rows):
@@ -69,12 +97,26 @@ with rasterio.open(SRC) as src:
             tile_name = f"NMD2023bas_tile_r{row:03d}_c{col:03d}.tif"
             tile_path = OUT_DIR / tile_name
 
+            # Läs original data
+            tile_original = src.read(1, window=window)  # uint8 från källan
+            
+            # Spara en kopia av original-klasserna för referens
+            original_class_path = tile_path.with_stem(tile_path.stem + "_original_class")
+            
             tile_meta = meta.copy()
             tile_meta.update(width=w, height=h, transform=transform,
                              compress=COMPRESS)
 
+            # Skriv originalklasser
+            with rasterio.open(original_class_path, "w", **tile_meta) as dst:
+                dst.write(tile_original, 1)
+            
+            # Applicera omklassificering
+            tile_remapped = remap_classes(tile_original, CLASS_REMAP)
+            
+            # Skriv omklassificerad tile
             with rasterio.open(tile_path, "w", **tile_meta) as dst:
-                dst.write(src.read(window=window))
+                dst.write(tile_remapped.astype(src.dtypes[0]), 1)
 
             # Kopiera QML så QGIS hittar paletten automatiskt
             if copy_qml:
