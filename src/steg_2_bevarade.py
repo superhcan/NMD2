@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-steg_2_extract_protected.py — Steg 2: Extrahera endast skyddade klasser.
+steg_2_bevarade.py — Steg 2: Extrahera bevarade klasser till separat lager.
 
-Läser från tiles/ (output från Steg 1), skriver protected/ där bara klasserna 
-{51,52,53,54,61,62} är bevarade.
+Läser från tiles/ (output från Steg 1), skriver steg2_bevarade/ där bara
+PROTECTED-klasserna är kvar. Dessa klasser generaliseras ej och vektoriseras
+separat i ett senare steg.
 
-Kör: python3 src/steg_2_extract_protected.py
+Kör: python3 src/steg_2_bevarade.py
 """
 
 import logging
@@ -30,14 +31,14 @@ def copy_qml(tif_path: Path):
 
 
 def extract_protected_classes(tile_paths: list[Path]) -> list[Path]:
-    """Extrahera BARA skyddade klasser från original-tiles."""
+    """Extrahera bevarade klasser (PROTECTED) från original-tiles till steg2_bevarade/."""
     t0_step = time.time()
-    out_dir = OUT_BASE / "steg2_protected"
+    out_dir = OUT_BASE / "steg2_bevarade"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths = []
     total_px_extracted = 0
     
-    info.info("Steg 2: Extraherar skyddade klasser %s från original-tiles...", sorted(PROTECTED))
+    info.info("Steg 2: Extraherar bevarade klasser %s från original-tiles...", sorted(PROTECTED))
     
     # Konvertera till numpy uint16 för att matcha data-typen
     protected_uint16 = np.array(list(PROTECTED), dtype=np.uint16)
@@ -72,7 +73,7 @@ def extract_protected_classes(tile_paths: list[Path]) -> list[Path]:
             log.debug("extract_protected_classes: hoppar %s (finns redan)", tile.name)
         result_paths.append(out_path)
     
-    info.info("Steg 2 klar: totalt %d px skyddade klasser extraherade  %.1fs",
+    info.info("Steg 2 klar: totalt %d px bevarade klasser extraherade  %.1fs",
               total_px_extracted, time.time() - t0_step)
     
     return result_paths
@@ -88,9 +89,9 @@ if __name__ == "__main__":
     step_name = os.getenv("STEP_NAME")
     setup_logging(OUT_BASE, step_num, step_name)
     
-    log_step_header(info, 2, "Extrahera skyddade klasser", 
-                    str(OUT_BASE / "steg1_tiles"), 
-                    str(OUT_BASE / "steg2_protected"))
+    log_step_header(info, 2, "Extrahera bevarade klasser",
+                    str(OUT_BASE / "steg1_tiles"),
+                    str(OUT_BASE / "steg2_bevarade"))
     
     # Läs tiles från Steg 1
     tiles_dir = OUT_BASE / "steg1_tiles"
@@ -102,4 +103,4 @@ if __name__ == "__main__":
     print(f"Hittade {len(tile_paths)} tiles från Steg 1")
     
     protected = extract_protected_classes(tile_paths)
-    print(f"Steg 2 klar: {len(protected)} skyddade lager skapade")
+    print(f"Steg 2 klar: {len(protected)} bevarade lager skapade")

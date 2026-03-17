@@ -4,7 +4,7 @@ run_all_steps.py — Master orchestrator för NMD2 pipeline.
 
 Kör alla 9 steg i rätt ordning:
   Steg 1: Tileluppdelning (steg_1_split_tiles.py)
-  Steg 2: Extrahera skyddade klasser (steg_2_extract_protected.py)
+  Steg 2: Extrahera bevarade klasser (steg_2_bevarade.py)
   Steg 3: Lös upp klasser i omgivande mark (steg_3_dissolve.py)
   Steg 4: Ta bort små sjöar < 1 ha (steg_4_fill_islands.py)
   Steg 5: Fylla små öar omringade av vatten (steg_5_filter_lakes.py) [VALFRITT]
@@ -59,9 +59,9 @@ STEPS = {
         "description": "Delar original-raster i 1024×1024 px tiles"
     },
     2: {
-        "name": "Extrahera skyddade klasser",
-        "script": "steg_2_extract_protected.py",
-        "description": "Extraherar vägar, byggnader, vatten som ej ändras",
+        "name": "Extrahera bevarade klasser",
+        "script": "steg_2_bevarade.py",
+        "description": "Extraherar PROTECTED-klasser till separat lager för senare vektorisering",
         "requires_dir": "steg1_tiles"
     },
     3: {

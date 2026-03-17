@@ -33,7 +33,7 @@ HALO             = 100           # px – kant på varje sida vid generalisering
 # CLASSIFICATION CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-PROTECTED      = {61, 62}                         # Skyddade klasser
+PROTECTED      = {51, 52, 61, 62}                  # Separata klasser (extraheras och vektoriseras separat)
 WATER_CLASSES  = {61, 62}                        # Vatten (för öfyllnad)
 DISSOLVE_CLASSES = {51, 53}                      # Klasser som löses upp i omgivande mark i steg 3
 
