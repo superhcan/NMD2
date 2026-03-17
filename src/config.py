@@ -34,7 +34,7 @@ HALO             = 100           # px – kant på varje sida vid generalisering
 # ══════════════════════════════════════════════════════════════════════════════
 
 PROTECTED        = {61, 62}                      # Skyddade klasser (maskeras vid generalisering i steg 6)
-EXTRACT_CLASSES  = {51, 52, 61, 62}              # Klasser som extraheras separat i steg 2 (vektoriseras senare)
+EXTRACT_CLASSES  = {51, 52, 53, 61, 62}              # Klasser som extraheras separat i steg 2 (vektoriseras senare)
 WATER_CLASSES    = {61, 62}                      # Vatten (för öfyllnad)
 DISSOLVE_CLASSES = {51, 53}                      # Klasser som löses upp i omgivande mark i steg 3
 
@@ -178,7 +178,7 @@ ENABLE_STEPS = {
     1: False,   # Tileluppdelning (hoppa över - tiles finns redan)
     2: True,    # Extrahera skyddade klasser
     3: True,   # Extrahera landskapsbild
-    4: True,    # Ta bort små sjöar < 0,5 ha
+    4: False,   # Ta bort små sjöar < 0,5 ha
     5: True,    # Fylla små öar < 0,5 ha omringade av vatten
     6: True,    # Generalisering
     7: True,    # Vektorisering

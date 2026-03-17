@@ -622,7 +622,8 @@ def step5_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step  = time.time()
 
-    prev_vrt = OUT_BASE / "steg4_filled_mosaic.vrt"
+    src_dir  = filled_paths[0].parent.name if filled_paths else "input"
+    prev_vrt = OUT_BASE / f"{src_dir}_mosaic.vrt"
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
@@ -688,7 +689,8 @@ def step5_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step = time.time()
 
-    prev_vrt = OUT_BASE / "steg4_filled_mosaic.vrt"
+    src_dir  = filled_paths[0].parent.name if filled_paths else "input"
+    prev_vrt = OUT_BASE / f"{src_dir}_mosaic.vrt"
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
@@ -745,7 +747,8 @@ def step5_semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step = time.time()
 
-    prev_vrt = OUT_BASE / "steg4_filled_mosaic.vrt"
+    src_dir  = filled_paths[0].parent.name if filled_paths else "input"
+    prev_vrt = OUT_BASE / f"{src_dir}_mosaic.vrt"
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
@@ -858,6 +861,8 @@ if __name__ == "__main__":
     landscape_dir = OUT_BASE / "steg5_islands_filled"
     if not landscape_dir.exists():
         landscape_dir = OUT_BASE / "steg4_filled"
+    if not landscape_dir.exists():
+        landscape_dir = OUT_BASE / "steg3_dissolved"
     
     if not landscape_dir.exists():
         info.error("❌ Ingen input-katalog hittad. Kör Steg 1-5 först.")

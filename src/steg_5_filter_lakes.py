@@ -137,10 +137,12 @@ if __name__ == "__main__":
                     str(OUT_BASE / "steg4_filled"),
                     str(OUT_BASE / "steg5_islands_filled"))
     
-    # Läs tiles från Steg 4 (steg4_filled/)
+    # Läs tiles från Steg 4, fallback till steg3_dissolved om steg 4 är inaktiverat
     filled_dir = OUT_BASE / "steg4_filled"
     if not filled_dir.exists():
-        print(f"Fel: {filled_dir} finns ej. Kör Steg 4 först")
+        filled_dir = OUT_BASE / "steg3_dissolved"
+    if not filled_dir.exists():
+        print(f"Fel: varken steg4_filled/ eller steg3_dissolved/ finns. Kör Steg 3+ först")
         exit(1)
     
     tile_paths = sorted(filled_dir.glob("*.tif"))
