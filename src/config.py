@@ -222,22 +222,29 @@ ENABLE_STEPS = {
 # Slår ihop små patches med sin semantiskt *närmaste* grannpatch, baserat på
 # NMD:s marktäckehierarki — inte bara den geometriskt störst grann.
 #
-# Semantisk distans baseras på NMD-klassgruppering (v // 10 ger grupp):
-#   Grupp 1 = Bebyggd mark (11–19)
-#   Grupp 2 = Åkermark (21–29)
-#   Grupp 3 = Betesmark (31–39)
-#   Grupp 4 = Skog (41–49)
-#   Grupp 5 = Våtmark (50–59)
-#   Grupp 6 = Vatten (61–62)
+# Semantisk gruppering via nmd_group():
+#   v < 10    → grupp = v itself    (t.ex. 3 = Åkermark → grupp 3)
+#   v < 100   → grupp = v // 10     (t.ex. 23,43,51–54,61–62)
+#   v < 1000  → grupp = v // 100    (t.ex. 111–128, 200–228, 411)
+#   v >= 1000 → grupp = v // 1000   (t.ex. 4211–4233)
+#
+#   Faktiska grupper med verkliga NMD2023-klasser:
+#   Grupp 1 = Skog         (111–128: all skog på fastmark och våtmark)
+#   Grupp 2 = Våtmark      (200–228: öppen och trädklädd våtmark; 23: låg fjällskog på våtmark)
+#   Grupp 3 = Åkermark     (3: åkermark)
+#   Grupp 4 = Öppen mark   (411: öppen fastmark; 4211–4233: busk/ris/gräsmark; 43: låg fjällskog fastmark)
+#   Grupp 5 = Bebyggd/infra (51: byggnad; 52: anlagd mark; 53: väg/järnväg; 54: torvtäkt)
+#   Grupp 6 = Vatten       (61: inlandsvatten; 62: hav)
 #
 #   Distanstabell (lägre = mer lika):
-#     Åker–Betesmark: 1   (närmast — likartad öppen mark)
-#     Åker–Skog:      2   Betesmark–Bebyggd: 2
-#     Bebyggd–Åker:   2   Skog–Bebyggd:      3
-#     Bebyggd–Betesmark: 2
-#     Bebyggd–Skog:   3   Bebyggd–Våtmark:   4
-#     Skog–Vatten:    3   Betesmark–Vatten:  4
-#     Våtmark–Vatten: 4   Bebyggd–Vatten:    5  (mest olika)
+#     Våtmark–Öppen mark:  1  (närmast — fuktiga och öppna marker likartade)
+#     Skog–Våtmark:        2  Åkermark–Våtmark:        2
+#     Skog–Åkermark:       3  Skog–Öppen mark:         3
+#     Våtmark–Bebyggd:     3  Öppen mark–Bebyggd:      3
+#     Skog–Bebyggd:        4  Åkermark–Bebyggd:        4
+#     Åkermark–Vatten:     4  Våtmark–Vatten:          4
+#     Öppen mark–Vatten:   4  Bebyggd–Vatten:          4
+#     Skog–Vatten:         5  (mest olika)
 #
 #   Algoritm (heapq-baserat greedy merge):
 #     1. Bygg upp alla 4-konnekterade patches och deras grannar
@@ -248,8 +255,8 @@ ENABLE_STEPS = {
 #     5. Skyddade klasser {51,52,53,54,61,62} ändras aldrig
 #
 #   + Bevarar semantisk konsekvens bättre än ren sieve:
-#     t.ex. ett litet åkerfält bredvid skog och betesmark slås ihop med
-#     betesmarken (grupp 3) istället för skogen (grupp 4) om åker=grupp 2
+#     t.ex. en liten öppen mark (gr.4) bredvid skog (gr.1) och våtmark (gr.2)
+#     slås ihop med våtmark (dist=1) istället för skog (dist=3)
 #   + Lämpar sig bra för klassbaserade analyser och legend-renhet
 #   - Långsammare än conn4/conn8 (O(n log n) per MMU-steg)
 #   - Kan ge oväntade resultat om semantisk granntabell inte stämmer med
