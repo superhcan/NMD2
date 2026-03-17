@@ -24,7 +24,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 import sys
-from config import OUT_BASE, SIMPLIFICATION_TOLERANCES, PROTECTED
+from config import OUT_BASE, SIMPLIFICATION_TOLERANCES, SIMPLIFY_PROTECTED
 
 def setup_logging(out_base):
     """Setup logging with step-aware filenames."""
@@ -140,13 +140,13 @@ def simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances=[90
         
         print(f"  p{tolerance}%: ", end="", flush=True)
 
-        if PROTECTED:
+        if SIMPLIFY_PROTECTED:
             # Variabel förenkling i EN gemensam topologi:
-            # PROTECTED-klasser får sp=100 (noll förenkling), landskap får sp=tolerance.
-            # Mapshaper väljer automatiskt max(sp) för delade arcs → byggnads-/
-            # vattengränser förenklas aldrig, även från landskapssidan. Ingen
+            # SIMPLIFY_PROTECTED-klasser får sp=1.0 (noll förenkling), landskap får sp=tolerance/100.
+            # Mapshaper väljer automatiskt max(sp) för delade arcs → skyddade
+            # klassgränser förenklas aldrig, även från landskapssidan. Ingen
             # topologibrytning längs klassgränser.
-            js_array = "[" + ", ".join(str(c) for c in sorted(PROTECTED)) + "]"
+            js_array = "[" + ", ".join(str(c) for c in sorted(SIMPLIFY_PROTECTED)) + "]"
             each_expr = f"sp = {js_array}.includes(markslag) ? 1 : {tolerance / 100}"
             result = subprocess.run([
                 "mapshaper", str(geojson_file),
