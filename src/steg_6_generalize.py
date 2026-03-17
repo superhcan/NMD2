@@ -33,7 +33,7 @@ from rasterio.windows import Window
 from scipy import ndimage
 from scipy.ndimage import uniform_filter
 
-from config import OUT_BASE, SRC, QML_SRC, PARENT_TILES, PARENT_TILE_SIZE, SUB_TILE_SIZE, PROTECTED, WATER_CLASSES, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS
+from config import OUT_BASE, SRC, QML_SRC, PARENT_TILES, PARENT_TILE_SIZE, SUB_TILE_SIZE, GENERALIZE_PROTECTED as PROTECTED, WATER_CLASSES, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Logging – två loggers + console
