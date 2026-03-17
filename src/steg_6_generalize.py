@@ -510,7 +510,7 @@ def step2_extract_protected(tile_paths: list[Path]) -> list[Path]:
 def step3_extract_landscape(tile_paths: list[Path]) -> list[Path]:
     """Extrahera landskapet: ta bort vägar (53) och byggnader (51) och ersätt med närliggande lanskapklasser."""
     t0_step = time.time()
-    out_dir = OUT_BASE / "steg3_landscape"
+    out_dir = OUT_BASE / "steg3_dissolved"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths = []
     

@@ -156,15 +156,15 @@ if __name__ == "__main__":
     setup_logging(OUT_BASE, step_num, step_name)
     
     log_step_header(info, 4, "Fylla små sjöar",
-                    str(OUT_BASE / "steg3_landscape"),
+                    str(OUT_BASE / "steg3_dissolved"),
                     str(OUT_BASE / "steg4_filled"))
     
     # Läs tiles från Steg 3, eller fallback till Steg 1 om Steg 3 är inaktiverat
-    tiles_dir = OUT_BASE / "steg3_landscape"
+    tiles_dir = OUT_BASE / "steg3_dissolved"
     if not tiles_dir.exists():
         fallback = OUT_BASE / "steg1_tiles"
         if fallback.exists():
-            info.info(f"steg3_landscape/ saknas – använder steg1_tiles/ som indata")
+            info.info(f"steg3_dissolved/ saknas – använder steg1_tiles/ som indata")
             tiles_dir = fallback
         else:
             print(f"Fel: {tiles_dir} finns ej. Kör Steg 1-3 först")

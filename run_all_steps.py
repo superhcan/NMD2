@@ -5,7 +5,7 @@ run_all_steps.py — Master orchestrator för NMD2 pipeline.
 Kör alla 9 steg i rätt ordning:
   Steg 1: Tileluppdelning (steg_1_split_tiles.py)
   Steg 2: Extrahera skyddade klasser (steg_2_extract_protected.py)
-  Steg 3: Extrahera landskapsbild (steg_3_extract_landscape.py)
+  Steg 3: Lös upp klasser i omgivande mark (steg_3_dissolve.py)
   Steg 4: Ta bort små sjöar < 1 ha (steg_4_fill_islands.py)
   Steg 5: Fylla små öar omringade av vatten (steg_5_filter_lakes.py) [VALFRITT]
   Steg 6: Generalisering (steg_6_generalize.py)
@@ -65,16 +65,16 @@ STEPS = {
         "requires_dir": "steg1_tiles"
     },
     3: {
-        "name": "Extrahera landskapsbild",
-        "script": "steg_3_extract_landscape.py",
-        "description": "Ersätter vägar/byggnader med omkringliggande för generalisering",
+        "name": "Lös upp klasser i omgivande mark",
+        "script": "steg_3_dissolve.py",
+        "description": "Ersätter DISSOLVE_CLASSES med omkringliggande mark för generalisering",
         "requires_dir": "steg1_tiles"
     },
     4: {
         "name": "Ta bort små områden",
         "script": "steg_4_fill_islands.py",
         "description": "Tar bort små sjöar < 1 ha (< 100 px) och fyller med omkringliggande",
-        "requires_dir": "steg3_landscape" if ENABLE_STEPS.get(3, True) else "steg1_tiles"
+        "requires_dir": "steg3_dissolved" if ENABLE_STEPS.get(3, True) else "steg1_tiles"
     },
     5: {
         "name": "Fylla små öar",

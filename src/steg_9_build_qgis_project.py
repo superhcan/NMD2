@@ -140,7 +140,7 @@ def build_qgis_project():
         (6, "Steg 6 - Generaliserad", OUT_BASE),
         (5, "Steg 5 - Fylld öar", OUT_BASE / "steg5_islands_filled"),
         (4, "Steg 4 - Fyllda sjöar", OUT_BASE / "steg4_filled"),
-        (3, "Steg 3 - Landskapsbild", OUT_BASE / "steg3_landscape"),
+        (3, "Steg 3 - Upplösta klasser", OUT_BASE / "steg3_dissolved"),
         (2, "Steg 2 - Skyddade klasser", OUT_BASE / "steg2_protected"),
         (1, "Steg 1 - Tiles", OUT_BASE / "steg1_tiles"),
     ]

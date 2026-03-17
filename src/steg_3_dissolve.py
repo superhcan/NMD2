@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-steg_3_extract_landscape.py — Steg 3: Extrahera landskapets rasterbild för generalisering.
+steg_3_dissolve.py — Steg 3: Lös upp utvalda klasser i omgivande mark.
 
-Läser från tiles/ (Steg 1), skriver landscape/ där vägar (53) och byggnader (51)
-ersätts med omkringliggande värden genom morphological dilation för att kunna 
-generaliseeras tillsammans med övrig landskap.
+Läser från tiles/ (Steg 1), skriver steg3_dissolved/ där DISSOLVE_CLASSES (51, 53)
+ersätts med omkringliggande värden genom morphological dilation för att kunna
+generaliseras tillsammans med övrig mark.
 
-Kör: python3 src/steg_3_extract_landscape.py
+Kör: python3 src/steg_3_dissolve.py
 """
 
 import logging
@@ -18,7 +18,7 @@ import numpy as np
 import rasterio
 from scipy import ndimage
 
-from config import QML_SRC, OUT_BASE, ROADS_BUILDINGS, STRUCT_4, COMPRESS
+from config import QML_SRC, OUT_BASE, DISSOLVE_CLASSES, STRUCT_4, COMPRESS
 
 log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -32,16 +32,16 @@ def copy_qml(tif_path: Path):
 
 
 def extract_landscape(tile_paths: list[Path]) -> list[Path]:
-    """Extrahera landskapet genom att ersätta vägar/byggnader med omkringliggande värden."""
+    """Lös upp DISSOLVE_CLASSES i omgivande mark och skriv till steg3_dissolved/."""
     t0_step = time.time()
-    out_dir = OUT_BASE / "steg3_landscape"
+    out_dir = OUT_BASE / "steg3_dissolved"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths = []
     total_px_replaced = 0
     
-    info.info("Steg 3: Extraherar landskapet (ersätter vägar(53) och byggnader(51)) ...")
+    info.info("Steg 3: Löser upp klasser %s i omgivande mark ...", DISSOLVE_CLASSES)
     
-    roads_buildings_uint16 = np.array(list(ROADS_BUILDINGS), dtype=np.uint16)
+    roads_buildings_uint16 = np.array(list(DISSOLVE_CLASSES), dtype=np.uint16)
     
     for tile in tile_paths:
         out_path = out_dir / tile.name
@@ -126,9 +126,9 @@ if __name__ == "__main__":
     step_name = os.getenv("STEP_NAME")
     setup_logging(OUT_BASE, step_num, step_name)
     
-    log_step_header(info, 3, "Extrahera landskapet",
+    log_step_header(info, 3, "Lös upp klasser i omgivande mark",
                     str(OUT_BASE / "steg1_tiles"),
-                    str(OUT_BASE / "steg3_landscape"))
+                    str(OUT_BASE / "steg3_dissolved"))
     
     # Läs tiles från Steg 1
     tiles_dir = OUT_BASE / "steg1_tiles"
