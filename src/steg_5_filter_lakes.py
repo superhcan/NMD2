@@ -19,7 +19,7 @@ import numpy as np
 import rasterio
 from scipy import ndimage
 
-from config import QML_SRC, OUT_BASE, WATER_CLASSES, MMU_ISLAND, ISLAND_FILL_SURROUNDS, STRUCT_4, COMPRESS
+from config import QML_SRC, OUT_BASE, MMU_ISLAND, ISLAND_FILL_SURROUNDS, STRUCT_4, COMPRESS
 
 log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")

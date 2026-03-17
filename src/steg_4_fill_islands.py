@@ -23,7 +23,7 @@ import numpy as np
 import rasterio
 from scipy import ndimage
 
-from config import QML_SRC, OUT_BASE, MMU_ISLAND, COMPRESS, WATER_CLASSES
+from config import QML_SRC, OUT_BASE, MMU_ISLAND, COMPRESS, ISLAND_FILL_SURROUNDS
 
 log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -56,7 +56,7 @@ def fill_water_islands(tile_paths: list[Path]) -> list[Path]:
                     meta = src.meta.copy()
                     data = src.read(1)
                 
-                water_mask = np.isin(data, list(WATER_CLASSES))
+                water_mask = np.isin(data, list(ISLAND_FILL_SURROUNDS))
                 
                 if np.sum(water_mask) == 0:
                     # Ingen vatten - kopiera bara filen
