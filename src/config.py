@@ -17,7 +17,7 @@ SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.ti
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_4tiles_v8b"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_4tiles_v8d"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
@@ -46,7 +46,7 @@ MMU_ISLAND   = 100              # Minsta storlek på öar innan fyllnad (px)
 # Klasser som räknas som "omgivande yta" när små landöar ska fyllas (Steg 5)
 # En ö fylls bara om ALLA dess grannar tillhör dessa klasser.
 # Exempel: {61, 62} = bara sjöar/vatten; {51, 52, 53, 54, 61, 62} = vatten + vägar/byggnader
-ISLAND_FILL_SURROUNDS = {51, 52, 53, 54, 61, 62}
+ISLAND_FILL_SURROUNDS = {61, 62}
 
 # Sieve MMU-steg för conn4 och conn8 metoder (Steg 6a & 6b)
 # ═════════════════════════════════════════════════════════════════════════════
@@ -174,9 +174,9 @@ SIMPLIFICATION_TOLERANCES = [25]
 # ══════════════════════════════════════════════════════════════════════════════
 
 ENABLE_STEPS = {
-    1: True,   # Tileluppdelning (hoppa över - tiles finns redan)
+    1: False,   # Tileluppdelning (hoppa över - tiles finns redan)
     2: True,    # Extrahera skyddade klasser
-    3: False,   # Extrahera landskapsbild
+    3: True,   # Extrahera landskapsbild
     4: True,    # Ta bort små sjöar < 1 ha
     5: True,    # Fylla små öar < 1 ha omringade av vatten
     6: True,    # Generalisering
@@ -190,7 +190,73 @@ ENABLE_STEPS = {
 # ══════════════════════════════════════════════════════════════════════════════
 # Möjliga metoder: "conn4", "conn8", "modal", "semantic"
 # Steg 7 och 8 kör automatiskt samma metoder som här är aktiverade
-# 
+#
+# ─── conn4 och conn8 (sieve-baserade metoder) ────────────────────────────────
+# Sieve-algoritm: tar bort sammanhängande pixelgrupper (patches) som är
+# mindre än MMU-värdet och ersätter dem med den dominerande grannklassen.
+#
+#   conn4 — 4-konnektivitet (upp/ned/vänster/höger)
+#     + Mer konservativ: diagonalt rörande patches anses separata
+#     + Ger skarpare och mer "rätvinkliga" gränser
+#     - Kan lämna kvar fler isolerade 1-px punkter i diagonalriktning
+#
+#   conn8 — 8-konnektivitet (alla 8 grannpixlar)
+#     + Mer aggressiv: diagonalt rörande patches slås ihop
+#     + Rensar ut "pepparkornsmönster" bättre
+#     - Kan slå ihop patches som borde vara separata (t.ex. tunna landryggar)
+#
+#   Styrs av MMU_STEPS (se ovan). Samma lista gäller för conn4 och conn8.
+#
+# ─── modal (majoritetsfilter) ────────────────────────────────────────────────
+# Ersätter varje pixel med den vanligaste klassen i ett k×k pixelfönster
+# (majority voting / moving window).
+#
+#   + Mjukar ut gränser och brus utan att förstöra stora sammanhängande ytor
+#   + Bra för att eliminera "salt-and-pepper"-brus
+#   - Rundar av skarpa hörn och smala strukturer (t.ex. vägkorridorer)
+#   - Kan förskjuta klassgränser upp till k/2 pixlar
+#
+#   Styrs av KERNEL_SIZES (se ovan). k=3 = liten fönster, k=7 = större fönster.
+#
+# ─── semantic (semantisk eliminering) ────────────────────────────────────────
+# Slår ihop små patches med sin semantiskt *närmaste* grannpatch, baserat på
+# NMD:s marktäckehierarki — inte bara den geometriskt störst grann.
+#
+# Semantisk distans baseras på NMD-klassgruppering (v // 10 ger grupp):
+#   Grupp 1 = Bebyggd mark (11–19)
+#   Grupp 2 = Åkermark (21–29)
+#   Grupp 3 = Betesmark (31–39)
+#   Grupp 4 = Skog (41–49)
+#   Grupp 5 = Våtmark (50–59)
+#   Grupp 6 = Vatten (61–62)
+#
+#   Distanstabell (lägre = mer lika):
+#     Åker–Betesmark: 1   (närmast — likartad öppen mark)
+#     Åker–Skog:      2   Betesmark–Bebyggd: 2
+#     Bebyggd–Åker:   2   Skog–Bebyggd:      3
+#     Bebyggd–Betesmark: 2
+#     Bebyggd–Skog:   3   Bebyggd–Våtmark:   4
+#     Skog–Vatten:    3   Betesmark–Vatten:  4
+#     Våtmark–Vatten: 4   Bebyggd–Vatten:    5  (mest olika)
+#
+#   Algoritm (heapq-baserat greedy merge):
+#     1. Bygg upp alla 4-konnekterade patches och deras grannar
+#     2. Lägg alla patches < MMU i en min-heap (minst patch först)
+#     3. Slå ihop varje liten patch med den granne som har lägst sem_dist
+#        (vid lika distans väljs den *största* grannen)
+#     4. Upprepa tills inga patches < MMU finns kvar
+#     5. Skyddade klasser {51,52,53,54,61,62} ändras aldrig
+#
+#   + Bevarar semantisk konsekvens bättre än ren sieve:
+#     t.ex. ett litet åkerfält bredvid skog och betesmark slås ihop med
+#     betesmarken (grupp 3) istället för skogen (grupp 4) om åker=grupp 2
+#   + Lämpar sig bra för klassbaserade analyser och legend-renhet
+#   - Långsammare än conn4/conn8 (O(n log n) per MMU-steg)
+#   - Kan ge oväntade resultat om semantisk granntabell inte stämmer med
+#     den faktiska markanvändningskontexten i just detta område
+#
+#   Styrs av MMU_STEPS (samma lista som för conn4/conn8).
+#
 # Exempel:
 #   GENERALIZATION_METHODS = {"conn4", "conn8", "modal"}  # Skippa semantic
 #   eller
