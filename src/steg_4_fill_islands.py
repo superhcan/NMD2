@@ -24,6 +24,7 @@ import rasterio
 from scipy import ndimage
 
 from config import QML_SRC, OUT_BASE, MMU_ISLAND, COMPRESS, ISLAND_FILL_SURROUNDS
+from geo_utils import build_cross_batch_vrt, read_with_halo
 
 log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -42,52 +43,53 @@ def fill_water_islands(tile_paths: list[Path]) -> list[Path]:
     out_dir   = OUT_BASE / "steg4_filled"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths = []
-    
+
+    # Bygg cross-batch VRT så att sjöar vid batch-gränser bedöms korrekt
+    src_subdir = tile_paths[0].parent.name if tile_paths else "steg3_dissolved"
+    vrt_path = OUT_BASE / f"{src_subdir}_steg4_mosaic.vrt"
+    build_cross_batch_vrt(tile_paths, vrt_path, src_subdir)
+
     info.info("Steg 4: Tar bort små sjöar < %d px (%.2f ha) och fyller med  omkringliggande ...",
               MMU_ISLAND, MMU_ISLAND * 100 / 10000)
-    
+
     for tile in tile_paths:
         out_path = out_dir / tile.name
         if not out_path.exists():
             t0 = time.time()
-            
+
             try:
-                with rasterio.open(tile) as src:
-                    meta = src.meta.copy()
-                    data = src.read(1)
-                
-                water_mask = np.isin(data, list(ISLAND_FILL_SURROUNDS))
-                
+                padded, tile_meta, inner = read_with_halo(vrt_path, tile)
+                tile_meta.update(compress=COMPRESS)
+
+                water_mask = np.isin(padded, list(ISLAND_FILL_SURROUNDS))
+
                 if np.sum(water_mask) == 0:
-                    # Ingen vatten - kopiera bara filen
-                    log.debug("Ingen vatten i %s", tile.name)
-                    output_data = data.copy()
+                    # Ingen vatten - använd bara inner direkt
+                    output_data = padded.copy()
                 else:
-                    # Connected-component labeling med scipy (4-connectivity)
                     structure = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=np.uint8)
                     labeled_water, num_components = ndimage.label(water_mask, structure=structure)
                     component_sizes = ndimage.sum(water_mask, labeled_water, range(num_components + 1))
-                    
-                    # Identifiera STORA komponenter (>= MMU_ISLAND)
+
+                    # Identifiera STORA komponenter (>= MMU_ISLAND) — nu med halo-kontext!
                     large_components = set(np.where(component_sizes >= MMU_ISLAND)[0])
                     small_count = num_components - len(large_components)
-                    
+
                     log.debug("Komponenter: totalt=%d, stora=>=%dpx:%d, små:%d",
                               num_components, MMU_ISLAND, len(large_components), small_count)
-                    
+
                     # Kopiera BARA stora sjöar + all landskap. Små sjöar = 0 (tas bort)
-                    output_data = np.where(water_mask, 0, data)  # Sätt vatten till 0
-                    
+                    output_data = np.where(water_mask, 0, padded)
+
                     # Restore stora sjöar
                     for comp_id in large_components:
                         if comp_id != 0:  # Skip background
                             comp_mask = labeled_water == comp_id
-                            output_data[comp_mask] = data[comp_mask]
-                    
-                    # Fyll tomrummen (små sjöar) med majoriteten från omkringliggande (steg 3-stil)
+                            output_data[comp_mask] = padded[comp_mask]
+
+                    # Fyll tomrummen (små sjöar) med majoritet från omkringliggande
                     zero_mask = output_data == 0
                     for i, j in np.argwhere(zero_mask):
-                        # Försök först 3x3 omkringliggande
                         found = False
                         for di in [-1, 0, 1]:
                             for dj in [-1, 0, 1]:
@@ -101,8 +103,7 @@ def fill_water_islands(tile_paths: list[Path]) -> list[Path]:
                                         break
                             if found:
                                 break
-                        
-                        # Om ingen granne hittades, försök större område och använd majoritet
+
                         if not found:
                             neighbors = []
                             for di in range(-3, 4):
@@ -112,24 +113,20 @@ def fill_water_islands(tile_paths: list[Path]) -> list[Path]:
                                         if output_data[ni, nj] != 0:
                                             neighbors.append(output_data[ni, nj])
                             if neighbors:
-                                # Använd majority värdet
                                 output_data[i, j] = max(set(neighbors), key=neighbors.count)
-                    
-                    log.debug("Små sjöar borttagna: %d komponenter", small_count)
-                
-                # Skriv resultat
-                meta.update(compress=COMPRESS)
-                with rasterio.open(out_path, "w", **meta) as dst:
-                    dst.write(output_data, 1)
-                
-                # Kopiera QML
+
+                # Skriv bara inner-kärnan
+                result = output_data[inner]
+                with rasterio.open(out_path, "w", **tile_meta) as dst:
+                    dst.write(result, 1)
+
                 copy_qml(out_path)
-                
+
                 elapsed = time.time() - t0
                 log.debug("Steg 4: %s → klart  %.1fs", tile.name, elapsed)
                 info.info("  %-45s  klart  %.1fs", tile.name, elapsed)
                 result_paths.append(out_path)
-                
+
             except Exception as e:
                 log.error("Misslyckades för %s: %s", tile.name, str(e))
                 info.error("  %-45s  MISSLYCKADES", tile.name)
@@ -137,10 +134,10 @@ def fill_water_islands(tile_paths: list[Path]) -> list[Path]:
         else:
             log.debug("Hoppar %s (finns redan)", tile.name)
             result_paths.append(out_path)
-    
+
     info.info("Steg 4 klar: %d tiles behandlade  %.1fs",
               len(result_paths), time.time() - t0_step)
-    
+
     return result_paths
 
 

@@ -35,7 +35,7 @@ import argparse
 
 # Import pipeline configuration
 sys.path.insert(0, str(Path(__file__).parent / "src"))
-from config import ENABLE_STEPS, OUT_BASE, GENERALIZATION_METHODS
+from config import ENABLE_STEPS, OUT_BASE, GENERALIZATION_METHODS, PARENT_TILES
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SETUP
@@ -309,7 +309,7 @@ def main():
     # Kör steg
     t0_total = time.time()
     results = {}
-    
+
     for step_key in enabled_steps:
         results[step_key] = run_step(step_key)
         if not results[step_key]:

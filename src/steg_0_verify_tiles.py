@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-from config import SRC, QML_SRC, OUT_BASE, COMPRESS, TILE_SIZE, PARENT_TILES
+from config import SRC, QML_SRC, OUT_BASE, COMPRESS, TILE_SIZE, get_active_tiles
 
 log = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -42,17 +42,18 @@ else:
 
 t_start = time.time()
 
-total = len(PARENT_TILES)
+active_tiles = get_active_tiles()
+total = len(active_tiles)
 print(f"Källbild : {SRC.name}")
 print(f"Tile-size: {TILE_SIZE} × {TILE_SIZE} px")
-print(f"Tiles    : {total} st (PARENT_TILES)")
+print(f"Tiles    : {total} st")
 print(f"Utmapp   : {OUT_DIR}")
 print(f"Klassif. : INGEN omklassificering (verifikation av original)\n")
 
 with rasterio.open(SRC) as src:
     meta = src.meta.copy()
 
-    for count, (row, col) in enumerate(PARENT_TILES, 1):
+    for count, (row, col) in enumerate(active_tiles, 1):
         x_off = col * TILE_SIZE
         y_off = row * TILE_SIZE
         w     = min(TILE_SIZE, src.width  - x_off)

@@ -20,6 +20,7 @@ import rasterio
 from scipy import ndimage
 
 from config import QML_SRC, OUT_BASE, MMU_ISLAND, ISLAND_FILL_SURROUNDS, STRUCT_4, COMPRESS
+from geo_utils import build_cross_batch_vrt, read_with_halo
 
 log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -84,43 +85,48 @@ def fill_islands(tile_paths: list[Path]) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths = []
     total_islands = 0
-    
+
+    # Bygg cross-batch VRT så att öar vid batch-gränser bedöms korrekt
+    src_subdir = tile_paths[0].parent.name if tile_paths else "steg4_filled"
+    vrt_path = OUT_BASE / f"{src_subdir}_steg5_mosaic.vrt"
+    build_cross_batch_vrt(tile_paths, vrt_path, src_subdir)
+
     info.info("Steg 5: Fyller små landöar < %d px (%.2f ha) omringade av %s ...",
               MMU_ISLAND, MMU_ISLAND * 100 / 10000, sorted(ISLAND_FILL_SURROUNDS))
-    
+
     for tile in tile_paths:
         out_path = out_dir / tile.name
         if not out_path.exists():
             t0 = time.time()
-            
-            with rasterio.open(tile) as src:
-                data = src.read(1)
-                profile = src.profile
-            
-            log.debug("fill_islands: bearbetar %s", tile.name)
-            filled_data, n_islands = fill_small_islands(data, ISLAND_FILL_SURROUNDS, MMU_ISLAND)
-            
-            profile.update(compress=COMPRESS)
-            with rasterio.open(out_path, 'w', **profile) as dst:
-                dst.write(filled_data, 1)
+
+            padded, tile_meta, inner = read_with_halo(vrt_path, tile)
+            tile_meta.update(compress=COMPRESS)
+
+            filled_data, n_islands = fill_small_islands(padded, ISLAND_FILL_SURROUNDS, MMU_ISLAND)
+
+            # Skriv bara inner-kärnan
+            result = filled_data[inner]
+            with rasterio.open(out_path, 'w', **tile_meta) as dst:
+                dst.write(result, 1)
             copy_qml(out_path)
-            
-            px_changed = int(np.sum(filled_data != data))
+
+            orig_inner = padded[inner]
+            px_changed = int(np.sum(result != orig_inner))
             elapsed = time.time() - t0
             total_islands += n_islands
-            
+
             log.debug("fill_islands: %s → %d öar fyllda (%d px)  %.1fs",
                       tile.name, n_islands, px_changed, elapsed)
             info.info("  %-45s  %3d öar fyllda  %6d px ändrade  %.1fs",
                       tile.name, n_islands, px_changed, elapsed)
         else:
             log.debug("fill_islands: hoppar %s (finns redan)", tile.name)
-        
+
         result_paths.append(out_path)
-    
+
     info.info("Steg 5 klar: totalt %d öar fyllda  %.1fs",
               total_islands, time.time() - t0_step)
-    
+
     return result_paths
 
 if __name__ == "__main__":

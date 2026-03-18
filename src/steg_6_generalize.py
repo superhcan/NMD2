@@ -33,7 +33,8 @@ from rasterio.windows import Window
 from scipy import ndimage
 from scipy.ndimage import uniform_filter
 
-from config import OUT_BASE, SRC, QML_SRC, PARENT_TILES, PARENT_TILE_SIZE, SUB_TILE_SIZE, GENERALIZE_PROTECTED as PROTECTED, ISLAND_FILL_SURROUNDS as WATER_CLASSES, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS
+from config import OUT_BASE, SRC, QML_SRC, get_active_tiles, PARENT_TILE_SIZE, SUB_TILE_SIZE, GENERALIZE_PROTECTED as PROTECTED, ISLAND_FILL_SURROUNDS as WATER_CLASSES, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS
+from geo_utils import build_vrt, build_cross_batch_vrt as _build_cross_batch_vrt, read_with_halo
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Logging – två loggers + console
@@ -130,54 +131,6 @@ def copy_qml(tif_path: Path):
     if QML_SRC.exists():
         shutil.copy2(QML_SRC, tif_path.with_suffix(".qml"))
         log.debug("QML kopierad → %s", tif_path.with_suffix(".qml").name)
-
-
-def build_vrt(paths: list[Path], vrt_path: Path):
-    """Bygger en GDAL VRT av angiven lista tif-filer."""
-    log.debug("Bygger VRT %s av %d filer", vrt_path.name, len(paths))
-    subprocess.run(
-        ["gdalbuildvrt", str(vrt_path), *[str(p) for p in paths]],
-        capture_output=True, check=True
-    )
-    log.debug("VRT klar: %s", vrt_path.name)
-
-
-def read_with_halo(vrt_path: Path, tile_path: Path):
-    """
-    Läser tile + HALO px kant från VRT.
-
-    Returnerar:
-      padded_data  – numpy array (h+2*halo, w+2*halo) klippt mot VRT-gränser
-      tile_meta    – meta dict för originaltilen (för skrivning av utdata)
-      inner_slice  – (row_slice, col_slice) som plockar ut tile-kärnan
-    """
-    with rasterio.open(vrt_path) as vrt, rasterio.open(tile_path) as tile:
-        vt = vrt.transform
-        tt = tile.transform
-        px = vt.a    # pixelbredd (positiv)
-        py = vt.e    # pixelhöjd  (negativ)
-
-        tile_col = round((tt.c - vt.c) / px)
-        tile_row = round((tt.f - vt.f) / py)
-        tile_w   = tile.width
-        tile_h   = tile.height
-        tile_meta = tile.meta.copy()
-
-        x0 = max(0, tile_col - HALO)
-        y0 = max(0, tile_row - HALO)
-        x1 = min(vrt.width,  tile_col + tile_w + HALO)
-        y1 = min(vrt.height, tile_row + tile_h + HALO)
-
-        win  = Window(x0, y0, x1 - x0, y1 - y0)
-        data = vrt.read(1, window=win)
-
-    inner_row = tile_row - y0
-    inner_col = tile_col - x0
-    inner_slice = (
-        slice(inner_row, inner_row + tile_h),
-        slice(inner_col, inner_col + tile_w),
-    )
-    return data, tile_meta, inner_slice
 
 
 # ── Steg 2: Öfyllnad ──────────────────────────────────────────────────────────
@@ -422,7 +375,7 @@ def step1_split() -> list[Path]:
         src_w = src.width
         src_h = src.height
         log.debug("  källbild storlek: %d × %d px", src_w, src_h)
-        for p_row, p_col in PARENT_TILES:
+        for p_row, p_col in get_active_tiles():
             px_off = p_col * PARENT_TILE_SIZE
             py_off = p_row * PARENT_TILE_SIZE
             for sub_r in range(2):
@@ -624,8 +577,7 @@ def step5_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int
 
     src_dir  = filled_paths[0].parent.name if filled_paths else "input"
     prev_vrt = OUT_BASE / f"{src_dir}_mosaic.vrt"
-    if not prev_vrt.exists():
-        build_vrt(filled_paths, prev_vrt)
+    _build_cross_batch_vrt(filled_paths, prev_vrt, src_dir)  # Bygg alltid om + inkludera syskonbatchar
 
     info.info("Steg 6 Sieve-%s: %d MMU-steg × %d tiles (halo=%dpx)",
               label, len(MMU_STEPS), len(tile_paths), HALO)
@@ -665,7 +617,12 @@ def step5_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int
                       out_path.name, changed, time.time() - t1)
 
         step_vrt = out_dir / f"_vrt_mmu{mmu:03d}.vrt"
-        build_vrt(step_outputs, step_vrt)
+        _build_cross_batch_vrt(
+            step_outputs, step_vrt, src_dir,
+            neighbour_subdir=f"steg6_generalized_conn{conn}",
+            step_suffix=f"_conn{conn}_mmu{mmu:03d}",
+            final_suffix=f"_conn{conn}_mmu{max(MMU_STEPS):03d}",
+        )
         prev_vrt = step_vrt
         elapsed  = time.time() - t0
         info.info("  %-10s mmu=%3dpx  totalt %9d px ändrade  %.1fs",
@@ -691,8 +648,7 @@ def step5_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
 
     src_dir  = filled_paths[0].parent.name if filled_paths else "input"
     prev_vrt = OUT_BASE / f"{src_dir}_mosaic.vrt"
-    if not prev_vrt.exists():
-        build_vrt(filled_paths, prev_vrt)
+    _build_cross_batch_vrt(filled_paths, prev_vrt, src_dir)  # Bygg alltid om + inkludera syskonbatchar
 
     info.info("Steg 6 Modal: %d kernelstorlekar × %d tiles (halo=%dpx)",
               len(KERNEL_SIZES), len(tile_paths), HALO)
@@ -730,7 +686,12 @@ def step5_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
                       out_path.name, changed, time.time() - t1)
 
         step_vrt = out_dir / f"_vrt_k{k:02d}.vrt"
-        build_vrt(step_outputs, step_vrt)
+        _build_cross_batch_vrt(
+            step_outputs, step_vrt, src_dir,
+            neighbour_subdir="steg6_generalized_modal",
+            step_suffix=f"_modal_k{k:02d}",
+            final_suffix=f"_modal_k{max(KERNEL_SIZES):02d}",
+        )
         prev_vrt = step_vrt
         elapsed  = time.time() - t0
         info.info("  modal      k=%2d          totalt %9d px ändrade  %.1fs",
@@ -749,8 +710,7 @@ def step5_semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
 
     src_dir  = filled_paths[0].parent.name if filled_paths else "input"
     prev_vrt = OUT_BASE / f"{src_dir}_mosaic.vrt"
-    if not prev_vrt.exists():
-        build_vrt(filled_paths, prev_vrt)
+    _build_cross_batch_vrt(filled_paths, prev_vrt, src_dir)  # Bygg alltid om + inkludera syskonbatchar
 
     info.info("Steg 6 Semantisk: %d MMU-steg × %d tiles (halo=%dpx)",
               len(MMU_STEPS), len(tile_paths), HALO)
@@ -788,7 +748,12 @@ def step5_semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
                       out_path.name, changed, time.time() - t1)
 
         step_vrt = out_dir / f"_vrt_mmu{mmu:03d}.vrt"
-        build_vrt(step_outputs, step_vrt)
+        _build_cross_batch_vrt(
+            step_outputs, step_vrt, src_dir,
+            neighbour_subdir="steg6_generalized_semantic",
+            step_suffix=f"_semantic_mmu{mmu:03d}",
+            final_suffix=f"_semantic_mmu{max(MMU_STEPS):03d}",
+        )
         prev_vrt = step_vrt
         elapsed  = time.time() - t0
         info.info("  semantic   mmu=%3dpx  totalt %9d px ändrade  %.1fs",

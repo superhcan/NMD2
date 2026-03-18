@@ -16,18 +16,54 @@ import numpy as np
 SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.tif")
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
 
-# Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_4tiles_v8d"))
+# Rotmapp — konfigurerbar via miljövariabel
+OUT_BASE_ROOT = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_batch_v1"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
 TILE_SIZE        = 1024          # Huvudtile-storlek (pixlar per sida)
-PARENT_TILES     = [(0, 19), (0, 20), (1, 19), (1, 20)]
+
+# Explicit tile-lista (används för test):
+#   PARENT_TILES = [(0, 19), (0, 20), (1, 19), (1, 20)]
+# Sätt till None för att köra batchat över hela rastret:
+#   PARENT_TILES = None
+PARENT_TILES     = None
+
+# Batch-körning — används när PARENT_TILES = None
+# TILE_BATCH_COUNT = 100 innebär att varje batch är ~1% av alla tiles.
+# Öka TILE_BATCH_INDEX med 1 för varje körning för att täcka hela rastret.
+# Kan också styras via env: TILE_BATCH_INDEX=2 python run_all_steps.py
+TILE_BATCH_INDEX = int(os.getenv("TILE_BATCH_INDEX", "1"))   # Vilken batch ska köras (0-baserat)
+TILE_BATCH_COUNT = 100           # Totalt antal batchar (100 = ~1% per körning)
+
+# I batch-läge skrivs varje batch till en separat undermapp batch_NNN/
+# I testläge (PARENT_TILES satt) används OUT_BASE_ROOT direkt
+OUT_BASE = OUT_BASE_ROOT / f"batch_{TILE_BATCH_INDEX:03d}" if PARENT_TILES is None else OUT_BASE_ROOT
 PARENT_TILE_SIZE = 1024          # Matchar TILE_SIZE i steg 1
 SUB_TILE_SIZE    = 1024          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
 HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
+
+
+def get_active_tiles() -> list[tuple[int, int]]:
+    """Returnerar de (row, col)-par som ska processeras i denna körning.
+
+    Om PARENT_TILES är satt: returnerar den listan direkt (test-läge).
+    Annars: beräknar hela tile-gridet från källrastern och returnerar
+    batch nr TILE_BATCH_INDEX av totalt TILE_BATCH_COUNT batchar.
+    """
+    if PARENT_TILES is not None:
+        return list(PARENT_TILES)
+    import rasterio
+    with rasterio.open(SRC) as src:
+        n_rows = (src.height + TILE_SIZE - 1) // TILE_SIZE
+        n_cols = (src.width  + TILE_SIZE - 1) // TILE_SIZE
+    all_tiles = [(r, c) for r in range(n_rows) for c in range(n_cols)]
+    total = len(all_tiles)
+    start = (TILE_BATCH_INDEX * total) // TILE_BATCH_COUNT
+    end   = ((TILE_BATCH_INDEX + 1) * total) // TILE_BATCH_COUNT
+    return all_tiles[start:end]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CLASSIFICATION CONSTANTS
