@@ -114,6 +114,12 @@ STEPS = {
         "description": "Vektoriserar byggnader från steg 2 och lägger till i steg 8-lager",
         "requires_dir": "steg8_simplified"
     },
+    10: {
+        "name": "Sammanslagning av batchar",
+        "script": "steg_10_merge_batches.py",
+        "description": "Slår samman steg8-vektorer från alla batchar och dissolvar polygoner längs batch-gränser",
+        "requires_dir": None   # Läser från OUT_BASE_ROOT/batch_*/steg8_simplified/
+    },
     99: {
         "name": "Bygga QGIS-projekt",
         "script": "steg_99_build_qgis_project.py",

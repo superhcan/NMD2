@@ -150,8 +150,8 @@ CLASS_REMAP = {
     54: 54,    # Torvtäkt → 54 (ingen förändring)
     
     # Vatten
-    61: 61,    # Inlandsvatten → 61 (ingen förändring, skyddad klass)
-    62: 62,    # Hav → 62 (ingen förändring, skyddad klass)
+    61: 61,    # Inlandsvatten → 61 (ingen förändring)
+    62: 62,    # Hav → 62 (ingen förändring)
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -301,6 +301,7 @@ ENABLE_STEPS = {
     7: True,    # Vektorisering
     8: True,    # Mapshaper-förenkling
     9: False,   # Overlay byggnader från steg 2 på steg 8
+    10: False,  # Sammanslagning av alla batchar (körs separat när ALLA batchar är klara)
     99: True,   # Bygga QGIS-projekt
 }
 
