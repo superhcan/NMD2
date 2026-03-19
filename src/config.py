@@ -44,7 +44,7 @@ TILE_BATCH_COUNT = 70            # Totalt antal batchar = antal rader i tile-gri
 OUT_BASE = OUT_BASE_ROOT / f"batch_{TILE_BATCH_INDEX:03d}" if PARENT_TILES is None else OUT_BASE_ROOT
 PARENT_TILE_SIZE = 1024          # Matchar TILE_SIZE i steg 1
 SUB_TILE_SIZE    = 1024          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
-HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
+HALO             = 50            # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
 
 
 def get_active_tiles() -> list[tuple[int, int]]:
