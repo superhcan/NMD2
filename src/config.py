@@ -32,11 +32,12 @@ TILE_SIZE        = 1024          # Huvudtile-storlek (pixlar per sida)
 PARENT_TILES     = None
 
 # Batch-körning — används när PARENT_TILES = None
-# TILE_BATCH_COUNT = 100 innebär att varje batch är ~1% av alla tiles.
-# Öka TILE_BATCH_INDEX med 1 för varje körning för att täcka hela rastret.
+# TILE_BATCH_COUNT = 70 innebär att varje batch är exakt 1 rad (70 kolumner).
+# Batch-gränserna är alltid horisontella → pixel-koordinater längs sömen
+# identiska på båda sidor → korrekt dissolve i steg 10.
 # Kan också styras via env: TILE_BATCH_INDEX=2 python run_all_steps.py
 TILE_BATCH_INDEX = int(os.getenv("TILE_BATCH_INDEX", "1"))   # Vilken batch ska köras (0-baserat)
-TILE_BATCH_COUNT = 100           # Totalt antal batchar (100 = ~1% per körning)
+TILE_BATCH_COUNT = 70            # Totalt antal batchar = antal rader i tile-griden
 
 # I batch-läge skrivs varje batch till en separat undermapp batch_NNN/
 # I testläge (PARENT_TILES satt) används OUT_BASE_ROOT direkt
@@ -60,10 +61,13 @@ def get_active_tiles() -> list[tuple[int, int]]:
         n_rows = (src.height + TILE_SIZE - 1) // TILE_SIZE
         n_cols = (src.width  + TILE_SIZE - 1) // TILE_SIZE
     all_tiles = [(r, c) for r in range(n_rows) for c in range(n_cols)]
-    total = len(all_tiles)
-    start = (TILE_BATCH_INDEX * total) // TILE_BATCH_COUNT
-    end   = ((TILE_BATCH_INDEX + 1) * total) // TILE_BATCH_COUNT
-    return all_tiles[start:end]
+    # Batcha per hel rad så att batch-gränserna alltid är horisontella.
+    # Det garanterar att pixel-koordinaterna längs batch-sömen är identiska
+    # på båda sidor → steg 10 kan dissolva korrekta polygoner.
+    rows_per_batch = max(1, (n_rows + TILE_BATCH_COUNT - 1) // TILE_BATCH_COUNT)
+    row_start = TILE_BATCH_INDEX * rows_per_batch
+    row_end   = min(row_start + rows_per_batch, n_rows)
+    return [(r, c) for r in range(row_start, row_end) for c in range(n_cols)]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CLASSIFICATION CONSTANTS
@@ -285,6 +289,11 @@ KERNEL_SIZES = [3, 7]
 #   - Fler nivåer = längre körtid men bättre att jämföra resultat
 #
 SIMPLIFICATION_TOLERANCES = [25]
+
+# RAM-gräns för Mapshaper i steg 10 (MB). Öka på maskin med mer RAM.
+# 0 = ingen gräns (Node.js standard ~4 GB)
+# Rekommenderat på 64 GB-maskin: 49152
+MAPSHAPER_MAX_HEAP_MB = int(os.getenv("MAPSHAPER_MAX_HEAP_MB", "0"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PIPELINE CONFIGURATION — Vilka steg ska köras?
