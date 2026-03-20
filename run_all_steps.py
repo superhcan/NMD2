@@ -5,10 +5,10 @@ run_all_steps.py — Master orchestrator för NMD2 pipeline.
 Kör alla steg i rätt ordning:
   Steg 0: Verifikation - tileluppdelning utan omklassificering (steg_0_verify_tiles.py)
   Steg 1: Tileluppdelning med omklassificering (steg_1_split_tiles.py)
-  Steg 2: Extract classes (steg_2_extracted.py)
+  Steg 2: Extract classes (steg_2_extract.py)
   Steg 3: Lös upp klasser i omgivande mark (steg_3_dissolve.py)
-  Steg 4: Ta bort små sjöar < 0,5 ha (steg_4_fill_islands.py)
-  Steg 5: Fylla små öar omringade av vatten (steg_5_filter_lakes.py)
+  Steg 4: Ta bort små sjöar < 0,5 ha (steg_4_filter_lakes.py)
+  Steg 5: Fylla små öar omringade av vatten (steg_5_filter_islands.py)
   Steg 6: Generalisering (steg_6_generalize.py)
   Steg 7: Vektorisering (steg_7_vectorize.py)
   Steg 8: Mapshaper-förenkling (steg_8_simplify.py)
@@ -64,61 +64,61 @@ STEPS = {
         "name": "Tileluppdelning med omklassificering",
         "script": "steg_1_split_tiles.py",
         "description": "Applicerar CLASS_REMAP på tiles från steg 0",
-        "requires_dir": "steg0_verify_tiles"
+        "requires_dir": "steg_0_verify_tiles"
     },
     2: {
         "name": "Extract classes",
-        "script": "steg_2_extracted.py",
+        "script": "steg_2_extract.py",
         "description": "Extracts EXTRACT_CLASSES to separate layer for later vectorization",
-        "requires_dir": "steg1_tiles"
+        "requires_dir": "steg_1_split_tiles"
     },
     3: {
         "name": "Lös upp klasser i omgivande mark",
         "script": "steg_3_dissolve.py",
         "description": "Ersätter DISSOLVE_CLASSES med omkringliggande mark för generalisering",
-        "requires_dir": "steg1_tiles"
+        "requires_dir": "steg_1_split_tiles"
     },
     4: {
         "name": "Ta bort små områden",
-        "script": "steg_4_fill_islands.py",
+        "script": "steg_4_filter_lakes.py",
         "description": "Tar bort små sjöar < 0,5 ha (< 50 px) och fyller med omkringliggande",
-        "requires_dir": "steg3_dissolved" if ENABLE_STEPS.get(3, True) else "steg1_tiles"
+        "requires_dir": "steg_3_dissolve" if ENABLE_STEPS.get(3, True) else "steg_1_split_tiles"
     },
     5: {
         "name": "Fylla små öar",
-        "script": "steg_5_filter_lakes.py",
+        "script": "steg_5_filter_islands.py",
         "description": "Fyller små landöar < 0,5 ha omringade av vatten",
-        "requires_dir": "steg4_filled" if ENABLE_STEPS.get(4, True) else "steg3_dissolved"
+        "requires_dir": "steg_4_filter_lakes" if ENABLE_STEPS.get(4, True) else "steg_3_dissolve"
     },
     6: {
         "name": "Generalisering",
         "script": "steg_6_generalize.py",
         "description": "Generaliserar landskapsbild med sieve, modal, semantic och halo-teknik",
-        "requires_dir": None  # Kan läsa från steg4_filled eller steg5_islands_filled
+        "requires_dir": None  # Kan läsa från steg_4_filter_lakes eller steg_5_filter_islands
     },
     7: {
         "name": "Vektorisering",
         "script": "steg_7_vectorize.py",
         "description": "Konverterar generaliserade raster till GeoPackage-vektorer",
-        "requires_dir": f"steg6_generalized_{next(iter(GENERALIZATION_METHODS))}"
+        "requires_dir": "steg_6_generalize"
     },
     8: {
         "name": "Mapshaper-förenkling",
         "script": "steg_8_simplify.py",
         "description": "Förenklar vektorer med topologi-bevarad Mapshaper",
-        "requires_dir": "steg7_vectorized"
+        "requires_dir": "steg_7_vectorize"
     },
     9: {
         "name": "Overlay buildings",
         "script": "steg_9_overlay_buildings.py",
         "description": "Vektoriserar byggnader från steg 2 och lägger till i steg 8-lager",
-        "requires_dir": "steg8_simplified"
+        "requires_dir": "steg_8_simplify"
     },
     99: {
         "name": "Bygga QGIS-projekt",
         "script": "steg_99_build_qgis_project.py",
         "description": "Bygger QGIS-projekt med alla steg organiserade i grupper",
-        "requires_dir": "steg8_simplified"
+        "requires_dir": "steg_8_simplify"
     }
 }
 

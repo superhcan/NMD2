@@ -12,6 +12,7 @@ Kräver: QGIS installerat (qgis.core)
 
 import sys
 import os
+import time
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -32,7 +33,7 @@ except ImportError as e:
     print("   Installera QGIS först: apt install qgis python3-qgis")
     sys.exit(1)
 
-from config import OUT_BASE, ENABLE_STEPS, SIMPLIFICATION_TOLERANCES
+from config import OUT_BASE, ENABLE_STEPS, SIMPLIFICATION_TOLERANCES, QGIS_INCLUDE_STEPS
 
 
 def _apply_no_fill(layer):
@@ -113,9 +114,10 @@ qgs_app = QgsApplication([], False)
 
 def build_qgis_project():
     """Bygg QGIS-projekt med alla steg."""
+    _t0 = time.time()
     
     # Skapa steg8-katalog
-    output_dir = OUT_BASE / "steg99_qgis_project"
+    output_dir = OUT_BASE / "steg_99_build_qgis_project"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     project_path = output_dir / "Pipeline.qgs"
@@ -151,17 +153,17 @@ def build_qgis_project():
     # Definiera steg och deras katalog (med steg-prefix)
     # Uppdaterad för ny numrering: steg 0-9 (0 för verifikation, 1-9 för produktion)
     steps = [
-        (99, "Step 99 - QGIS project", None),  # This step - no own directory
-        (9, "Step 9 - With buildings", OUT_BASE / "steg9_with_buildings"),
-        (8, "Step 8 - Simplified", OUT_BASE / "steg8_simplified"),
-        (7, "Step 7 - Vectorized", OUT_BASE / "steg7_vectorized"),
-        (6, "Step 6 - Generalized", OUT_BASE),
-        (5, "Step 5 - Filled islands", OUT_BASE / "steg5_islands_filled"),
-        (4, "Step 4 - Filled lakes", OUT_BASE / "steg4_filled"),
-        (3, "Step 3 - Dissolved classes", OUT_BASE / "steg3_dissolved"),
-        (2, "Step 2 - Extracted classes", OUT_BASE / "steg2_extracted"),
-        (1, "Step 1 - Tiles with remapping", OUT_BASE / "steg1_tiles"),
-        (0, "Step 0 - Verification tiles (original)", OUT_BASE / "steg0_verify_tiles"),
+        (99, "Step 99 - QGIS project", None),
+        (9, "Step 9 - Overlaid buildings", OUT_BASE / "steg_9_overlay_buildings"),
+        (8, "Step 8 - Simplified (Mapshaper)", OUT_BASE / "steg_8_simplify"),
+        (7, "Step 7 - Vectorized", OUT_BASE / "steg_7_vectorize"),
+        (6, "Step 6 - Generalized", OUT_BASE / "steg_6_generalize"),
+        (5, "Step 5 - Filtered islands", OUT_BASE / "steg_5_filter_islands"),
+        (4, "Step 4 - Filtered lakes", OUT_BASE / "steg_4_filter_lakes"),
+        (3, "Step 3 - Dissolved classes", OUT_BASE / "steg_3_dissolve"),
+        (2, "Step 2 - Extracted classes", OUT_BASE / "steg_2_extract"),
+        (1, "Step 1 - Tiles with remapping", OUT_BASE / "steg_1_split_tiles"),
+        (0, "Step 0 - Verification tiles (original)", OUT_BASE / "steg_0_verify_tiles"),
     ]
     
     log.info("Lägger till steg i projekt...\n")
@@ -176,6 +178,10 @@ def build_qgis_project():
         if not step_dir.exists():
             log.warning(f"⚠️  {step_name:40s} – katalog saknas")
             continue
+
+        if not QGIS_INCLUDE_STEPS.get(step_num, True):
+            log.info(f"⏭  {step_name:40s} – hoppad (QGIS_INCLUDE_STEPS=False)")
+            continue
         
         # Skapa gruppe (minimerad)
         group = QgsLayerTreeGroup(step_name)
@@ -187,7 +193,7 @@ def build_qgis_project():
             methods = ["conn4", "conn8", "modal", "semantic"]
             
             for method in methods:
-                method_dir = step_dir / f"steg6_generalized_{method}"
+                method_dir = step_dir / method
                 if not method_dir.exists():
                     log.debug(f"  Metodkatalog saknas: {method_dir.name}")
                     continue
@@ -512,9 +518,9 @@ def build_qgis_project():
                 log.warning(f"⚠️  {step_name:40s} – inga filer hittade")
                 continue
             
-            # Lägg till lager (max 16 per grupp för prestanda)
+            # Lägg till lager
             layers_added = 0
-            for layer_file in layer_files[:16]:
+            for layer_file in layer_files:
                 layer_name = layer_file.stem
                 
                 try:
@@ -570,7 +576,8 @@ def build_qgis_project():
     
     log.info("")
     log.info("══════════════════════════════════════════════════════════")
-    log.info(f"Steg 99 KLAR")
+    _elapsed = time.time() - _t0
+    log.info(f"Steg 99 KLART  {_elapsed / 60:.1f} min ({_elapsed:.0f}s)")
     log.info(f"Projekt: {project_path.name} ({size_kb:.1f} KB)")
     log.info(f"Totalt lager: {total_layers}")
     log.info("══════════════════════════════════════════════════════════")

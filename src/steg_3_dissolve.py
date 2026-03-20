@@ -10,8 +10,10 @@ Kör: python3 src/steg_3_dissolve.py
 """
 
 import logging
+import os
 import shutil
 import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +21,8 @@ import rasterio
 from scipy import ndimage
 
 from config import QML_SRC, OUT_BASE, DISSOLVE_CLASSES, STRUCT_4, COMPRESS
+
+N_WORKERS = max(1, (os.cpu_count() or 1) - 2)
 
 log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -31,88 +35,77 @@ def copy_qml(tif_path: Path):
         log.debug("QML kopierad → %s", tif_path.with_suffix(".qml").name)
 
 
+def _dissolve_tile_worker(args):
+    """Top-level worker för ProcessPoolExecutor (måste vara picklingbar)."""
+    tile_str, out_path_str, dissolve_classes_frozen = args
+    tile = Path(tile_str)
+    out_path = Path(out_path_str)
+
+    if out_path.exists():
+        return out_path_str, 0, 0.0
+
+    t0 = time.time()
+    dissolve_set = np.array(list(dissolve_classes_frozen), dtype=np.uint16)
+
+    with rasterio.open(tile) as src:
+        meta = src.meta.copy()
+        data = src.read(1)
+    meta.update(compress=COMPRESS)
+
+    roads_mask = np.isin(data, dissolve_set)
+    px_replaced = int(roads_mask.sum())
+
+    if px_replaced > 0:
+        # Vektoriserad nearest-neighbour fill:
+        # distance_transform_edt med return_indices ger för varje pixel
+        # koordinaterna till närmaste icke-väg/byggnad-pixel. O(N) istället
+        # för O(N²) pixel-för-pixel-loopen.
+        _, indices = ndimage.distance_transform_edt(roads_mask, return_indices=True)
+        landscape_data = data.copy()
+        landscape_data[roads_mask] = data[indices[0][roads_mask], indices[1][roads_mask]]
+    else:
+        landscape_data = data
+
+    with rasterio.open(out_path, "w", **meta) as dst:
+        dst.write(landscape_data, 1)
+
+    if QML_SRC.exists():
+        shutil.copy2(QML_SRC, out_path.with_suffix(".qml"))
+
+    elapsed = time.time() - t0
+    return out_path_str, px_replaced, elapsed
+
+
 def extract_landscape(tile_paths: list[Path]) -> list[Path]:
     """Lös upp DISSOLVE_CLASSES i omgivande mark och skriv till steg3_dissolved/."""
     t0_step = time.time()
-    out_dir = OUT_BASE / "steg3_dissolved"
+    out_dir = OUT_BASE / "steg_3_dissolve"
     out_dir.mkdir(parents=True, exist_ok=True)
-    result_paths = []
+
+    info.info("Steg 3: Löser upp klasser %s i omgivande mark (%d workers) ...",
+              DISSOLVE_CLASSES, N_WORKERS)
+
+    dissolve_frozen = tuple(sorted(DISSOLVE_CLASSES))
+    task_args = [
+        (str(tile), str(out_dir / tile.name), dissolve_frozen)
+        for tile in tile_paths
+    ]
+
     total_px_replaced = 0
-    
-    info.info("Steg 3: Löser upp klasser %s i omgivande mark ...", DISSOLVE_CLASSES)
-    
-    roads_buildings_uint16 = np.array(list(DISSOLVE_CLASSES), dtype=np.uint16)
-    
-    for tile in tile_paths:
-        out_path = out_dir / tile.name
-        if not out_path.exists():
-            t0 = time.time()
-            with rasterio.open(tile) as src:
-                meta = src.meta.copy()
-                data = src.read(1)
-            meta.update(compress=COMPRESS)
-            
-            # Identifiera vägar/byggnader
-            roads_mask = np.isin(data, roads_buildings_uint16)
-            px_replaced = int(roads_mask.sum())
-            
-            if px_replaced > 0:
-                # Använd morphological filling: för varje väg/byggnad-pixel,
-                # ersätt med värde från närmaste granne via distance transform
-                landscape_data = data.copy()
-                
-                # Använd scipy.ndimage.distance_transform_edt för att fylla vägar/byggnader
-                # med värden från närmaste icke-väg/byggnad pixel
-                dist_transform = ndimage.distance_transform_edt(~roads_mask)
-                
-                # För varje väg/byggnad-pixel, hitta närmaste granne och kopiera dess värde
-                for i, j in np.argwhere(roads_mask):
-                    # Sök omkringliggande pixlar för att hitta icke-väg värde
-                    found = False
-                    for di in [-1, 0, 1]:
-                        for dj in [-1, 0, 1]:
-                            if di == 0 and dj == 0:
-                                continue
-                            ni, nj = i + di, j + dj
-                            if 0 <= ni < data.shape[0] and 0 <= nj < data.shape[1]:
-                                if not roads_mask[ni, nj]:
-                                    landscape_data[i, j] = data[ni, nj]
-                                    found = True
-                                    break
-                        if found:
-                            break
-                    if not found:
-                        # Om ingen granne hittades, försöka widare
-                        neighbors = []
-                        for di in range(-3, 4):
-                            for dj in range(-3, 4):
-                                ni, nj = i + di, j + dj
-                                if 0 <= ni < data.shape[0] and 0 <= nj < data.shape[1]:
-                                    if not roads_mask[ni, nj]:
-                                        neighbors.append(data[ni, nj])
-                        if neighbors:
-                            landscape_data[i, j] = max(set(neighbors), 
-                                                       key=neighbors.count)
-            else:
-                landscape_data = data.copy()
-                px_replaced = 0
-            
-            with rasterio.open(out_path, "w", **meta) as dst:
-                dst.write(landscape_data, 1)
-            copy_qml(out_path)
-            
+    result_paths = []
+
+    with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
+        for out_path_str, px_replaced, elapsed in executor.map(_dissolve_tile_worker, task_args):
+            result_paths.append(Path(out_path_str))
             total_px_replaced += px_replaced
-            elapsed = time.time() - t0
-            log.debug("extract_landscape: %s → %d px ersatta  %.1fs",
-                      tile.name, px_replaced, elapsed)
-            info.info("  %-45s  %9d px ersatta  %.1fs", tile.name, px_replaced, elapsed)
-        else:
-            log.debug("extract_landscape: hoppar %s (finns redan)", tile.name)
-        result_paths.append(out_path)
-    
-    info.info("Steg 3 klar: totalt %d px vägar/byggnader ersatta  %.1fs",
-              total_px_replaced, time.time() - t0_step)
-    
+            if elapsed > 0:
+                log.debug("dissolve: %s → %d px ersatta  %.1fs",
+                          Path(out_path_str).name, px_replaced, elapsed)
+
+    _elapsed = time.time() - t0_step
+    info.info("Steg 3 klar: totalt %d px vägar/byggnader ersätta  %.1f min (%.0fs)",
+              total_px_replaced, _elapsed / 60, _elapsed)
+
     return result_paths
 
 
@@ -127,17 +120,17 @@ if __name__ == "__main__":
     setup_logging(OUT_BASE, step_num, step_name)
     
     log_step_header(info, 3, "Lös upp klasser i omgivande mark",
-                    str(OUT_BASE / "steg1_tiles"),
-                    str(OUT_BASE / "steg3_dissolved"))
+                    str(OUT_BASE / "steg_1_split_tiles"),
+                    str(OUT_BASE / "steg_3_dissolve"))
     
     # Läs tiles från Steg 1
-    tiles_dir = OUT_BASE / "steg1_tiles"
+    tiles_dir = OUT_BASE / "steg_1_split_tiles"
     if not tiles_dir.exists():
-        print(f"Fel: {tiles_dir} finns ej. Kör Steg 1 först (split_tiles.py)")
+        info.error(f"Fel: {tiles_dir} finns ej. Kör Steg 1 först (split_tiles.py)")
         exit(1)
     
     tile_paths = sorted(tiles_dir.glob("*.tif"))
-    print(f"Hittade {len(tile_paths)} tiles från Steg 1")
+    info.info(f"Hittade {len(tile_paths)} tiles från Steg 1")
     
     landscape = extract_landscape(tile_paths)
-    print(f"Steg 3 klar: {len(landscape)} landskapslager skapade")
+    info.info(f"Steg 3 klar: {len(landscape)} tiles skapade")

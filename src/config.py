@@ -17,14 +17,17 @@ SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.ti
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_4tiles_v8d"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_10proc_v04"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
 TILE_SIZE        = 1024          # Huvudtile-storlek (pixlar per sida)
-PARENT_TILES     = [(0, 19), (0, 20), (1, 19), (1, 20)]
+# 20% av total yta: rader 30-43 × 70 kolumner = 980 tiles
+#PARENT_TILES     = [(row, col) for row in range(30, 44) for col in range(70)]
+#PARENT_TILES     = [(row, col) for row in range(35) for col in range(70)]  # Norra halvan (rader 0-34)
+PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
 PARENT_TILE_SIZE = 1024          # Matchar TILE_SIZE i steg 1
 SUB_TILE_SIZE    = 1024          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
 HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
@@ -259,13 +262,32 @@ ENABLE_STEPS = {
     1: True,    # Tileluppdelning med omklassificering
     2: True,    # Extrahera skyddade klasser
     3: True,    # Extrahera landskapsbild
-    4: False,   # Ta bort små sjöar < 0,5 ha
-    5: True,    # Fylla små öar < 0,5 ha omringade av vatten
+    4: False,   # Fylla små landöar < MMU_ISLAND px omringade av vatten
+    5: True,    # Ta bort (filtrera) små sjöar < 0,5 ha
     6: True,    # Generalisering
     7: True,    # Vektorisering
     8: True,    # Mapshaper-förenkling
     9: False,   # Overlay byggnader från steg 2 på steg 8
     99: True,   # Bygga QGIS-projekt
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# QGIS-PROJEKT — Vilka steg ska inkluderas i QGIS-projektet?
+# ══════════════════════════════════════════════════════════════════════════════
+# Steg med mycket data (steg 0-5: 980 rasterfiler/steg) kan göra QGIS trögstartat.
+# Sätt False för steg du inte behöver granska i QGIS.
+#
+QGIS_INCLUDE_STEPS = {
+    0: True,   # Verifieringstiles (original, 980 rasterfiler)
+    1: False,   # Tiles med omklassificering (980 rasterfiler)
+    2: False,   # Extraherade skyddade klasser (980 rasterfiler)
+    3: False,   # Upplöst landskapsbild (980 rasterfiler)
+    4: False,   # Fyllda sjöar (980 rasterfiler)
+    5: False,   # Fyllda öar (980 rasterfiler)
+    6: True,    # Generaliserat raster (steg6_generalized_*/)
+    7: False,    # Vektoriserade GeoPackage
+    8: True,    # Förenklat (Mapshaper)
+    9: True,    # Med byggnader
 }
 
 # ══════════════════════════════════════════════════════════════════════════════

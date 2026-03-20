@@ -24,8 +24,8 @@ if not v8b_tiles.exists():
 steps = [
     (2, "steg_2_extract_protected", "Steg 2: Extrahera skyddade klasser"),
     (3, "steg_3_extract_landscape", "Steg 3: Extrahera landskapsbild"),
-    (4, "steg_4_fill_islands", "Steg 4: Fylla små öar och sjöar"),
-    (5, "steg_5_filter_lakes", "Steg 5: Filtrera sjöar"),
+    (4, "steg_4_filter_lakes", "Steg 4: Ta bort små sjöar"),
+    (5, "steg_5_filter_islands", "Steg 5: Fylla landöar omringade av vatten"),
     (6, "steg_6_generalize", "Steg 6: Generalisera"),
     (7, "steg_7_vectorize", "Steg 7: Vektorisera"),
     (8, "steg_8_simplify", "Steg 8: Mapshaper-förenkling"),

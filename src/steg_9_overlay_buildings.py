@@ -2,9 +2,9 @@
 """
 steg_9_overlay_buildings.py — Step 9: Overlay buildings from steg 2 onto steg 8.
 
-Extracts building pixels (class 51) from steg2_extracted rasters, vectorizes them
-and merges the building polygons into each steg8_simplified GPKG, producing
-combined landscape + buildings output in steg9_with_buildings/.
+Extracts building pixels (class 51) from steg_2_extract rasters, vectorizes them
+and merges the building polygons into each steg_8_simplify GPKG, producing
+combined landscape + buildings output in steg_9_overlay_buildings/.
 
 Run: python3 src/steg_9_overlay_buildings.py
 """
@@ -149,7 +149,7 @@ def merge_buildings(buildings_gpkg, steg8_dir, out_dir, log):
     """
     gpkgs = sorted(steg8_dir.glob("*.gpkg"))
     if not gpkgs:
-        log.warning("No GPKG files found in steg8_simplified")
+        log.warning("No GPKG files found in steg_8_simplify")
         return 0
 
     count = 0
@@ -181,9 +181,9 @@ if __name__ == "__main__":
     log = setup_logging(OUT_BASE)
     t0 = time.time()
 
-    steg2_dir = OUT_BASE / "steg2_extracted"
-    steg8_dir = OUT_BASE / "steg8_simplified"
-    out_dir   = OUT_BASE / "steg9_with_buildings"
+    steg2_dir = OUT_BASE / "steg_2_extract"
+    steg8_dir = OUT_BASE / "steg_8_simplify"
+    out_dir   = OUT_BASE / "steg_9_overlay_buildings"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     log.info("══════════════════════════════════════════════════════════")
@@ -207,7 +207,7 @@ if __name__ == "__main__":
         elapsed = time.time() - t0
         log.info("")
         log.info("══════════════════════════════════════════════════════════")
-        log.info("Step 9 DONE — %d files created (%.1fs)", n, elapsed)
+        log.info("Step 9 KLART — %d filer skapade  %.1f min (%.0fs)", n, elapsed / 60, elapsed)
         log.info("══════════════════════════════════════════════════════════")
 
     finally:

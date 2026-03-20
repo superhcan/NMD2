@@ -41,7 +41,7 @@ if __name__ == "__main__":
 
 ---
 
-### Steg 4: steg_4_fill_islands.py
+### Steg 4: steg_4_filter_lakes.py
 **Setup-funktion:** `setup_logging()` från `logging_setup`  
 **Separator lines:** Nej  
 **__main__ Loggning:** Endast print() till console
@@ -53,7 +53,7 @@ if __name__ == "__main__":
     info = _LOGGERS["summary"]
     
     info.info("══════════════════════════════════════════════════════════")
-    info.info("Steg 4: Landskapsgeneralisering (halo-teknik)")
+    info.info("Steg 4: Generalisering (halo-teknik)")
     info.info("Källbild  : %s", SRC)
     info.info("Utmapp    : %s", OUT_BASE)
     info.info("Halo      : %d px", HALO)
@@ -73,7 +73,7 @@ if __name__ == "__main__":
 
 ---
 
-### Steg 5: steg_5_filter_lakes.py
+### Steg 5: steg_5_filter_islands.py
 **Setup-funktion:** `setup_logging()` från `logging_setup`  
 **Separator lines:** Nej  
 **__main__ Loggning:** Endast print() till console
@@ -94,7 +94,7 @@ if __name__ == "__main__":
     info = _LOGGERS["summary"]
     
     info.info("══════════════════════════════════════════════════════════")
-    info.info("Steg 4: Landskapsgeneralisering (halo-teknik)")  # Note: Says "Steg 4" but is 6
+    info.info("Steg 4: Generalisering (halo-teknik)")  # Note: Says "Steg 4" but is 6
     info.info("Källbild  : %s", SRC)
     ... (samma som Steg 4)
     info.info("══════════════════════════════════════════════════════════")

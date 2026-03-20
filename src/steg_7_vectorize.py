@@ -79,13 +79,13 @@ def _setup_logging(out_base):
     return log
 
 PIPE = OUT_BASE
-OUT = PIPE / "steg7_vectorized"
+OUT = PIPE / "steg_7_vectorize"
 LN = "markslag"
 
 def vectorize_sieve(conn):
     log = logging.getLogger("pipeline.vectorize")
     method = f"conn{conn}"
-    in_dir = PIPE / f"steg6_generalized_{method}"
+    in_dir = PIPE / "steg_6_generalize" / method
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))
@@ -105,11 +105,18 @@ def vectorize_sieve(conn):
             gpkg.unlink()
         log.info("  %s mmu=%d px (%.2f ha): %d tiles", method, mmu, mmu_ha, len(mmu_tifs))
         
-        tif_str = " ".join(f'"{t}"' for t in mmu_tifs)
         vrt_tmp = f"/tmp/_vect_{method}_mmu{mmu_str}.vrt"
-        conn_flag = "-8 " if conn == 8 else ""
-        shell_cmd = f'gdalbuildvrt "{vrt_tmp}" {tif_str} > /dev/null 2>&1 && gdal_polygonize.py "{vrt_tmp}" {conn_flag}-f GPKG "{gpkg}" DN {LN} > /dev/null 2>&1; rm -f "{vrt_tmp}"'
-        subprocess.run(shell_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        file_list_tmp = f"/tmp/_vect_{method}_mmu{mmu_str}.txt"
+        with open(file_list_tmp, "w") as fh:
+            fh.write("\n".join(str(t) for t in mmu_tifs))
+        conn_flag = "-8" if conn == 8 else ""
+        subprocess.run(["gdalbuildvrt", "-input_file_list", file_list_tmp, vrt_tmp], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        polygonize_cmd = ["gdal_polygonize.py", vrt_tmp]
+        if conn_flag:
+            polygonize_cmd.append(conn_flag)
+        polygonize_cmd += ["-f", "GPKG", str(gpkg), "DN", LN]
+        subprocess.run(polygonize_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import os as _os; _os.unlink(vrt_tmp) if _os.path.exists(vrt_tmp) else None; _os.unlink(file_list_tmp) if _os.path.exists(file_list_tmp) else None
         if gpkg.exists() and gpkg.stat().st_size > 1000:
             sz = gpkg.stat().st_size / 1e6
             log.info("    ✓ %s (%.1f MB)", gpkg.name, sz)
@@ -118,7 +125,7 @@ def vectorize_sieve(conn):
 
 def vectorize_modal():
     log = logging.getLogger("pipeline.vectorize")
-    in_dir = PIPE / "steg6_generalized_modal"
+    in_dir = PIPE / "steg_6_generalize" / "modal"
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))
@@ -138,10 +145,13 @@ def vectorize_modal():
             gpkg.unlink()
         log.info("  modal k=%d (eff. MMU ≈ %d px): %d tiles", k, eff_mmu, len(k_tifs))
         
-        tif_str = " ".join(f'"{t}"' for t in k_tifs)
         vrt_tmp = f"/tmp/_vect_modal_k{k_str}.vrt"
-        shell_cmd = f'gdalbuildvrt "{vrt_tmp}" {tif_str} > /dev/null 2>&1 && gdal_polygonize.py "{vrt_tmp}" -f GPKG "{gpkg}" DN {LN} > /dev/null 2>&1; rm -f "{vrt_tmp}"'
-        subprocess.run(shell_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        file_list_tmp = f"/tmp/_vect_modal_k{k_str}.txt"
+        with open(file_list_tmp, "w") as fh:
+            fh.write("\n".join(str(t) for t in k_tifs))
+        subprocess.run(["gdalbuildvrt", "-input_file_list", file_list_tmp, vrt_tmp], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["gdal_polygonize.py", vrt_tmp, "-f", "GPKG", str(gpkg), "DN", LN], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import os as _os; _os.unlink(vrt_tmp) if _os.path.exists(vrt_tmp) else None; _os.unlink(file_list_tmp) if _os.path.exists(file_list_tmp) else None
         if gpkg.exists() and gpkg.stat().st_size > 1000:
             sz = gpkg.stat().st_size / 1e6
             log.info("    ✓ %s (%.1f MB)", gpkg.name, sz)
@@ -150,7 +160,7 @@ def vectorize_modal():
 
 def vectorize_semantic():
     log = logging.getLogger("pipeline.vectorize")
-    in_dir = PIPE / "steg6_generalized_semantic"
+    in_dir = PIPE / "steg_6_generalize" / "semantic"
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))
@@ -170,10 +180,13 @@ def vectorize_semantic():
             gpkg.unlink()
         log.info("  semantic mmu=%d px (%.2f ha): %d tiles", mmu, mmu_ha, len(mmu_tifs))
         
-        tif_str = " ".join(f'"{t}"' for t in mmu_tifs)
         vrt_tmp = f"/tmp/_vect_semantic_mmu{mmu_str}.vrt"
-        shell_cmd = f'gdalbuildvrt "{vrt_tmp}" {tif_str} > /dev/null 2>&1 && gdal_polygonize.py "{vrt_tmp}" -f GPKG "{gpkg}" DN {LN} > /dev/null 2>&1; rm -f "{vrt_tmp}"'
-        subprocess.run(shell_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        file_list_tmp = f"/tmp/_vect_semantic_mmu{mmu_str}.txt"
+        with open(file_list_tmp, "w") as fh:
+            fh.write("\n".join(str(t) for t in mmu_tifs))
+        subprocess.run(["gdalbuildvrt", "-input_file_list", file_list_tmp, vrt_tmp], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["gdal_polygonize.py", vrt_tmp, "-f", "GPKG", str(gpkg), "DN", LN], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import os as _os; _os.unlink(vrt_tmp) if _os.path.exists(vrt_tmp) else None; _os.unlink(file_list_tmp) if _os.path.exists(file_list_tmp) else None
         if gpkg.exists() and gpkg.stat().st_size > 1000:
             sz = gpkg.stat().st_size / 1e6
             log.info("    ✓ %s (%.1f MB)", gpkg.name, sz)
@@ -240,6 +253,6 @@ if __name__ == "__main__":
     
     elapsed = time.time() - t0
     log.info("══════════════════════════════════════════════════════════")
-    log.info("Steg 7 KLAR: %.0fs (%.1f min)", elapsed, elapsed / 60)
+    log.info("Steg 7 KLART: %.0fs (%.1f min)", elapsed, elapsed / 60)
     log.info("GeoPackage-filer: %s", OUT)
     log.info("══════════════════════════════════════════════════════════")

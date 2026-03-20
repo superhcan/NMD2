@@ -33,10 +33,10 @@ cd src
 python3 steg_1_split_tiles.py
 python3 steg_2_extract_protected.py
 python3 steg_3_extract_landscape.py
-python3 steg_4_fill_islands.py
+python3 steg_4_filter_lakes.py
 
 # Steg 5-9: Generalisering & QGIS
-python3 steg_5_filter_lakes.py        # [VALFRITT] Fylla öar
+python3 steg_5_filter_islands.py        # [VALFRITT] Fylla öar
 python3 steg_6_generalize.py
 python3 steg_7_vectorize.py
 python3 steg_8_simplify.py
@@ -51,8 +51,8 @@ python3 steg_9_build_qgis_project.py
 - `steg_1_split_tiles.py` — Tileluppdelning (1024×1024 px)
 - `steg_2_extract_protected.py` — Extrahera skyddade klasser
 - `steg_3_extract_landscape.py` — Extrahera landskapsbild
-- `steg_4_fill_islands.py` — Ta bort små sjöar
-- `steg_5_filter_lakes.py` — Fylla små öar [VALFRITT]
+- `steg_4_filter_lakes.py` — Ta bort små sjöar
+- `steg_5_filter_islands.py` — Fylla små öar [VALFRITT]
 - `steg_6_generalize.py` — Generalisering (CONN4, CONN8, modal, semantic)
 - `steg_7_vectorize.py` — Vektorisering (CONN4, CONN8, MODAL)
 - `steg_8_simplify.py` — Mapshaper-förenkling (p90/p75/p50/p25/p15)

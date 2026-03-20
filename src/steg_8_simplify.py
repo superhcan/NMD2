@@ -114,31 +114,52 @@ def simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances=[90
     
     log.info(f"Input: {input_path}")
     log.info(f"Output: {output_path}")
-    
-    # Convert GeoPackage to GeoJSON for Mapshaper
+
+    # Konvertera GPKG till GeoJSON för Mapshaper.
+    # COORDINATE_PRECISION=0 ger heltal (data är SWEREF99TM på 10 m-rasterrutnät)
+    # vilket minskar filstorleken ~35% jämfört med precision=3.
     geojson_file = output_path / "temp_input.geojson"
-    log.info(f"Converting GeoPackage to GeoJSON...")
-    ogr_cmd = [
-        "ogr2ogr",
-        "-f", "GeoJSON",
-        str(geojson_file),
-        str(input_path)
-    ]
-    result = subprocess.run(ogr_cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        log.error(f"GeoJSON conversion failed: {result.stderr}")
-        sys.exit(1)
-    log.info(f"GeoJSON created: {geojson_file.stat().st_size / 1024 / 1024:.1f} MB")
-    
-    # Simplify with Mapshaper for each tolerance
+
+    if geojson_file.exists() and geojson_file.stat().st_size > 1024 * 1024 * 100:
+        # Återanvänd befintlig GeoJSON (t.ex. från avbruten körning)
+        log.info(f"Återanvänder befintlig GeoJSON: {geojson_file.stat().st_size / 1024 / 1024:.1f} MB")
+    else:
+        if geojson_file.exists():
+            geojson_file.unlink()
+        log.info(f"Konverterar GPKG → GeoJSON (heltalskoordinater) ...")
+        ogr_conv = [
+            "ogr2ogr", "-f", "GeoJSON",
+            "-lco", "COORDINATE_PRECISION=0",
+            str(geojson_file), str(input_path)
+        ]
+        result = subprocess.run(ogr_conv, capture_output=True, text=True)
+        if result.returncode != 0:
+            log.error(f"GeoJSON-konvertering misslyckades: {result.stderr}")
+            sys.exit(1)
+        log.info(f"GeoJSON klar: {geojson_file.stat().st_size / 1024 / 1024:.1f} MB")
+
     log.info(f"Simplifying {variant_name} with Mapshaper (topology-preserving):")
     log.info(f"(percentage = %% of removable vertices to retain)")
-    
+
+    env = os.environ.copy()
+
+    # Använd mapshaper-xl om installerat (optimerat för stora filer), annars mapshaper
+    # mapshaper-xl tar GB som första arg (default 8 GB) — måste anges explicit
+    import shutil as _shutil
+    if _shutil.which("mapshaper-xl"):
+        mapshaper_bin = "mapshaper-xl"
+        mapshaper_prefix = ["mapshaper-xl", "48"]  # 48 GB heap
+    else:
+        mapshaper_bin = "mapshaper"
+        mapshaper_prefix = ["mapshaper"]
+        env["NODE_OPTIONS"] = "--max-old-space-size=49152"
+    log.info(f"Mapshaper-binär: {mapshaper_bin} (heap: 48 GB)")
+
     for tolerance in tolerances:
         output_geojson = output_path / f"{variant_name}_simplified_p{tolerance}.geojson"
         output_gpkg = output_path / f"{variant_name}_simplified_p{tolerance}.gpkg"
-        
-        print(f"  p{tolerance}%: ", end="", flush=True)
+
+        log.info(f"  p{tolerance}%: Startar Mapshaper-förenkling...")
 
         if SIMPLIFY_PROTECTED:
             # Variabel förenkling i EN gemensam topologi:
@@ -148,66 +169,73 @@ def simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances=[90
             # topologibrytning längs klassgränser.
             js_array = "[" + ", ".join(str(c) for c in sorted(SIMPLIFY_PROTECTED)) + "]"
             each_expr = f"sp = {js_array}.includes(markslag) ? 1 : {tolerance / 100}"
-            result = subprocess.run([
-                "mapshaper", str(geojson_file),
+            cmd = mapshaper_prefix + [
+                str(geojson_file),
+                "-verbose",
                 "-each", each_expr,
                 "-simplify", "percentage=sp", "variable", "planar", "keep-shapes",
-                "-o", "format=geojson", str(output_geojson)
-            ], capture_output=True, text=True)
+                "-o", "format=geojson", "precision=0.001", str(output_geojson)
+            ]
         else:
-            result = subprocess.run([
-                "mapshaper", str(geojson_file),
+            cmd = mapshaper_prefix + [
+                str(geojson_file),
+                "-verbose",
                 "-simplify", f"percentage={tolerance}%", "planar", "keep-shapes",
-                "-o", "format=geojson", str(output_geojson)
-            ], capture_output=True, text=True)
+                "-o", "format=geojson", "precision=0.001", str(output_geojson)
+            ]
 
-        if result.returncode != 0:
-            print(f"❌ Failed")
-            log.error(f"Mapshaper: {result.stderr}")
+        # Popen med realtidsloggning så att Mapshaper-progress syns löpande
+        import re as _re
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, env=env, bufsize=1
+        )
+        for raw in proc.stdout:
+            for part in _re.split(r'[\r\n]+', raw):
+                if part.strip():
+                    log.info(f"  [mapshaper] {part}")
+        proc.wait()
+
+        if proc.returncode != 0:
+            log.error(f"  p{tolerance}%: ❌ Mapshaper misslyckades (returncode={proc.returncode})")
             continue
 
         if not output_geojson.exists():
-            print(f"❌ Output GeoJSON missing")
+            log.error(f"  p{tolerance}%: ❌ Output GeoJSON saknas")
             continue
 
         geojson_size = output_geojson.stat().st_size / 1024 / 1024
-        print(f"  GeoJSON: {geojson_size:.1f} MB", end="", flush=True)
-        
-        # Convert back to GeoPackage with correct CRS (EPSG:3006)
-        # The GeoJSON coordinates are already in EPSG:3006, so use -a_srs to assign the CRS
+        log.info(f"  p{tolerance}%: GeoJSON klar: {geojson_size:.1f} MB, konverterar till GPKG...")
+
         ogr_cmd = [
             "ogr2ogr",
             "-f", "GPKG",
-            "-a_srs", "EPSG:3006",      # Assign CRS without reprojection
+            "-a_srs", "EPSG:3006",
             str(output_gpkg),
             str(output_geojson)
         ]
         result = subprocess.run(ogr_cmd, capture_output=True, text=True)
-        
         if result.returncode != 0:
-            print(f" ❌ GeoPackage conversion failed")
-            print(f"     stderr: {result.stderr}")
-            print(f"     stdout: {result.stdout}")
+            log.error(f"  p{tolerance}%: ❌ GPKG-konvertering misslyckades: {result.stderr}")
             continue
-        
+
         gpkg_size = output_gpkg.stat().st_size / 1024 / 1024
-        print(f" → GeoPackage: {gpkg_size:.1f} MB ✓")
-        
-        # Clean up GeoJSON (only keep final GPKG)
+        log.info(f"  p{tolerance}%: ✓ {output_gpkg.name} ({gpkg_size:.1f} MB)")
+
         output_geojson.unlink()
-    
-    # Clean up temp GeoJSON
-    geojson_file.unlink()
-    
+
+    geojson_file.unlink(missing_ok=True)
     log.info(f"Simplification complete!")
     log.info(f"Output files in: {output_path}")
 
 if __name__ == "__main__":
+    import time as _time
+    _t0 = _time.time()
     # Setup logging with step-aware filename
     log = setup_logging(OUT_BASE)
     
-    vectorized_dir = OUT_BASE / "steg7_vectorized"
-    output_dir = OUT_BASE / "steg8_simplified"
+    vectorized_dir = OUT_BASE / "steg_7_vectorize"
+    output_dir = OUT_BASE / "steg_8_simplify"
     tolerances = SIMPLIFICATION_TOLERANCES  # From config
     
     log.info("══════════════════════════════════════════════════════════")
@@ -239,6 +267,8 @@ if __name__ == "__main__":
     else:
         log.error("❌ Vektoriserad katalog saknas: %s", vectorized_dir)
     
+    _elapsed = _time.time() - _t0
     log.info("\n══════════════════════════════════════════════════════════")
-    log.info(f"Steg 8 KLAR: Output i {output_dir}")
+    log.info(f"Steg 8 KLART: {_elapsed:.0f}s ({_elapsed/60:.1f} min)")
+    log.info(f"Output i {output_dir}")
     log.info("══════════════════════════════════════════════════════════")
