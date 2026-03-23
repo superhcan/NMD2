@@ -21,7 +21,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from config import OUT_BASE, GENERALIZATION_METHODS, MMU_STEPS, KERNEL_SIZES
+from config import OUT_BASE, GENERALIZATION_METHODS, MMU_STEPS, KERNEL_SIZES, MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS, MORPH_ONLY
 
 _LOG = None
 
@@ -79,13 +79,13 @@ def _setup_logging(out_base):
     return log
 
 PIPE = OUT_BASE
-OUT = PIPE / "steg7_vectorized"
+OUT = PIPE / "steg_7_vectorize"
 LN = "markslag"
 
 def vectorize_sieve(conn):
     log = logging.getLogger("pipeline.vectorize")
     method = f"conn{conn}"
-    in_dir = PIPE / f"steg6_generalized_{method}"
+    in_dir = PIPE / "steg_6_generalize" / method
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))
@@ -105,10 +105,18 @@ def vectorize_sieve(conn):
             gpkg.unlink()
         log.info("  %s mmu=%d px (%.2f ha): %d tiles", method, mmu, mmu_ha, len(mmu_tifs))
         
-        tif_str = " ".join(f'"{t}"' for t in mmu_tifs)
         vrt_tmp = f"/tmp/_vect_{method}_mmu{mmu_str}.vrt"
-        shell_cmd = f'gdalbuildvrt "{vrt_tmp}" {tif_str} > /dev/null 2>&1 && gdal_polygonize.py "{vrt_tmp}" -f GPKG "{gpkg}" DN {LN} > /dev/null 2>&1; rm -f "{vrt_tmp}"'
-        subprocess.run(shell_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        file_list_tmp = f"/tmp/_vect_{method}_mmu{mmu_str}.txt"
+        with open(file_list_tmp, "w") as fh:
+            fh.write("\n".join(str(t) for t in mmu_tifs))
+        conn_flag = "-8" if conn == 8 else ""
+        subprocess.run(["gdalbuildvrt", "-input_file_list", file_list_tmp, vrt_tmp], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        polygonize_cmd = ["gdal_polygonize.py", vrt_tmp]
+        if conn_flag:
+            polygonize_cmd.append(conn_flag)
+        polygonize_cmd += ["-f", "GPKG", str(gpkg), "DN", LN]
+        subprocess.run(polygonize_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import os as _os; _os.unlink(vrt_tmp) if _os.path.exists(vrt_tmp) else None; _os.unlink(file_list_tmp) if _os.path.exists(file_list_tmp) else None
         if gpkg.exists() and gpkg.stat().st_size > 1000:
             sz = gpkg.stat().st_size / 1e6
             log.info("    ✓ %s (%.1f MB)", gpkg.name, sz)
@@ -117,7 +125,7 @@ def vectorize_sieve(conn):
 
 def vectorize_modal():
     log = logging.getLogger("pipeline.vectorize")
-    in_dir = PIPE / "steg6_generalized_modal"
+    in_dir = PIPE / "steg_6_generalize" / "modal"
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))
@@ -137,10 +145,13 @@ def vectorize_modal():
             gpkg.unlink()
         log.info("  modal k=%d (eff. MMU ≈ %d px): %d tiles", k, eff_mmu, len(k_tifs))
         
-        tif_str = " ".join(f'"{t}"' for t in k_tifs)
         vrt_tmp = f"/tmp/_vect_modal_k{k_str}.vrt"
-        shell_cmd = f'gdalbuildvrt "{vrt_tmp}" {tif_str} > /dev/null 2>&1 && gdal_polygonize.py "{vrt_tmp}" -f GPKG "{gpkg}" DN {LN} > /dev/null 2>&1; rm -f "{vrt_tmp}"'
-        subprocess.run(shell_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        file_list_tmp = f"/tmp/_vect_modal_k{k_str}.txt"
+        with open(file_list_tmp, "w") as fh:
+            fh.write("\n".join(str(t) for t in k_tifs))
+        subprocess.run(["gdalbuildvrt", "-input_file_list", file_list_tmp, vrt_tmp], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["gdal_polygonize.py", vrt_tmp, "-f", "GPKG", str(gpkg), "DN", LN], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import os as _os; _os.unlink(vrt_tmp) if _os.path.exists(vrt_tmp) else None; _os.unlink(file_list_tmp) if _os.path.exists(file_list_tmp) else None
         if gpkg.exists() and gpkg.stat().st_size > 1000:
             sz = gpkg.stat().st_size / 1e6
             log.info("    ✓ %s (%.1f MB)", gpkg.name, sz)
@@ -149,7 +160,7 @@ def vectorize_modal():
 
 def vectorize_semantic():
     log = logging.getLogger("pipeline.vectorize")
-    in_dir = PIPE / "steg6_generalized_semantic"
+    in_dir = PIPE / "steg_6_generalize" / "semantic"
     if not in_dir.exists():
         return
     tifs = sorted(in_dir.glob("*.tif"))
@@ -169,15 +180,75 @@ def vectorize_semantic():
             gpkg.unlink()
         log.info("  semantic mmu=%d px (%.2f ha): %d tiles", mmu, mmu_ha, len(mmu_tifs))
         
-        tif_str = " ".join(f'"{t}"' for t in mmu_tifs)
         vrt_tmp = f"/tmp/_vect_semantic_mmu{mmu_str}.vrt"
-        shell_cmd = f'gdalbuildvrt "{vrt_tmp}" {tif_str} > /dev/null 2>&1 && gdal_polygonize.py "{vrt_tmp}" -f GPKG "{gpkg}" DN {LN} > /dev/null 2>&1; rm -f "{vrt_tmp}"'
-        subprocess.run(shell_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        file_list_tmp = f"/tmp/_vect_semantic_mmu{mmu_str}.txt"
+        with open(file_list_tmp, "w") as fh:
+            fh.write("\n".join(str(t) for t in mmu_tifs))
+        subprocess.run(["gdalbuildvrt", "-input_file_list", file_list_tmp, vrt_tmp], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["gdal_polygonize.py", vrt_tmp, "-f", "GPKG", str(gpkg), "DN", LN], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import os as _os; _os.unlink(vrt_tmp) if _os.path.exists(vrt_tmp) else None; _os.unlink(file_list_tmp) if _os.path.exists(file_list_tmp) else None
         if gpkg.exists() and gpkg.stat().st_size > 1000:
             sz = gpkg.stat().st_size / 1e6
             log.info("    ✓ %s (%.1f MB)", gpkg.name, sz)
         else:
             log.info("    ✗ failed")
+
+
+def vectorize_morph_dirs():
+    """Auto-detekterar alla *_morph_* undermappar i steg_6_generalize/ och
+    vektoriserar dem. GPKG-namn och lagernamn encodar morph-metod+radie.
+
+    Exempel:
+      steg_6_generalize/conn4_morph_disk_r02/  →
+        steg_7_vectorize/generalized_conn4_mmu050_morph_disk_r02.gpkg
+        lagernamn: markslag_morph_disk_r02
+    """
+    log = logging.getLogger("pipeline.vectorize")
+    gen6_dir = PIPE / "steg_6_generalize"
+    if not gen6_dir.exists():
+        return
+
+    morph_dirs = sorted(d for d in gen6_dir.iterdir()
+                        if d.is_dir() and "_morph_" in d.name)
+    if not morph_dirs:
+        return
+
+    for morph_dir in morph_dirs:
+        tifs = sorted(morph_dir.glob("*.tif"))
+        if not tifs:
+            continue
+
+        # Extrahera morph-suffixet (t.ex. "morph_disk_r02")
+        # Katalognamnet är t.ex. "conn4_morph_disk_r02"
+        morph_match = re.search(r'_(morph_[a-z0-9_]+)$', morph_dir.name)
+        morph_suffix = morph_match.group(1) if morph_match else morph_dir.name
+        layer_name = f"markslag_{morph_suffix}"
+
+        log.info("\nMorph: %s (%d tiles)", morph_dir.name, len(tifs))
+
+        gpkg = OUT / f"generalized_{morph_dir.name}.gpkg"
+        if gpkg.exists():
+            gpkg.unlink()
+
+        vrt_tmp = f"/tmp/_vect_{morph_dir.name}.vrt"
+        file_list_tmp = f"/tmp/_vect_{morph_dir.name}.txt"
+        with open(file_list_tmp, "w") as fh:
+            fh.write("\n".join(str(t) for t in tifs))
+        subprocess.run(["gdalbuildvrt", "-input_file_list", file_list_tmp, vrt_tmp],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["gdal_polygonize.py", vrt_tmp, "-f", "GPKG",
+                        str(gpkg), "DN", layer_name],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import os as _os
+        _os.unlink(vrt_tmp) if _os.path.exists(vrt_tmp) else None
+        _os.unlink(file_list_tmp) if _os.path.exists(file_list_tmp) else None
+
+        if gpkg.exists() and gpkg.stat().st_size > 1000:
+            sz = gpkg.stat().st_size / 1e6
+            log.info("    ✓ %s (%.1f MB)  lager: %s", gpkg.name, sz, layer_name)
+        else:
+            log.info("    ✗ misslyckades: %s", gpkg.name)
+
 
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
@@ -220,25 +291,31 @@ if __name__ == "__main__":
                 log.info("  Raderat inaktuell kernel-fil: %s", gpkg.name)
 
     # Vektorisera endast aktiverade metoder
-    if "conn4" in GENERALIZATION_METHODS:
-        log.info("\nCONN4")
-        vectorize_sieve(4)
-    
-    if "conn8" in GENERALIZATION_METHODS:
-        log.info("\nCONN8")
-        vectorize_sieve(8)
-    
-    if "modal" in GENERALIZATION_METHODS:
-        log.info("\nModal filter")
-        vectorize_modal()
-    
-    if "semantic" in GENERALIZATION_METHODS:
-        log.info("\nSemantisk generalisering")
-        # Denna funktion är bara en stub i nuläget - modal är prioriterad
-        log.warning("  ⚠ Semantic vektorisering ännu ej implementerad")
-    
+    if MORPH_ONLY and MORPH_SMOOTH_METHOD != "none":
+        log.info("MORPH_ONLY=True — hoppar över bas-vektorisering (conn4/conn8/modal/semantic)")
+    else:
+        if "conn4" in GENERALIZATION_METHODS:
+            log.info("\nCONN4")
+            vectorize_sieve(4)
+        
+        if "conn8" in GENERALIZATION_METHODS:
+            log.info("\nCONN8")
+            vectorize_sieve(8)
+        
+        if "modal" in GENERALIZATION_METHODS:
+            log.info("\nModal filter")
+            vectorize_modal()
+        
+        if "semantic" in GENERALIZATION_METHODS:
+            log.info("\nSemantisk generalisering")
+            # Denna funktion är bara en stub i nuläget - modal är prioriterad
+            log.warning("  ⚠ Semantic vektorisering ännu ej implementerad")
+
+    # Morfologiska undermappar — auto-detekterade
+    vectorize_morph_dirs()
+
     elapsed = time.time() - t0
     log.info("══════════════════════════════════════════════════════════")
-    log.info("Steg 7 KLAR: %.0fs (%.1f min)", elapsed, elapsed / 60)
+    log.info("Steg 7 KLART: %.0fs (%.1f min)", elapsed, elapsed / 60)
     log.info("GeoPackage-filer: %s", OUT)
     log.info("══════════════════════════════════════════════════════════")

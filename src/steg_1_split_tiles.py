@@ -1,114 +1,130 @@
 """
-steg_1_split_tiles.py — Steg 1: Tileluppdelning.
+steg_1_split_tiles.py — Steg 1: Klassomklassificering från steg 0 tiles.
 
-Delar original-raster (NMD2023bas_v2_0.tif) i 1024×1024 px tiles.
+Läser redan uppdelade tiles från steg0_verify_tiles/ och applicerar
+CLASS_REMAP för omklassificering från NMD-koder till slutklasser.
+
+Input:  steg0_verify_tiles/*.tif (original NMD-koder, uppdelade av steg 0)
+Output: steg1_tiles/*.tif (omklassificerade tiles)
 
 Namnkonvention: NMD2023bas_tile_r{rad:03d}_c{kol:03d}.tif
-Varje tile får en kopia av .qml-filen så att QGIS läser in paletten automatiskt.
+Varje tile får en kopia av .qml-filen så att QGIS hittar paletten automatiskt.
 
 Kör: python3 steg_1_split_tiles.py
 """
 
 import logging
+import os
 import shutil
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
+import numpy as np
 import rasterio
-from rasterio.windows import Window
 
-from config import SRC, QML_SRC, OUT_BASE, COMPRESS, PARENT_TILES
+from config import QML_SRC, OUT_BASE, COMPRESS, CLASS_REMAP
 
 log = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
 
+N_WORKERS = max(1, (os.cpu_count() or 1) - 2)
+
+# Bygg en uint16-LUT (65536 poster) för O(N) vektoriserad omklassificering.
+# lut[gammalkod] = nykod. Allt som inte finns i CLASS_REMAP förblir oförändrat.
+_LUT = np.arange(65536, dtype=np.uint16)
+for _old, _new in CLASS_REMAP.items():
+    _LUT[_old] = _new if _new is not None else 0
+
 # ──────────────────────────────────────────────────────────────────────────────
 
-TILE_SIZE = 1024  # pixlar per sida
+STEG0_DIR = OUT_BASE / "steg_0_verify_tiles"
+OUT_DIR   = OUT_BASE / "steg_1_split_tiles"
 
-# ──────────────────────────────────────────────────────────────────────────────
 
-OUT_DIR = OUT_BASE / "steg1_tiles"  # Output-mapp för steg 1 tiles
+def _remap_worker(args):
+    """Top-level worker för ProcessPoolExecutor."""
+    src_str, out_str = args
+    src = Path(src_str)
+    out = Path(out_str)
 
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+    if out.exists():
+        return out_str, 0.0
 
-if not QML_SRC.exists():
-    print(f"VARNING: Hittade inte {QML_SRC} – palett-filer kopieras inte.")
-    copy_qml = False
-else:
-    copy_qml = True
+    t0 = time.time()
+    with rasterio.open(src) as f:
+        meta = f.meta.copy()
+        data = f.read(1)
+    meta.update(compress=COMPRESS)
 
-t_start = time.time()
+    # Vektoriserad LUT-uppslag: en enda numpy-indexering istället för
+    # N separata np.where-anrop (ett per kod i CLASS_REMAP).
+    remapped = _LUT[data.astype(np.uint16)]
 
-with rasterio.open(SRC) as src:
-    meta = src.meta.copy()
-    width = src.width
-    height = src.height
+    with rasterio.open(out, "w", **meta) as f:
+        f.write(remapped, 1)
 
-    n_cols = (width  + TILE_SIZE - 1) // TILE_SIZE
-    n_rows = (height + TILE_SIZE - 1) // TILE_SIZE
-    total  = n_rows * n_cols
+    if QML_SRC.exists():
+        shutil.copy2(QML_SRC, out.with_suffix(".qml"))
 
-    # Filtrera om PARENT_TILES är satt
-    tile_set = set(PARENT_TILES) if PARENT_TILES else None
-    n_selected = len(tile_set) if tile_set else total
+    return out_str, time.time() - t0
 
-    print(f"Källbild : {width} × {height} px")
-    print(f"Tile-size: {TILE_SIZE} × {TILE_SIZE} px")
-    print(f"Tiles    : {n_cols} kolumner × {n_rows} rader = {total} st totalt")
-    if tile_set:
-        print(f"Filter   : PARENT_TILES aktivt → {n_selected} tiles ({n_selected/total*100:.1f}% av total)")
-    print(f"Utmapp   : {OUT_DIR}\n")
 
-    count = 0
-    for row in range(n_rows):
-        for col in range(n_cols):
-            if tile_set is not None and (row, col) not in tile_set:
-                continue
-            x_off = col * TILE_SIZE
-            y_off = row * TILE_SIZE
-            w     = min(TILE_SIZE, width  - x_off)
-            h     = min(TILE_SIZE, height - y_off)
+def process_tiles():
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-            window    = Window(x_off, y_off, w, h)
-            transform = src.window_transform(window)
+    if not STEG0_DIR.exists():
+        print(f"FEL: {STEG0_DIR} saknas — kör steg 0 först.")
+        sys.exit(1)
 
-            tile_name = f"NMD2023bas_tile_r{row:03d}_c{col:03d}.tif"
-            tile_path = OUT_DIR / tile_name
+    src_tiles = sorted(
+        p for p in STEG0_DIR.glob("*.tif")
+        if "_original_class" not in p.name
+    )
+    total = len(src_tiles)
 
-            tile_meta = meta.copy()
-            tile_meta.update(width=w, height=h, transform=transform,
-                             compress=COMPRESS)
+    if total == 0:
+        print(f"FEL: Inga tiles hittades i {STEG0_DIR} — kör steg 0 först.")
+        sys.exit(1)
 
-            with rasterio.open(tile_path, "w", **tile_meta) as dst:
-                dst.write(src.read(window=window))
+    print(f"Källmapp : {STEG0_DIR}")
+    print(f"Tiles    : {total} st")
+    print(f"Utmapp   : {OUT_DIR}")
+    print(f"Workers  : {N_WORKERS}\n")
 
-            # Kopiera QML så QGIS hittar paletten automatiskt
-            if copy_qml:
-                shutil.copy2(QML_SRC, tile_path.with_suffix(".qml"))
+    t_start = time.time()
+    task_args = [(str(t), str(OUT_DIR / t.name)) for t in src_tiles]
 
-            count += 1
-            if count % 50 == 0 or count == n_selected:
-                pct = count / n_selected * 100
-                print(f"  {count}/{n_selected} ({pct:.0f}%)", flush=True)
+    done = 0
+    with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
+        for _out_str, elapsed in executor.map(_remap_worker, task_args):
+            done += 1
+            if done % 50 == 0 or done == total:
+                pct = done / total * 100
+                print(f"  {done}/{total} ({pct:.0f}%)", flush=True)
 
-elapsed = time.time() - t_start
-print(f"\nKlart! ({elapsed:.1f}s)")
-print(f"Tiles sparade i: {OUT_DIR}")
+    total_elapsed = time.time() - t_start
+    print(f"\nKlart! ({total_elapsed:.1f}s)")
+    print(f"Tiles sparade i: {OUT_DIR}")
+    return total_elapsed
+
+
+# Anropas direkt av run_all_steps.py via subprocess
+elapsed = process_tiles()
 
 
 if __name__ == "__main__":
-    import os
     from logging_setup import setup_logging, log_step_header
     step_num = os.getenv("STEP_NUMBER")
     step_name = os.getenv("STEP_NAME")
     setup_logging(OUT_BASE, step_num, step_name)
     log  = logging.getLogger("pipeline.debug")
     info = logging.getLogger("pipeline.summary")
-    
+
     log_step_header(info, 1, "Tileluppdelning",
-                    str(SRC),
+                    str(STEG0_DIR),
                     str(OUT_DIR))
-    
-    info.info("Steg 1 klar: %d tiles skapade (%.1fs)", len(list(OUT_DIR.glob("*.tif"))), elapsed)
+
+    info.info("Steg 1 klart: %d tiles skapade  %.1f min (%.0fs)",
+              len(list(OUT_DIR.glob("*.tif"))), elapsed / 60, elapsed)

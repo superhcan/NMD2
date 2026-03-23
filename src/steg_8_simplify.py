@@ -19,275 +19,20 @@ Kräver: Mapshaper installerat och i PATH
 """
 
 import subprocess
-import shutil
 import os
 import logging
+import tempfile
+import shutil
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from datetime import datetime
 import sys
-from config import OUT_BASE, SIMPLIFICATION_TOLERANCES
-
-
-def _find_node_path():
-    """
-    Hittar NODE_PATH för 'require("mapshaper")' baserat på var mapshaper-binären finns.
-    Returnerar sträng (env-värde) eller None om mapshaper inte hittas.
-    """
-    mapshaper_bin = shutil.which("mapshaper")
-    if not mapshaper_bin:
-        return None
-    real = subprocess.run(["realpath", mapshaper_bin], capture_output=True, text=True).stdout.strip()
-    # real = …/lib/node_modules/mapshaper/bin/mapshaper  → parent×3 = node_modules
-    return str(Path(real).parent.parent.parent)
-
-
-def _find_node_bin():
-    """Returnerar sökväg till node-binären (följer nvm-symlänkar)."""
-    node_bin = shutil.which("node")
-    return node_bin or "node"
-
-
-NODE_PATH = _find_node_path()
-NODE_BIN = _find_node_bin()
-_JS_SCRIPT = Path(__file__).parent / "mapshaper_ndjson_simplify.js"
-
-# Features per batch: ~500K ≈ 340 MB ndjson ≈ 1.5 GB som Node.js-objekt.
-# Passar på 6.4 GB RAM-system med 3 GB Node-heap.
-FEATURES_PER_BATCH = 500_000
-NODE_HEAP_MB = 3000
-
-
-def _count_lines(path):
-    """Räknar antal rader i en fil (= antalet features i en ndjson-fil)."""
-    n = 0
-    with open(path, "rb") as f:
-        for _ in f:
-            n += 1
-    return n
-
-
-def _sort_ndjson_by_y(ndjson_file: Path, log) -> Path:
-    """
-    Sorterar ndjson-filen geografiskt (nord→syd) via två genomläsningar.
-
-    Problem utan sortering:
-      Feature-ordningen i ndjson följer FID-ordning (GDAL polygonize-scan),
-      vilket INTE är geografisk. Batch-gränserna skär tvärs igenom hela
-      datasetet, och polygoner som delar en kant men hamnar i olika batchar
-      förenklas oberoende → luckor syns överallt.
-
-    Med sortering:
-      Batch-gränserna blir approximativt horisontella E-W-linjer. Luckor
-      uppstår bara nära dessa linjer (4 stycken för 5 batchar), vilket ger
-      ett kontrollerbart och skalspecifikt fel.
-
-    Metod (tvåpasss, låg minnesanvändning ~150 MB overhead):
-      Pass 1: läs byte-offset + Y-centroid för varje feature
-      Sortera offsetlistan by Y descending
-      Pass 2: skriv features i sorterad ordning via seek
-    """
-    import json as _json
-
-    dst = Path(str(ndjson_file) + ".sorted")
-
-    # Pass 1: samla (y_centroid, byte_offset)
-    offsets = []  # list of (y: float, byte_offset: int)
-    with open(ndjson_file, "rb") as f:
-        offset = 0
-        for raw in f:
-            s = raw.strip()
-            if s:
-                try:
-                    g = _json.loads(s)["geometry"]
-                    coords = g["coordinates"]
-                    if g["type"] == "Polygon":
-                        ring = coords[0]
-                    elif g["type"] == "MultiPolygon":
-                        ring = coords[0][0]
-                    else:
-                        ring = [[0, 0]]
-                    y = sum(pt[1] for pt in ring) / len(ring)
-                except Exception:
-                    y = 0.0
-                offsets.append((y, offset))
-            offset += len(raw)
-
-    log.info("Sorterar %d features geografiskt (nord\u2192syd)...", len(offsets))
-    offsets.sort(key=lambda t: -t[0])  # Descending = nord f\u00f6rst
-
-    # Pass 2: skriv i sorterad ordning
-    with open(ndjson_file, "rb") as src, open(dst, "wb") as out:
-        for _, off in offsets:
-            src.seek(off)
-            line = src.readline()
-            out.write(line.rstrip(b"\r\n"))
-            out.write(b"\n")
-
-    return dst
-
-
-def _write_batch(src_path, batch_path, start, count):
-    """Skriver ut 'count' rader från rad 'start' i src_path till batch_path."""
-    with open(src_path, "rb") as src, open(batch_path, "wb") as dst:
-        for i, line in enumerate(src):
-            if i < start:
-                continue
-            if i >= start + count:
-                break
-            dst.write(line)
-
-
-def simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances=None, log=None):
-    """
-    Förenklar ett GeoPackage med Mapshaper via Node.js-API:t.
-
-    Flöde:
-      1. GPkg → GeoJSONSeq (ndjson, en feature/rad)                 [ogr2ogr]
-      2. Dela ndjson i batchar om FEATURES_PER_BATCH rader           [Python]
-      3. Per batch: ndjson → Node.js API → GeoJSON-buffer → GPkg temp   [Node.js]
-      4. Slå ihop alla batch-GPkg till en fil med korrekt lagernamn  [ogr2ogr]
-
-    Fördel: hela datasetet (oavsett storlek) passar i minnet batch-vis.
-    Topologin bevaras INOM varje batch (shared arcs).  Seam-artefakter vid
-    batch-gränser är sub-pixel vid typiska visningsskalor (1:50 000+).
-    """
-    if tolerances is None:
-        tolerances = [90, 75, 50, 25, 15]
-    if log is None:
-        log = logging.getLogger("pipeline.simplify")
-
-    if NODE_PATH is None:
-        log.error("mapshaper hittades inte i PATH — installera med: npm install -g mapshaper")
-        sys.exit(1)
-
-    input_path = Path(input_file)
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    if not input_path.exists():
-        log.error("Input-fil saknas: %s", input_file)
-        sys.exit(1)
-
-    file_size_mb = input_path.stat().st_size / 1e6
-    log.info("Input : %s (%.0f MB)", input_path, file_size_mb)
-    log.info("Output: %s", output_path)
-
-    # ── Steg 1: GPkg → GeoJSONSeq (ndjson) ────────────────────────────────
-    ndjson_file = Path(f"/tmp/_steg8_{variant_name}.geojsonl")
-    ndjson_file.unlink(missing_ok=True)
-    log.info("Konverterar GeoPackage → GeoJSONSeq (WGS84, ogr2ogr-standard)...")
-    r = subprocess.run(
-        ["ogr2ogr", "-f", "GeoJSONSeq",
-         # GeoJSONSeq reprojicerar alltid till WGS84. Koordinaterna är i grader.
-         # Mapshaper förenklar med planar (flat 2D), liten anisotropi vid 58°N —
-         # osynlig vid normal kartvisning (1:50 000+).
-         # Slutkonverteringen reprojicerar WGS84 → EPSG:3006.
-         str(ndjson_file), str(input_path)],
-        capture_output=True, text=True
-    )
-    if r.returncode != 0 or not ndjson_file.exists():
-        log.error("ogr2ogr GeoJSONSeq misslyckades: %s", r.stderr)
-        sys.exit(1)
-    ndjson_mb = ndjson_file.stat().st_size / 1e6
-    total_features = _count_lines(ndjson_file)
-    n_batches = max(1, (total_features + FEATURES_PER_BATCH - 1) // FEATURES_PER_BATCH)
-    log.info("GeoJSONSeq: %.0f MB, %d features → %d batch(ar) à %d",
-             ndjson_mb, total_features, n_batches, FEATURES_PER_BATCH)
-    # Sortera features geografiskt s\u00e5 att batch-gr\u00e4nser blir E-W-linjer
-    # ist\u00e4llet f\u00f6r slumpm\u00e4ssigt spridda \u00f6ver datasetet.
-    sorted_ndjson = _sort_ndjson_by_y(ndjson_file, log)
-    ndjson_file.unlink(missing_ok=True)
-    ndjson_file = sorted_ndjson
-    log.info("Geografisk sortering klar: %s", ndjson_file.name)
-    # ── Steg 2: Förenkla varje toleransnivå ───────────────────────────────
-    env = {**os.environ, "NODE_PATH": NODE_PATH}
-    log.info("Förenklar %s med Mapshaper Node.js-API (topologibevarand):", variant_name)
-    log.info("(percentage = %% kvarvarande borttagbara hörn)")
-
-    for tolerance in tolerances:
-        print(f"  p{tolerance}%: ", end="", flush=True)
-        output_gpkg = output_path / f"{variant_name}_simplified_p{tolerance}.gpkg"
-        output_gpkg.unlink(missing_ok=True)
-
-        batch_gpkgs = []
-        ok = True
-
-        for b in range(n_batches):
-            start = b * FEATURES_PER_BATCH
-            batch_ndjson = Path(f"/tmp/_steg8_{variant_name}_p{tolerance}_b{b:03d}.geojsonl")
-            batch_geojson = Path(f"/tmp/_steg8_{variant_name}_p{tolerance}_b{b:03d}.geojson")
-            batch_gpkg = Path(f"/tmp/_steg8_{variant_name}_p{tolerance}_b{b:03d}.gpkg")
-
-            _write_batch(ndjson_file, batch_ndjson, start, FEATURES_PER_BATCH)
-
-            # Node.js: ndjson → Mapshaper API → Buffer → fil
-            r = subprocess.run(
-                [NODE_BIN, f"--max-old-space-size={NODE_HEAP_MB}",
-                 str(_JS_SCRIPT),
-                 str(batch_ndjson), str(batch_geojson), str(tolerance)],
-                capture_output=True, text=True, env=env
-            )
-            batch_ndjson.unlink(missing_ok=True)
-
-            if r.returncode != 0 or not batch_geojson.exists():
-                print(f"\n    ❌ batch {b} misslyckades")
-                log.error("Node.js stderr batch %d: %s", b, r.stderr)
-                batch_geojson.unlink(missing_ok=True)
-                ok = False
-                break
-
-            # GeoJSON (WGS84) → GPkg (EPSG:3006): reprojicera från WGS84
-            r2 = subprocess.run(
-                ["ogr2ogr", "-f", "GPKG", "-t_srs", "EPSG:3006",
-                 str(batch_gpkg), str(batch_geojson)],
-                capture_output=True, text=True
-            )
-            batch_geojson.unlink(missing_ok=True)
-            if r2.returncode != 0 or not batch_gpkg.exists():
-                print(f"\n    ❌ batch {b} GPkg-konvertering misslyckades")
-                log.error("ogr2ogr batch %d: %s", b, r2.stderr)
-                ok = False
-                break
-            batch_gpkgs.append(batch_gpkg)
-            print(".", end="", flush=True)
-
-        if not ok or not batch_gpkgs:
-            for g in batch_gpkgs:
-                g.unlink(missing_ok=True)
-            print(" ❌")
-            continue
-
-        # ── Slå ihop batch-GPkg till en enda fil med rätt lagernamn ───────
-        # Första batch skapar filen, sedan -append med -nln för enhetligt lagernamn
-        r0 = subprocess.run(
-            ["ogr2ogr", "-f", "GPKG", "-a_srs", "EPSG:3006",
-             "-nln", variant_name,
-             str(output_gpkg), str(batch_gpkgs[0])],
-            capture_output=True, text=True
-        )
-        for g in batch_gpkgs[1:]:
-            subprocess.run(
-                ["ogr2ogr", "-f", "GPKG", "-update", "-append",
-                 "-nln", variant_name,
-                 str(output_gpkg), str(g)],
-                capture_output=True, text=True
-            )
-        for g in batch_gpkgs:
-            g.unlink(missing_ok=True)
-
-        if not output_gpkg.exists():
-            print(" ❌ sammanslagning misslyckades")
-            continue
-
-        gpkg_size_mb = output_gpkg.stat().st_size / 1e6
-        print(f" → {gpkg_size_mb:.0f} MB ✓")
-
-    # ── Städa upp ndjson-tempfilen ─────────────────────────────────────────
-    ndjson_file.unlink(missing_ok=True)
-
-    log.info("Förenkling klar!")
-    log.info("Utdata i: %s", output_path)
-
+from config import (
+    OUT_BASE, SIMPLIFICATION_TOLERANCES, SIMPLIFY_PROTECTED, SIMPLIFY_BACKEND,
+    GRASS_SIMPLIFY_THRESHOLD, GRASS_SIMPLIFY_METHOD,
+    GRASS_CHAIKEN_THRESHOLD, GRASS_DOUGLAS_THRESHOLD,
+    GRASS_VECTOR_MEMORY, GRASS_PARALLEL_GPKG,
+)
 
 def setup_logging(out_base):
     """Setup logging with step-aware filenames."""
@@ -342,23 +87,376 @@ def setup_logging(out_base):
     
     return log
 
+def simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances=[90, 75, 50, 25, 15], log=None):
+    """
+    Simplify GeoPackage using Mapshaper CLI with topology preservation.
+    
+    Args:
+        input_file: Path to input GeoPackage
+        output_dir: Directory for output files
+        variant_name: Name of variant (e.g. 'conn4_mmu008', 'conn8_mmu008', 'modal_k15')
+        tolerances: List of percentage values (% of removable vertices to retain)
+                   90% = minimal simplification, 15% = very aggressive
+        log: Logger instance
+    """
+    
+    if log is None:
+        log = logging.getLogger("pipeline.simplify")
+    """
+    Simplify GeoPackage using Mapshaper CLI with topology preservation.
+    
+    Args:
+        input_file: Path to input GeoPackage
+        output_dir: Directory for output files
+        tolerances: List of percentage values (% of removable vertices to retain)
+                   90% = minimal simplification, 25% = aggressive simplification
+    """
+    
+    input_path = Path(input_file)
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    if not input_path.exists():
+        log.error(f"Input file not found: {input_file}")
+        sys.exit(1)
+    
+    log.info(f"Input: {input_path}")
+    log.info(f"Output: {output_path}")
+
+    # Konvertera GPKG till GeoJSON för Mapshaper.
+    # COORDINATE_PRECISION=0 ger heltal (data är SWEREF99TM på 10 m-rasterrutnät)
+    # vilket minskar filstorleken ~35% jämfört med precision=3.
+    geojson_file = output_path / "temp_input.geojson"
+
+    if geojson_file.exists() and geojson_file.stat().st_size > 1024 * 1024 * 100:
+        # Återanvänd befintlig GeoJSON (t.ex. från avbruten körning)
+        log.info(f"Återanvänder befintlig GeoJSON: {geojson_file.stat().st_size / 1024 / 1024:.1f} MB")
+    else:
+        if geojson_file.exists():
+            geojson_file.unlink()
+        log.info(f"Konverterar GPKG → GeoJSON (heltalskoordinater) ...")
+        ogr_conv = [
+            "ogr2ogr", "-f", "GeoJSON",
+            "-lco", "COORDINATE_PRECISION=0",
+            str(geojson_file), str(input_path)
+        ]
+        result = subprocess.run(ogr_conv, capture_output=True, text=True)
+        if result.returncode != 0:
+            log.error(f"GeoJSON-konvertering misslyckades: {result.stderr}")
+            sys.exit(1)
+        log.info(f"GeoJSON klar: {geojson_file.stat().st_size / 1024 / 1024:.1f} MB")
+
+    log.info(f"Simplifying {variant_name} with Mapshaper (topology-preserving):")
+    log.info(f"(percentage = %% of removable vertices to retain)")
+
+    env = os.environ.copy()
+
+    # Använd mapshaper-xl om installerat (optimerat för stora filer), annars mapshaper
+    # mapshaper-xl tar GB som första arg (default 8 GB) — måste anges explicit
+    import shutil as _shutil
+    if _shutil.which("mapshaper-xl"):
+        mapshaper_bin = "mapshaper-xl"
+        mapshaper_prefix = ["mapshaper-xl", "48"]  # 48 GB heap
+    else:
+        mapshaper_bin = "mapshaper"
+        mapshaper_prefix = ["mapshaper"]
+        env["NODE_OPTIONS"] = "--max-old-space-size=49152"
+    log.info(f"Mapshaper-binär: {mapshaper_bin} (heap: 48 GB)")
+
+    for tolerance in tolerances:
+        output_geojson = output_path / f"{variant_name}_simplified_p{tolerance}.geojson"
+        output_gpkg = output_path / f"{variant_name}_simplified_p{tolerance}.gpkg"
+
+        log.info(f"  p{tolerance}%: Startar Mapshaper-förenkling...")
+
+        if SIMPLIFY_PROTECTED:
+            # Variabel förenkling i EN gemensam topologi:
+            # SIMPLIFY_PROTECTED-klasser får sp=1.0 (noll förenkling), landskap får sp=tolerance/100.
+            # Mapshaper väljer automatiskt max(sp) för delade arcs → skyddade
+            # klassgränser förenklas aldrig, även från landskapssidan. Ingen
+            # topologibrytning längs klassgränser.
+            js_array = "[" + ", ".join(str(c) for c in sorted(SIMPLIFY_PROTECTED)) + "]"
+            each_expr = f"sp = {js_array}.includes(markslag) ? 1 : {tolerance / 100}"
+            cmd = mapshaper_prefix + [
+                str(geojson_file),
+                "-verbose",
+                "-each", each_expr,
+                "-simplify", "percentage=sp", "variable", "planar", "keep-shapes",
+                "-o", "format=geojson", "precision=0.001", str(output_geojson)
+            ]
+        else:
+            cmd = mapshaper_prefix + [
+                str(geojson_file),
+                "-verbose",
+                "-simplify", f"percentage={tolerance}%", "planar", "keep-shapes",
+                "-o", "format=geojson", "precision=0.001", str(output_geojson)
+            ]
+
+        # Popen med realtidsloggning så att Mapshaper-progress syns löpande
+        import re as _re
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, env=env, bufsize=1
+        )
+        for raw in proc.stdout:
+            for part in _re.split(r'[\r\n]+', raw):
+                if part.strip():
+                    log.info(f"  [mapshaper] {part}")
+        proc.wait()
+
+        if proc.returncode != 0:
+            log.error(f"  p{tolerance}%: ❌ Mapshaper misslyckades (returncode={proc.returncode})")
+            continue
+
+        if not output_geojson.exists():
+            log.error(f"  p{tolerance}%: ❌ Output GeoJSON saknas")
+            continue
+
+        geojson_size = output_geojson.stat().st_size / 1024 / 1024
+        log.info(f"  p{tolerance}%: GeoJSON klar: {geojson_size:.1f} MB, konverterar till GPKG...")
+
+        ogr_cmd = [
+            "ogr2ogr",
+            "-f", "GPKG",
+            "-a_srs", "EPSG:3006",
+            str(output_gpkg),
+            str(output_geojson)
+        ]
+        result = subprocess.run(ogr_cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            log.error(f"  p{tolerance}%: ❌ GPKG-konvertering misslyckades: {result.stderr}")
+            continue
+
+        gpkg_size = output_gpkg.stat().st_size / 1024 / 1024
+        log.info(f"  p{tolerance}%: ✓ {output_gpkg.name} ({gpkg_size:.1f} MB)")
+
+        output_geojson.unlink()
+
+    geojson_file.unlink(missing_ok=True)
+    log.info(f"Simplification complete!")
+    log.info(f"Output files in: {output_path}")
+
+
+def simplify_with_grass(
+    input_file, output_dir, variant_name,
+    method=None, chaiken_threshold=None, douglas_threshold=None, log=None
+):
+    """
+    Förenkla GeoPackage med GRASS v.generalize.
+
+    GRASS håller ett internt topologinät — angränsande polygoner delar exakt
+    samma förenklade kanter → inga luckor eller överlapp längs sömmar.
+    Diskbaserad bearbetning: ingen Node.js string-gräns.
+
+    Args:
+        input_file:         Path till käll-GPKG (från steg 7)
+        output_dir:         Katalog för output-filer
+        variant_name:       t.ex. 'conn4_mmu050'
+        method:             "douglas", "chaiken" eller "douglas+chaiken"
+                            Default: GRASS_SIMPLIFY_METHOD från config
+        chaiken_threshold:  Meter — min avstånd mellan punkter i Chaikin-output
+                            Default: GRASS_CHAIKEN_THRESHOLD från config
+        douglas_threshold:  Meter — Douglas-tolerans för förpass eller douglas-only
+                            Default: GRASS_DOUGLAS_THRESHOLD från config
+        log:                Logger
+    """
+    if log is None:
+        log = logging.getLogger("pipeline.simplify")
+
+    # Fyll i defaults från config om inget angetts
+    if method is None:
+        method = GRASS_SIMPLIFY_METHOD
+    if chaiken_threshold is None:
+        chaiken_threshold = GRASS_CHAIKEN_THRESHOLD
+    if douglas_threshold is None:
+        douglas_threshold = GRASS_DOUGLAS_THRESHOLD
+
+    input_path = Path(input_file)
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    if not input_path.exists():
+        log.error(f"Input-fil saknas: {input_file}")
+        sys.exit(1)
+
+    log.info(f"GRASS v.generalize: {input_path.name}")
+    log.info(f"  Metod           : {method}")
+    if method in ("chaiken", "douglas+chaiken"):
+        log.info(f"  Chaikin tröskel : {chaiken_threshold:.1f} m")
+    if method in ("douglas", "douglas+chaiken"):
+        log.info(f"  Douglas tröskel : {douglas_threshold:.1f} m")
+    log.info(f"  Output          : {output_path}")
+
+    # Detektera exakt lagernamn i GPKG (kan skilja sig från filnamnet, t.ex. "DN")
+    r = subprocess.run(
+        ["ogrinfo", "-q", str(input_path)],
+        capture_output=True, text=True
+    )
+    layer_name = None
+    for line in r.stdout.splitlines():
+        parts = line.strip().split(":", 1)
+        if len(parts) == 2 and parts[0].strip().isdigit():
+            layer_name = parts[1].strip().split(" ")[0]
+            break
+    if not layer_name:
+        log.error(f"Kunde inte detektera lagernamn i {input_path.name}: {r.stdout}")
+        return
+    log.info(f"  Lagernamn i GPKG: '{layer_name}'")
+
+    def _run_grass(grass_script_text, output_gpkg, label):
+        """Hjälpfunktion: skriv skript, kör GRASS, logga resultat."""
+        # Föredra /dev/shm (RAM-disk) för GRASS tempfiler om tillräckligt ledigt
+        tmpbase = None
+        shm = Path("/dev/shm")
+        if shm.exists():
+            try:
+                free_shm = shutil.disk_usage(str(shm)).free
+                if free_shm > 10 * 2**30:  # >10 GB ledigt i /dev/shm
+                    tmpbase = str(shm)
+            except OSError:
+                pass
+        grass_tmp = Path(tempfile.mkdtemp(prefix="grass_nmd_", dir=tmpbase))
+        script_path = grass_tmp / "run_grass.py"
+        script_path.write_text(grass_script_text)
+        try:
+            cmd = [
+                "grass", "--tmp-project", "EPSG:3006",
+                "--exec", "python3", str(script_path)
+            ]
+            # Sätt GRASS_VECTOR_MEMORY så topologinätet hålls i RAM
+            grass_env = {**os.environ, "GRASS_VECTOR_MEMORY": str(GRASS_VECTOR_MEMORY)}
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1, env=grass_env
+            )
+            for line in proc.stdout:
+                line = line.strip()
+                if line:
+                    log.info(f"  [grass] {line}")
+            proc.wait()
+
+            if proc.returncode != 0:
+                log.error(f"  {label}: ❌ GRASS misslyckades (rc={proc.returncode})")
+                return False
+
+            if output_gpkg.exists():
+                gpkg_size = output_gpkg.stat().st_size / 1024 / 1024
+                log.info(f"  {label}: ✓ {output_gpkg.name} ({gpkg_size:.1f} MB)")
+                return True
+            else:
+                log.error(f"  {label}: ❌ Output GPKG saknas")
+                return False
+        finally:
+            shutil.rmtree(grass_tmp, ignore_errors=True)
+
+    grass_script_header = """\
+#!/usr/bin/env python3
+import subprocess, sys
+
+def run(cmd):
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.stdout.strip():
+        print(r.stdout.strip())
+    if r.stderr.strip():
+        print(r.stderr.strip(), file=sys.stderr)
+    if r.returncode != 0:
+        sys.exit(r.returncode)
+"""
+
+    if method == "douglas":
+        dp = int(round(douglas_threshold))
+        output_gpkg = output_path / f"{variant_name}_dp{dp}.gpkg"
+        label = f"douglas {douglas_threshold:.1f} m"
+        log.info(f"  {label}: Startar GRASS...")
+
+        script = grass_script_header + f"""
+run(["v.in.ogr", "input={input_path}", "layer={layer_name}",
+     "output={layer_name}", "--overwrite", "--quiet"])
+run(["v.generalize", "input={layer_name}", "output=simplified",
+     "method=douglas", "threshold={douglas_threshold:.2f}", "--overwrite", "--quiet"])
+run(["v.out.ogr", "input=simplified", "output={output_gpkg}",
+     "format=GPKG", "--overwrite", "--quiet"])
+print("OK")
+"""
+        _run_grass(script, output_gpkg, label)
+
+    elif method == "chaiken":
+        # Enkelt pass — ett utfilnamn, ingen tolerance-loop
+        t = int(round(chaiken_threshold))
+        output_gpkg = output_path / f"{variant_name}_chaiken_t{t}.gpkg"
+        label = f"chaiken (threshold={chaiken_threshold:.1f} m)"
+        log.info(f"  {label}: Startar GRASS...")
+
+        script = grass_script_header + f"""
+run(["v.in.ogr", "input={input_path}", "layer={layer_name}",
+     "output={layer_name}", "--overwrite", "--quiet"])
+run(["v.generalize", "input={layer_name}", "output=simplified",
+     "method=chaiken", "threshold={chaiken_threshold:.2f}", "--overwrite", "--quiet"])
+run(["v.out.ogr", "input=simplified", "output={output_gpkg}",
+     "format=GPKG", "--overwrite", "--quiet"])
+print("OK")
+"""
+        _run_grass(script, output_gpkg, label)
+
+    elif method == "douglas+chaiken":
+        # Två pass i samma GRASS-session: Douglas städar bort kolineära punkter,
+        # Chaikin rundar sedan hörnen.
+        dp = int(round(douglas_threshold))
+        ch = int(round(chaiken_threshold))
+        output_gpkg = output_path / f"{variant_name}_dp{dp}_chaiken_t{ch}.gpkg"
+        label = f"douglas({douglas_threshold:.1f} m) + chaiken({chaiken_threshold:.1f} m)"
+        log.info(f"  {label}: Startar GRASS...")
+
+        script = grass_script_header + f"""
+run(["v.in.ogr", "input={input_path}", "layer={layer_name}",
+     "output={layer_name}", "--overwrite", "--quiet"])
+run(["v.generalize", "input={layer_name}", "output=after_douglas",
+     "method=douglas", "threshold={douglas_threshold:.2f}", "--overwrite", "--quiet"])
+run(["v.generalize", "input=after_douglas", "output=simplified",
+     "method=chaiken", "threshold={chaiken_threshold:.2f}", "--overwrite", "--quiet"])
+run(["v.out.ogr", "input=simplified", "output={output_gpkg}",
+     "format=GPKG", "--overwrite", "--quiet"])
+print("OK")
+"""
+        _run_grass(script, output_gpkg, label)
+
+    else:
+        log.error(f"Okänd GRASS_SIMPLIFY_METHOD: '{method}'. Välj 'douglas', 'chaiken' eller 'douglas+chaiken'.")
+        return
+
+    log.info(f"GRASS-förenkling klar! Output i: {output_path}")
+
 
 if __name__ == "__main__":
-    # Setup logging with step-aware filename
+    import time as _time
+    _t0 = _time.time()
     log = setup_logging(OUT_BASE)
-    
-    vectorized_dir = OUT_BASE / "steg7_vectorized"
-    output_dir = OUT_BASE / "steg8_simplified"
-    tolerances = SIMPLIFICATION_TOLERANCES  # From config
-    
+
+    vectorized_dir = OUT_BASE / "steg_7_vectorize"
+    output_dir = OUT_BASE / "steg_8_simplify"
+    tolerances = SIMPLIFICATION_TOLERANCES
+
+    # Välj backend
+    backend = SIMPLIFY_BACKEND.lower()
     log.info("══════════════════════════════════════════════════════════")
-    log.info("Steg 8: Mapshaper-förenkling av vektoriserade data")
+    log.info("Steg 8: Vektorförenkling (backend: %s)", backend.upper())
     log.info("Källmapp : %s", vectorized_dir)
     log.info("Utmapp   : %s", output_dir)
+    if backend in ("grass", "auto"):
+        log.info("── GRASS-konfiguration ───────────────────────────────")
+        log.info("  Metod              : %s", GRASS_SIMPLIFY_METHOD)
+        if GRASS_SIMPLIFY_METHOD in ("chaiken", "douglas+chaiken"):
+            log.info("  Chaikin tröskel    : %.1f m", GRASS_CHAIKEN_THRESHOLD)
+        if GRASS_SIMPLIFY_METHOD in ("douglas", "douglas+chaiken"):
+            log.info("  Douglas tröskel    : %.1f m", GRASS_DOUGLAS_THRESHOLD)
+    if backend in ("mapshaper", "auto"):
+        log.info("── Mapshaper-konfiguration ───────────────────────────")
+        log.info("  Tolerance-nivåer   : %s %%", SIMPLIFICATION_TOLERANCES)
+        if SIMPLIFY_PROTECTED:
+            log.info("  Skyddade klasser   : %s (förenklas ej)", sorted(SIMPLIFY_PROTECTED))
     log.info("══════════════════════════════════════════════════════════")
 
     # Rensa inaktuella gpkg-filer (metoder som tagits bort från config)
-    import shutil
     from config import GENERALIZATION_METHODS
     all_methods = {"conn4", "conn8", "modal", "semantic"}
     if output_dir.exists():
@@ -367,19 +465,49 @@ if __name__ == "__main__":
                 stale.unlink()
                 log.info("  Raderat inaktuell fil: %s", stale.name)
 
-    # Dynamiskt hämta alla GeoPackage-filer från steg 7 (skapade av de aktiva metoderna)
+    # Hämta alla GeoPackage-filer från steg 7
     if vectorized_dir.exists():
         gpkg_files = sorted(vectorized_dir.glob("generalized_*.gpkg"))
         if not gpkg_files:
             log.warning("Inga GeoPackage-filer hittades i %s", vectorized_dir)
         else:
-            for input_file in gpkg_files:
+            def _process_gpkg(input_file):
                 variant_name = input_file.stem.replace("generalized_", "")
                 log.info(f"\n➤ {variant_name.upper()}")
-                simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances, log)
+
+                # auto: välj grass om filen är stor
+                use_grass = False
+                if backend == "grass":
+                    use_grass = True
+                elif backend == "auto":
+                    size_mb = input_file.stat().st_size / 1024 / 1024
+                    use_grass = size_mb > 800  # GeoJSON blir ~2.5x → ~2 GB = riskzon
+                    log.info(f"  AUTO: {size_mb:.0f} MB GPKG → {'grass' if use_grass else 'mapshaper'}")
+
+                if use_grass:
+                    simplify_with_grass(
+                        input_file, output_dir, variant_name,
+                        method=GRASS_SIMPLIFY_METHOD,
+                        chaiken_threshold=GRASS_CHAIKEN_THRESHOLD,
+                        douglas_threshold=GRASS_DOUGLAS_THRESHOLD,
+                        log=log,
+                    )
+                else:
+                    simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances, log)
+
+            n_workers = min(len(gpkg_files), GRASS_PARALLEL_GPKG)
+            if n_workers > 1:
+                log.info(f"Kör {len(gpkg_files)} GPKG:er parallellt (max {n_workers} jobb)")
+                with ThreadPoolExecutor(max_workers=n_workers) as ex:
+                    list(ex.map(_process_gpkg, gpkg_files))
+            else:
+                for input_file in gpkg_files:
+                    _process_gpkg(input_file)
     else:
         log.error("❌ Vektoriserad katalog saknas: %s", vectorized_dir)
-    
+
+    _elapsed = _time.time() - _t0
     log.info("\n══════════════════════════════════════════════════════════")
-    log.info(f"Steg 8 KLAR: Output i {output_dir}")
+    log.info(f"Steg 8 KLART: {_elapsed:.0f}s ({_elapsed/60:.1f} min)")
+    log.info(f"Output i {output_dir}")
     log.info("══════════════════════════════════════════════════════════")

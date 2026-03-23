@@ -61,7 +61,7 @@ print(f"✓ Kopiera testbrickor KLART")
 steps = [
     ("steg_2_extract_protected", "Steg 2: Extrahera skyddade klasser"),
     ("steg_3_extract_landscape", "Steg 3: Extrahera landskapsbild"),
-    ("steg_4_fill_islands", "Steg 4: Fylla små öar och sjöar"),
+    ("steg_4_filter_lakes", "Steg 4: Ta bort små sjöar"),
     ("steg_5_generalize", "Steg 5: Generalisera"),
     ("steg_6_vectorize", "Steg 6: Vektorisera"),
 ]

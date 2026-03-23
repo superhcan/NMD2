@@ -17,8 +17,8 @@ Följande steg är nu **helt separerade** och kan köras oberoende:
 | 1 | `steg_1_split_tiles.py` | ✅ Separat | original TIF → 1024×1024 tiles |
 | 2 | `steg_2_extract_protected.py` | ✅ Separat | tiles/ → protected/ (vägar, byggnader, vatten) |
 | 3 | `steg_3_extract_landscape.py` | ✅ Separat | tiles/ → landscape/ (ersätter vägar/byggnader) |
-| 4 | `steg_4_fill_islands.py` | ✅ Separat | landscape/ → filled/ (tar bort små sjöar < 1 ha) |
-| 5 | `steg_5_filter_lakes.py` | ✅ Separat (valfritt) | filled/ → islands_filled/ (fyller öar omringade av vatten) |
+| 4 | `steg_4_filter_lakes.py` | ✅ Separat | landscape/ → filled/ (tar bort små sjöar < 1 ha) |
+| 5 | `steg_5_filter_islands.py` | ✅ Separat (valfritt) | filled/ → islands_filled/ (fyller öar omringade av vatten) |
 | 6 | `steg_6_generalize.py` | ✅ Separat | filled/ → generalized/ (CONN4/CONN8/modal/semantic + halo) |
 | 7 | `steg_7_vectorize.py` | ✅ Separat | generalized/ → vectorized/ (raster → GeoPackage: CONN4, CONN8, MODAL) |
 | 8 | `steg_8_simplify.py` | ✅ Separat | vectorized/ → simplified/ (Mapshaper: p90/p75/p50/p25/p15) |

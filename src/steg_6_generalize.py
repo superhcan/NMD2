@@ -1,5 +1,5 @@
 """
-steg_6_generalize.py — Steg 6: Landskapsgeneralisering med halo-teknik.
+steg_6_generalize.py — Steg 6: Generalisering med halo-teknik.
 
 Som pipeline_1024_halo.py men nu som separat steg. Använder halo/överlapp vid generalisering
 för att säkerställa att ytor som korsar tilekanter generaliseras korrekt.
@@ -19,11 +19,13 @@ Kräver: rasterio, numpy, scipy (i venv) + gdal_sieve.py + gdalbuildvrt (system)
 """
 
 import logging
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -33,7 +35,7 @@ from rasterio.windows import Window
 from scipy import ndimage
 from scipy.ndimage import uniform_filter
 
-from config import OUT_BASE, SRC, QML_SRC, PARENT_TILES, PARENT_TILE_SIZE, SUB_TILE_SIZE, PROTECTED, WATER_CLASSES, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS
+from config import OUT_BASE, SRC, QML_SRC, GENERALIZE_PROTECTED as PROTECTED, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS, MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Logging – två loggers + console
@@ -180,35 +182,6 @@ def read_with_halo(vrt_path: Path, tile_path: Path):
     return data, tile_meta, inner_slice
 
 
-# ── Steg 2: Öfyllnad ──────────────────────────────────────────────────────────
-
-def fill_small_islands(data: np.ndarray, water_classes: set, mmu: int):
-    data   = data.copy()
-    water  = np.isin(data, list(water_classes))
-    land   = ~water
-    labeled, n_comp = ndimage.label(land, structure=STRUCT_4)
-    log.debug("fill_small_islands: %d landkomponenter hittade", n_comp)
-    filled = 0
-    skipped_land = 0
-    for i in range(1, n_comp + 1):
-        comp = labeled == i
-        if comp.sum() >= mmu:
-            continue
-        dilated   = ndimage.binary_dilation(comp, structure=STRUCT_4)
-        neighbors = data[dilated & ~comp]
-        if not np.all(np.isin(neighbors, list(water_classes))):
-            skipped_land += 1
-            continue
-        vals, counts = np.unique(neighbors, return_counts=True)
-        fill_val     = int(vals[counts.argmax()])
-        log.debug("  Ö %d: %d px → ersatt med klass %d", i, int(comp.sum()), fill_val)
-        data[comp]   = fill_val
-        filled      += 1
-    log.debug("fill_small_islands klar: %d öar fyllda, %d delvis omringade hoppades",
-              filled, skipped_land)
-    return data, filled
-
-
 # ── Steg 3a/b: gdal_sieve ─────────────────────────────────────────────────────
 
 def run_sieve(data: np.ndarray, mmu: int, conn: int) -> np.ndarray:
@@ -277,6 +250,154 @@ def modal_filter_once(data: np.ndarray, kernel: int) -> np.ndarray:
     log.debug("modal_filter_once klar: %d px ändrade (%.1f%%)",
               changed, changed / data.size * 100)
     return result
+
+
+# ── Steg 3e: Morfologisk utjämning ───────────────────────────────────────────
+
+def morph_label() -> str:
+    """Returnerar katalog-/lagernamnssuffix för aktiv morph-konfiguration.
+    Ex: 'morph_disk_r02', 'morph_close_r02', eller '' om metod='none'.
+    """
+    if MORPH_SMOOTH_METHOD == "none":
+        return ""
+    _short = {"disk_modal": "disk", "closing": "close"}
+    m = _short.get(MORPH_SMOOTH_METHOD, MORPH_SMOOTH_METHOD)
+    return f"morph_{m}_r{MORPH_SMOOTH_RADIUS:02d}"
+
+
+def _create_disk_footprint(radius: int) -> np.ndarray:
+    """Skapar ett cirkulärt bool-strukturelement med angiven radie."""
+    r = radius
+    y, x = np.ogrid[-r:r + 1, -r:r + 1]
+    return (x ** 2 + y ** 2 <= r ** 2)
+
+
+def apply_morph_smooth(data: np.ndarray) -> np.ndarray:
+    """Applicerar morfologisk utjämning på ett klassificerat raster.
+
+    Metod styrs av MORPH_SMOOTH_METHOD och MORPH_SMOOTH_RADIUS (config).
+
+    disk_modal:
+        Disk-formad majority-filter. Varje pixel tilldelas den klass som
+        dominerar inom en cirkelformad grannskapsradie. Snabb (konvolution
+        per klass), naturligt rundar pixeltrappor.
+
+    closing:
+        Binär morphologisk closing per klass (sorterat stigande area →
+        den störste klass vinner vid konflikter). Fyller konkava notchar
+        längs klassgränser utan att ta bort konvexa utskjutningar.
+    """
+    method = MORPH_SMOOTH_METHOD
+    radius = MORPH_SMOOTH_RADIUS
+    log.debug("apply_morph_smooth: method=%s radius=%d  data=%s", method, radius, data.shape)
+    prot_mask = np.isin(data, list(PROTECTED))
+
+    if method == "disk_modal":
+        from scipy.ndimage import convolve
+        footprint = _create_disk_footprint(radius).astype(np.float32)
+        vote_data = data.copy()
+        vote_data[prot_mask] = 0
+        classes = [int(c) for c in np.unique(vote_data) if c > 0]
+        best_count = np.full(data.shape, -1.0, dtype=np.float32)
+        best_class = np.zeros(data.shape, dtype=np.int32)
+        for cls in classes:
+            mask = (vote_data == cls).astype(np.float32)
+            count = convolve(mask, footprint, mode="nearest")
+            # Liten bonus för befintlig klass → undviker onödig ändring
+            count = count + mask * 1e-4
+            upd = count > best_count
+            best_count = np.where(upd, count, best_count)
+            best_class = np.where(upd, cls, best_class)
+        result = best_class.astype(data.dtype)
+        result[prot_mask] = data[prot_mask]
+        result[data == 0] = 0
+
+    elif method == "closing":
+        from scipy.ndimage import binary_closing
+        footprint = _create_disk_footprint(radius)
+        result = data.copy()
+        # Sortera stigande på area → stor klass skrivs sist och vinner konflikter
+        classes = sorted(
+            [int(c) for c in np.unique(data) if c > 0 and c not in PROTECTED],
+            key=lambda c: int(np.sum(data == c))
+        )
+        for cls in classes:
+            mask = (data == cls)
+            closed = binary_closing(mask, structure=footprint)
+            # Nyupptagna pixlar: closing expanderade hit men originalet hade inte cls
+            new_px = closed & ~mask & ~prot_mask
+            result[new_px] = cls
+        result[prot_mask] = data[prot_mask]
+        result[data == 0] = 0
+
+    else:
+        return data.copy()
+
+    changed = int(np.sum(result != data))
+    log.debug("apply_morph_smooth klar: %d px ändrade (%.2f%%)", changed, changed / data.size * 100)
+    return result
+
+
+def _morph_tile_worker(args):
+    """Worker för ProcessPoolExecutor: kör morfologisk utjämning på en tile."""
+    prev_vrt, tile, out_path = Path(args[0]), Path(args[1]), Path(args[2])
+    if out_path.exists():
+        return str(out_path), 0
+    padded, tile_meta, inner = read_with_halo(prev_vrt, tile)
+    tile_meta.update(compress=COMPRESS)
+    with rasterio.open(tile) as _src:
+        orig = _src.read(1)
+    result = apply_morph_smooth(padded)[inner]
+    changed = int(np.sum(result != orig))
+    with rasterio.open(out_path, "w", **tile_meta) as dst:
+        dst.write(result, 1)
+    copy_qml(out_path)
+    return str(out_path), changed
+
+
+def step5_morph_halo(base_method_dir: str, tile_paths: list):
+    """Applicerar morfologisk utjämning på output från en generaliserings-
+    metod (t.ex. 'conn4' eller 'modal'). Output sparas i
+    steg_6_generalize/{base_method_dir}_{morph_label()}/
+    """
+    label = morph_label()
+    if not label:
+        return
+
+    src_dir = OUT_BASE / "steg_6_generalize" / base_method_dir
+    if not src_dir.exists():
+        log.warning("step5_morph_halo: källkatalog saknas: %s", src_dir)
+        return
+
+    src_tifs = sorted(src_dir.glob("*.tif"))
+    if not src_tifs:
+        log.warning("step5_morph_halo: inga tif-filer i %s", src_dir)
+        return
+
+    out_dir = OUT_BASE / "steg_6_generalize" / f"{base_method_dir}_{label}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    vrt_src = OUT_BASE / f"_morph_{base_method_dir}_src.vrt"
+    build_vrt(src_tifs, vrt_src)
+
+    t0 = time.time()
+    info.info("Steg 6 Morph (%s → %s_%s): %d tiles (halo=%dpx, radius=%dpx)",
+              MORPH_SMOOTH_METHOD, base_method_dir, label, len(tile_paths), HALO, MORPH_SMOOTH_RADIUS)
+
+    task_args = [
+        (str(vrt_src), str(tile),
+         str(out_dir / f"{tile.stem}_{label}.tif"))
+        for tile in tile_paths
+    ]
+    total_changed = 0
+    with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
+        for out_path_str, changed in executor.map(_morph_tile_worker, task_args):
+            total_changed += changed
+
+    vrt_src.unlink(missing_ok=True)
+    elapsed = time.time() - t0
+    info.info("Steg 6 Morph %s_%s KLAR: %d px ändrade  %.1fs",
+              base_method_dir, label, total_changed, elapsed)
 
 
 # ── Steg 3d: Semantisk generalisering ────────────────────────────────────────
@@ -406,227 +527,82 @@ def eliminate_small_semantic(data: np.ndarray, min_px: int) -> np.ndarray:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Steg 1: Dela upp i 1024 px sub-tiles
-# ══════════════════════════════════════════════════════════════════════════════
-
-def step1_split() -> list[Path]:
-    t0      = time.time()
-    out_dir = OUT_BASE / "steg1_tiles"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    created  = []
-    new_tiles = 0
-    log.debug("step1_split: källbild %s", SRC.name)
-    with rasterio.open(SRC) as src:
-        meta  = src.meta.copy()
-        meta.update(compress=COMPRESS)
-        src_w = src.width
-        src_h = src.height
-        log.debug("  källbild storlek: %d × %d px", src_w, src_h)
-        for p_row, p_col in PARENT_TILES:
-            px_off = p_col * PARENT_TILE_SIZE
-            py_off = p_row * PARENT_TILE_SIZE
-            for sub_r in range(2):
-                for sub_c in range(2):
-                    x_off = px_off + sub_c * SUB_TILE_SIZE
-                    y_off = py_off + sub_r * SUB_TILE_SIZE
-                    w     = min(SUB_TILE_SIZE, src_w - x_off)
-                    h     = min(SUB_TILE_SIZE, src_h - y_off)
-                    if w <= 0 or h <= 0:
-                        log.warning("step1_split: tom tile vid (%d,%d) hoppas",
-                                    p_row * 2 + sub_r, p_col * 2 + sub_c)
-                        continue
-                    t_row = p_row * 2 + sub_r
-                    t_col = p_col * 2 + sub_c
-                    name  = f"NMD2023bas_tile_r{t_row:03d}_c{t_col:03d}.tif"
-                    path  = out_dir / name
-                    if not path.exists():
-                        win   = Window(x_off, y_off, w, h)
-                        tmeta = meta.copy()
-                        tmeta.update(width=w, height=h,
-                                     transform=src.window_transform(win))
-                        with rasterio.open(path, "w", **tmeta) as dst:
-                            dst.write(src.read(window=win))
-                        copy_qml(path)
-                        new_tiles += 1
-                        log.debug("  Ny tile: %s  (%d×%d px)", name, w, h)
-                    else:
-                        log.debug("  Hoppas (finns redan): %s", name)
-                    created.append(path)
-    elapsed = time.time() - t0
-    info.info("Steg 1 klar: %d tiles (%d nya, %d redan existerande)  %.1fs",
-              len(created), new_tiles, len(created) - new_tiles, elapsed)
-    return created
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Steg 2: Extrahera skyddade klasser (51, 52, 53, 54, 61, 62)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def step2_extract_protected(tile_paths: list[Path]) -> list[Path]:
-    """Extrahera BARA skyddade klasser från original-tiles."""
-    t0_step = time.time()
-    out_dir = OUT_BASE / "steg2_protected"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    result_paths = []
-    total_px_extracted = 0
-    
-    info.info("Steg 2: Extraherar skyddade klasser %s från original-tiles...", sorted(PROTECTED))
-    
-    for tile in tile_paths:
-        out_path = out_dir / tile.name
-        if not out_path.exists():
-            t0 = time.time()
-            with rasterio.open(tile) as src:
-                meta = src.meta.copy()
-                data = src.read(1)
-            meta.update(compress=COMPRESS)
-            
-            # Skapa mask för skyddade klasser, sätt allt annat till 0
-            protected_data = np.where(np.isin(data, list(PROTECTED)), data, 0).astype(data.dtype)
-            n_px = int(np.count_nonzero(protected_data))
-            total_px_extracted += n_px
-            
-            with rasterio.open(out_path, "w", **meta) as dst:
-                dst.write(protected_data, 1)
-            copy_qml(out_path)
-            
-            elapsed = time.time() - t0
-            log.debug("step2_extract_protected: %s → %d px skyddade klasser  %.1fs",
-                      tile.name, n_px, elapsed)
-            info.info("  %-45s  %9d px extraherade  %.1fs", tile.name, n_px, elapsed)
-        else:
-            log.debug("step2_extract_protected: hoppar %s (finns redan)", tile.name)
-        result_paths.append(out_path)
-    
-    info.info("Steg 2 klar: totalt %d px skyddade klasser extraherade  %.1fs",
-              total_px_extracted, time.time() - t0_step)
-    return result_paths
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Steg 3: Extrahera landskapet (allt utom skyddade klasser)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def step3_extract_landscape(tile_paths: list[Path]) -> list[Path]:
-    """Extrahera landskapet: ta bort vägar (53) och byggnader (51) och ersätt med närliggande lanskapklasser."""
-    t0_step = time.time()
-    out_dir = OUT_BASE / "steg3_landscape"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    result_paths = []
-    
-    ROADS_BUILDINGS = {51, 53}  # 51=Byggnad, 53=Väg/järnväg
-    
-    info.info("Steg 3: Extraherar landskapet (ersätter vägar 53 och byggnader 51 med grannande klasser)...")
-    
-    for tile in tile_paths:
-        out_path = out_dir / tile.name
-        if not out_path.exists():
-            t0 = time.time()
-            with rasterio.open(tile) as src:
-                meta = src.meta.copy()
-                data = src.read(1)
-            meta.update(compress=COMPRESS)
-            
-            landscape_data = data.copy()
-            
-            # Iterativ ersättning: för varje väg/byggnad-pixel, ersätt med mest vanlig grannklass
-            mask_roads_buildings = np.isin(landscape_data, ROADS_BUILDINGS)
-            
-            for iteration in range(10):  # Max 10 iterationer
-                if not np.any(mask_roads_buildings):
-                    break
-                
-                # För varje väg/byggnad-pixel, hitta grannarnas klasser
-                for i in range(landscape_data.shape[0]):
-                    for j in range(landscape_data.shape[1]):
-                        if mask_roads_buildings[i, j]:
-                            # Sammla grannarnas klassificeringar (8-connectedness)
-                            neighbors = []
-                            for di in [-1, 0, 1]:
-                                for dj in [-1, 0, 1]:
-                                    if di == 0 and dj == 0:
-                                        continue
-                                    ni, nj = i + di, j + dj
-                                    if 0 <= ni < landscape_data.shape[0] and 0 <= nj < landscape_data.shape[1]:
-                                        if not np.isin(landscape_data[ni, nj], ROADS_BUILDINGS):
-                                            neighbors.append(landscape_data[ni, nj])
-                            
-                            # Ersätt med mest vanlig grannklass
-                            if neighbors:
-                                most_common = np.bincount(neighbors).argmax()
-                                landscape_data[i, j] = most_common
-                                mask_roads_buildings[i, j] = False
-            
-            with rasterio.open(out_path, "w", **meta) as dst:
-                dst.write(landscape_data, 1)
-            copy_qml(out_path)
-            
-            elapsed = time.time() - t0
-            log.debug("step3_extract_landscape: %s → vägar/byggnader ersatta  %.1fs",
-                      tile.name, elapsed)
-            info.info("  %-45s  vägar/byggnader ersatta med grannklasser  %.1fs", tile.name, elapsed)
-        else:
-            log.debug("step3_extract_landscape: hoppar %s (finns redan)", tile.name)
-        result_paths.append(out_path)
-    
-    info.info("Steg 3 klar: landskapet extraherat med vägar/byggnader ersatta  %.1fs",
-              time.time() - t0_step)
-    return result_paths
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Steg 4a: Filtrera små öar (ingen halo behövs – öar som stöter mot tilekant
-#          är per definition inte helt omringade av vatten)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def step4_fill(tile_paths: list[Path]) -> list[Path]:
-    t0_step   = time.time()
-    out_dir   = OUT_BASE / "steg4_filled"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    result_paths  = []
-    total_islands = 0
-    info.info("Steg 4a: Fyller landöar < %d px (%.2f ha) i vatten ...",
-              MMU_ISLAND, MMU_ISLAND * 100 / 10000)
-    for tile in tile_paths:
-        out_path = out_dir / tile.name
-        if not out_path.exists():
-            t0 = time.time()
-            with rasterio.open(tile) as src:
-                meta = src.meta.copy(); data = src.read(1)
-            meta.update(compress=COMPRESS)
-            log.debug("step2_fill: bearbetar %s", tile.name)
-            filled_data, n = fill_small_islands(data, WATER_CLASSES, MMU_ISLAND)
-            with rasterio.open(out_path, "w", **meta) as dst:
-                dst.write(filled_data, 1)
-            copy_qml(out_path)
-            px_changed = int(np.sum(filled_data != data))
-            elapsed    = time.time() - t0
-            total_islands += n
-            info.info("  %-45s  %3d öar fyllda  %6d px ändrade  %.1fs",
-                      tile.name, n, px_changed, elapsed)
-        else:
-            log.debug("step2_fill: hoppar %s (finns redan)", tile.name)
-        result_paths.append(out_path)
-    info.info("Steg 4a klar: totalt %d öar fyllda  %.1fs",
-              total_islands, time.time() - t0_step)
-    return result_paths
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # Steg 4: Generalisering med halo – steg-för-steg över alla tiles
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Antal parallella processer — lämna 2 kärnor fria för OS/IO
+N_WORKERS = max(1, (os.cpu_count() or 1) - 2)
+
+
+def _sieve_tile_worker(args):
+    """Worker för ProcessPoolExecutor: kör ett sieve-pass på en tile."""
+    prev_vrt, tile, out_path = Path(args[0]), Path(args[1]), Path(args[2])
+    mmu, conn = args[3], args[4]
+    if out_path.exists():
+        with rasterio.open(tile) as _src:
+            orig = _src.read(1)
+        return str(out_path), 0, orig.shape
+    padded, tile_meta, inner = read_with_halo(prev_vrt, tile)
+    tile_meta.update(compress=COMPRESS)
+    with rasterio.open(tile) as _src:
+        orig = _src.read(1)
+    result  = run_sieve(padded, mmu, conn)[inner]
+    changed = int(np.sum(result != orig))
+    tile_meta.update(compress=COMPRESS)
+    with rasterio.open(out_path, "w", **tile_meta) as dst:
+        dst.write(result, 1)
+    copy_qml(out_path)
+    return str(out_path), changed, orig.shape
+
+
+def _modal_tile_worker(args):
+    """Worker för ProcessPoolExecutor: kör ett modal-pass på en tile."""
+    prev_vrt, tile, out_path = Path(args[0]), Path(args[1]), Path(args[2])
+    k = args[3]
+    if out_path.exists():
+        return str(out_path), 0
+    padded, tile_meta, inner = read_with_halo(prev_vrt, tile)
+    tile_meta.update(compress=COMPRESS)
+    with rasterio.open(tile) as _src:
+        orig = _src.read(1)
+    result  = modal_filter_once(padded, k)[inner]
+    changed = int(np.sum(result != orig))
+    with rasterio.open(out_path, "w", **tile_meta) as dst:
+        dst.write(result, 1)
+    copy_qml(out_path)
+    return str(out_path), changed
+
+
+def _semantic_tile_worker(args):
+    """Worker för ProcessPoolExecutor: kör ett semantic-pass på en tile."""
+    prev_vrt, tile, out_path = Path(args[0]), Path(args[1]), Path(args[2])
+    mmu = args[3]
+    if out_path.exists():
+        return str(out_path), 0
+    padded, tile_meta, inner = read_with_halo(prev_vrt, tile)
+    tile_meta.update(compress=COMPRESS)
+    with rasterio.open(tile) as _src:
+        orig = _src.read(1)
+    result  = eliminate_small_semantic(padded, mmu)[inner]
+    changed = int(np.sum(result != orig))
+    with rasterio.open(out_path, "w", **tile_meta) as dst:
+        dst.write(result, 1)
+    copy_qml(out_path)
+    return str(out_path), changed
+
+
 def step5_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int):
     label    = f"conn{conn}"
-    out_dir = OUT_BASE / f"steg6_generalized_{label}"
+    out_dir = OUT_BASE / "steg_6_generalize" / label
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step  = time.time()
 
-    prev_vrt = OUT_BASE / "steg4_filled_mosaic.vrt"
+    src_dir  = filled_paths[0].parent.name if filled_paths else "input"
+    prev_vrt = OUT_BASE / f"{src_dir}_mosaic.vrt"
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
-    info.info("Steg 6 Sieve-%s: %d MMU-steg × %d tiles (halo=%dpx)",
+    info.info("Steg 6 Sieve-%s: %d MMU-steg x %d tiles (halo=%dpx)",
               label, len(MMU_STEPS), len(tile_paths), HALO)
 
     for mmu in MMU_STEPS:
@@ -635,33 +611,16 @@ def step5_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int
         total_changed = 0
         log.debug("%s mmu=%d: startar", label, mmu)
 
-        for tile in tile_paths:
-            stem     = tile.stem
-            out_path = out_dir / f"{stem}_{label}_mmu{mmu:03d}.tif"
-            if out_path.exists():
-                log.debug("  %s hoppar (finns redan)", out_path.name)
-                step_outputs.append(out_path)
-                continue
-
-            t1 = time.time()
-            padded, tile_meta, inner = read_with_halo(prev_vrt, tile)
-            tile_meta.update(compress=COMPRESS)
-
-            # Läs originaltilen för att räkna ändrade pixlar
-            with rasterio.open(tile) as _src:
-                orig_inner = _src.read(1)
-
-            sieved_padded = run_sieve(padded, mmu, conn)
-            result        = sieved_padded[inner]
-            changed       = int(np.sum(result != orig_inner))
-            total_changed += changed
-
-            with rasterio.open(out_path, "w", **tile_meta) as dst:
-                dst.write(result, 1)
-            copy_qml(out_path)
-            step_outputs.append(out_path)
-            log.debug("  %s: %d px ändrade vs orig  %.1fs",
-                      out_path.name, changed, time.time() - t1)
+        task_args = [
+            (str(prev_vrt), str(tile),
+             str(out_dir / f"{tile.stem}_{label}_mmu{mmu:03d}.tif"),
+             mmu, conn)
+            for tile in tile_paths
+        ]
+        with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
+            for out_path_str, changed, _ in executor.map(_sieve_tile_worker, task_args):
+                step_outputs.append(Path(out_path_str))
+                total_changed += changed
 
         step_vrt = out_dir / f"_vrt_mmu{mmu:03d}.vrt"
         build_vrt(step_outputs, step_vrt)
@@ -680,15 +639,17 @@ def step5_sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int
         vrt.unlink()
     log.debug("  Behåller endast mmu%03d", last_mmu)
 
-    info.info("Steg 6 Sieve-%s KLAR  %.1fs", label, time.time() - t0_step)
+    _elapsed = time.time() - t0_step
+    info.info("Steg 6 Sieve-%s KLAR  %.1f min (%.0fs)", label, _elapsed / 60, _elapsed)
 
 
 def step5_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
-    out_dir  = OUT_BASE / f"steg6_generalized_modal"
+    out_dir  = OUT_BASE / "steg_6_generalize" / "modal"
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step = time.time()
 
-    prev_vrt = OUT_BASE / "steg4_filled_mosaic.vrt"
+    src_dir  = filled_paths[0].parent.name if filled_paths else "input"
+    prev_vrt = OUT_BASE / f"{src_dir}_mosaic.vrt"
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
@@ -701,31 +662,16 @@ def step5_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
         total_changed = 0
         log.debug("modal k=%d: startar", k)
 
-        for tile in tile_paths:
-            stem     = tile.stem
-            out_path = out_dir / f"{stem}_modal_k{k:02d}.tif"
-            if out_path.exists():
-                log.debug("  %s hoppar (finns redan)", out_path.name)
-                step_outputs.append(out_path)
-                continue
-
-            t1 = time.time()
-            padded, tile_meta, inner = read_with_halo(prev_vrt, tile)
-            tile_meta.update(compress=COMPRESS)
-
-            with rasterio.open(tile) as _src:
-                orig_inner = _src.read(1)
-
-            result  = modal_filter_once(padded, k)[inner]
-            changed = int(np.sum(result != orig_inner))
-            total_changed += changed
-
-            with rasterio.open(out_path, "w", **tile_meta) as dst:
-                dst.write(result, 1)
-            copy_qml(out_path)
-            step_outputs.append(out_path)
-            log.debug("  %s: %d px ändrade vs orig  %.1fs",
-                      out_path.name, changed, time.time() - t1)
+        task_args = [
+            (str(prev_vrt), str(tile),
+             str(out_dir / f"{tile.stem}_modal_k{k:02d}.tif"),
+             k)
+            for tile in tile_paths
+        ]
+        with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
+            for out_path_str, changed in executor.map(_modal_tile_worker, task_args):
+                step_outputs.append(Path(out_path_str))
+                total_changed += changed
 
         step_vrt = out_dir / f"_vrt_k{k:02d}.vrt"
         build_vrt(step_outputs, step_vrt)
@@ -737,15 +683,17 @@ def step5_modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
     for vrt in out_dir.glob("_vrt_k*.vrt"):
         vrt.unlink()
 
-    info.info("Steg 6 Modal KLAR  %.1fs", time.time() - t0_step)
+    _elapsed = time.time() - t0_step
+    info.info("Steg 6 Modal KLAR  %.1f min (%.0fs)", _elapsed / 60, _elapsed)
 
 
 def step5_semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
-    out_dir = OUT_BASE / f"steg6_generalized_semantic"
+    out_dir = OUT_BASE / "steg_6_generalize" / "semantic"
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step = time.time()
 
-    prev_vrt = OUT_BASE / "steg4_filled_mosaic.vrt"
+    src_dir  = filled_paths[0].parent.name if filled_paths else "input"
+    prev_vrt = OUT_BASE / f"{src_dir}_mosaic.vrt"
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
@@ -758,31 +706,16 @@ def step5_semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
         total_changed = 0
         log.debug("semantic mmu=%d: startar", mmu)
 
-        for tile in tile_paths:
-            stem     = tile.stem
-            out_path = out_dir / f"{stem}_semantic_mmu{mmu:03d}.tif"
-            if out_path.exists():
-                log.debug("  %s hoppar (finns redan)", out_path.name)
-                step_outputs.append(out_path)
-                continue
-
-            t1 = time.time()
-            padded, tile_meta, inner = read_with_halo(prev_vrt, tile)
-            tile_meta.update(compress=COMPRESS)
-
-            with rasterio.open(tile) as _src:
-                orig_inner = _src.read(1)
-
-            result  = eliminate_small_semantic(padded, mmu)[inner]
-            changed = int(np.sum(result != orig_inner))
-            total_changed += changed
-
-            with rasterio.open(out_path, "w", **tile_meta) as dst:
-                dst.write(result, 1)
-            copy_qml(out_path)
-            step_outputs.append(out_path)
-            log.debug("  %s: %d px ändrade vs orig  %.1fs",
-                      out_path.name, changed, time.time() - t1)
+        task_args = [
+            (str(prev_vrt), str(tile),
+             str(out_dir / f"{tile.stem}_semantic_mmu{mmu:03d}.tif"),
+             mmu)
+            for tile in tile_paths
+        ]
+        with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
+            for out_path_str, changed in executor.map(_semantic_tile_worker, task_args):
+                step_outputs.append(Path(out_path_str))
+                total_changed += changed
 
         step_vrt = out_dir / f"_vrt_mmu{mmu:03d}.vrt"
         build_vrt(step_outputs, step_vrt)
@@ -791,7 +724,8 @@ def step5_semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
         info.info("  semantic   mmu=%3dpx  totalt %9d px ändrade  %.1fs",
                   mmu, total_changed, elapsed)
 
-    info.info("Steg 6 Semantisk KLAR  %.1fs", time.time() - t0_step)
+    _elapsed = time.time() - t0_step
+    info.info("Steg 6 Semantisk KLAR  %.1f min (%.0fs)", _elapsed / 60, _elapsed)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -810,22 +744,22 @@ if __name__ == "__main__":
     ts_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     info.info("══════════════════════════════════════════════════════════")
-    info.info("Steg 6: Landskapsgeneralisering (halo-teknik)")
+    info.info("Steg 6: Generalisering (halo-teknik)")
     info.info("Källmapp  : %s", SRC)
     info.info("Utmapp    : %s", OUT_BASE)
     info.info("Halo      : %d px", HALO)
     info.info("Skyddade klasser: %s", sorted(PROTECTED))
-    info.info("Vattenkl. (öfyllnad): %s", sorted(WATER_CLASSES))
     info.info("MMU-steg  : %s px", MMU_STEPS)
     info.info("Kernelstorlekar (modal): %s", KERNEL_SIZES)
     info.info("Aktiva generaliseringsmetoder: %s", sorted(GENERALIZATION_METHODS))
+    info.info("Morfologisk utjämning : metod=%s  radie=%d px", MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS)
     info.info("══════════════════════════════════════════════════════════")
 
     # Rensa inaktuella metod-mappar (metoder som tagits bort från config)
     import shutil
     all_methods = {"conn4", "conn8", "modal", "semantic"}
     for method in all_methods - GENERALIZATION_METHODS:
-        stale_dir = OUT_BASE / f"steg6_generalized_{method}"
+        stale_dir = OUT_BASE / "steg_6_generalize" / method
         if stale_dir.exists():
             shutil.rmtree(stale_dir)
             info.info("  Raderat inaktuell metod-mapp: %s", stale_dir.name)
@@ -835,7 +769,7 @@ if __name__ == "__main__":
     for conn in ("conn4", "conn8"):
         if conn not in GENERALIZATION_METHODS:
             continue
-        sieve_dir = OUT_BASE / f"steg6_generalized_{conn}"
+        sieve_dir = OUT_BASE / "steg_6_generalize" / conn
         if not sieve_dir.exists():
             continue
         for tif in sieve_dir.glob("*.tif"):
@@ -845,46 +779,63 @@ if __name__ == "__main__":
 
     # Rensa inaktuella kernel-filer inom aktiv modal-mapp
     active_k_labels = {f"_k{k:02d}" for k in KERNEL_SIZES}
-    modal_dir = OUT_BASE / "steg6_generalized_modal"
+    modal_dir = OUT_BASE / "steg_6_generalize" / "modal"
     if modal_dir.exists():
         for tif in modal_dir.glob("*.tif"):
             if not any(lbl in tif.stem for lbl in active_k_labels):
                 tif.unlink()
                 info.info("  Raderat inaktuell kernel-fil: %s", tif.name)
 
-    info.info("\nSteg 6a: Sieve conn4 (med halo)")
-    # Steg 6 (Generalisering) läser från steg4_filled eller steg5_islands_filled (efter att små områden togs bort)
+    # Steg 6 (Generalisering) läser från steg_4_filter_lakes eller steg_5_filter_islands (efter att små områden togs bort)
     # Kolla först om steg 5 (fylla öar) kördes
-    landscape_dir = OUT_BASE / "steg5_islands_filled"
+    landscape_dir = OUT_BASE / "steg_5_filter_islands"
     if not landscape_dir.exists():
-        landscape_dir = OUT_BASE / "steg4_filled"
-    
+        landscape_dir = OUT_BASE / "steg_4_filter_lakes"
+    if not landscape_dir.exists():
+        landscape_dir = OUT_BASE / "steg_3_dissolve"
+
     if not landscape_dir.exists():
         info.error("❌ Ingen input-katalog hittad. Kör Steg 1-5 först.")
-        raise FileNotFoundError(f"Varken steg4_filled/ eller steg5_islands_filled/")
-    
+        raise FileNotFoundError(f"Varken steg_4_filter_lakes/ eller steg_5_filter_islands/")
+
     landscape_paths = sorted(landscape_dir.glob("*.tif"))
-    tile_paths = sorted((OUT_BASE / "steg1_tiles").glob("*.tif")) if (OUT_BASE / "steg1_tiles").exists() else []
-    
+    tile_paths = sorted((OUT_BASE / "steg_1_split_tiles").glob("*.tif")) if (OUT_BASE / "steg_1_split_tiles").exists() else []
+
     # Kör bara aktiverade generaliseringsmetoder
     if "conn4" in GENERALIZATION_METHODS:
-        info.info("\nSteg 6a: Sieve conn4 (med halo)")
+        info.info("\nSteg 6: Sieve conn4 (med halo)")
         step5_sieve_halo(tile_paths, landscape_paths, conn=4)
-    
+
     if "conn8" in GENERALIZATION_METHODS:
-        info.info("\nSteg 6b: Sieve conn8 (med halo)")
+        info.info("\nSteg 6: Sieve conn8 (med halo)")
         step5_sieve_halo(tile_paths, landscape_paths, conn=8)
-    
+
     if "modal" in GENERALIZATION_METHODS:
-        info.info("\nSteg 6c: Modal filter (med halo)")
+        info.info("\nSteg 6: Modal filter (med halo)")
         step5_modal_halo(tile_paths, landscape_paths)
-    
+
     if "semantic" in GENERALIZATION_METHODS:
-        info.info("\nSteg 6d: Semantisk generalisering (med halo)")
+        info.info("\nSteg 6: Semantisk eliminering (med halo)")
         step5_semantic_halo(tile_paths, landscape_paths)
+
+    # ── Morfologisk utjämning (sista pass, om aktiverad) ─────────────────
+    if MORPH_SMOOTH_METHOD != "none":
+        info.info("\nSteg 6: Morfologisk utjämning (%s, r=%d px)", MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS)
+        # Kör på varje aktiverad metods slutoutput
+        _morph_sources = []
+        if "conn4" in GENERALIZATION_METHODS:
+            _morph_sources.append("conn4")
+        if "conn8" in GENERALIZATION_METHODS:
+            _morph_sources.append("conn8")
+        if "modal" in GENERALIZATION_METHODS:
+            _morph_sources.append("modal")
+        if "semantic" in GENERALIZATION_METHODS:
+            _morph_sources.append("semantic")
+        for src in _morph_sources:
+            step5_morph_halo(src, tile_paths)
 
     elapsed = time.time() - t_total
     info.info("══════════════════════════════════════════════════════════")
-    info.info("Steg 6 KLAR  totaltid: %.0fs (%.1f min)", elapsed, elapsed / 60)
+    info.info("Steg 6 KLART  totaltid: %.0fs (%.1f min)", elapsed, elapsed / 60)
     info.info("Utdata: %s", OUT_BASE)
     info.info("════════════════════════════════════════════════════════════")

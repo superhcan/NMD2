@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-steg_9_build_qgis_project.py — Steg 9: Bygg QGIS-projekt från alla steg.
+steg_99_build_qgis_project.py — Steg 99: Bygg QGIS-projekt från alla steg.
 
 Läser generaliserad data från alla tidigare steg (1-8) och bygger ett komplett
 QGIS-projekt med alla lager organiserade i grupper.
 
-Kör: python3 src/steg_9_build_qgis_project.py
+Kör: python3 src/steg_99_build_qgis_project.py
 
 Kräver: QGIS installerat (qgis.core)
 """
 
 import sys
 import os
+import time
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -23,22 +24,39 @@ try:
     sys.path.insert(0, '/usr/lib/python3/dist-packages')
     from qgis.core import (
         QgsApplication, QgsProject, QgsRasterLayer, QgsVectorLayer,
-        QgsLayerTreeGroup, QgsLayerTreeLayer, QgsCoordinateReferenceSystem
+        QgsLayerTreeGroup, QgsLayerTreeLayer, QgsCoordinateReferenceSystem,
+        QgsFillSymbol
     )
+    from qgis.PyQt.QtCore import Qt
 except ImportError as e:
     print(f"❌ Kan inte importera QGIS: {e}")
     print("   Installera QGIS först: apt install qgis python3-qgis")
     sys.exit(1)
 
-from config import OUT_BASE
+from config import OUT_BASE, ENABLE_STEPS, SIMPLIFICATION_TOLERANCES, QGIS_INCLUDE_STEPS
+
+
+def _apply_no_fill(layer):
+    """Sätter fyllnadsstil till Ingen fyllning för ett vektorlager."""
+    renderer = layer.renderer()
+    if renderer is None:
+        return
+    symbol = renderer.symbol()
+    if symbol is None:
+        return
+    for i in range(symbol.symbolLayerCount()):
+        sl = symbol.symbolLayer(i)
+        if hasattr(sl, 'setBrushStyle'):
+            sl.setBrushStyle(Qt.NoBrush)
+    layer.triggerRepaint()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # LOGGING SETUP
 # ══════════════════════════════════════════════════════════════════════════════
 
 def setup_logging(out_base):
-    """Setup steg-märkad loggning för Steg 9."""
-    step_num = os.getenv("STEP_NUMBER", "9")
+    """Setup steg-märkad loggning för Steg 99."""
+    step_num = os.getenv("STEP_NUMBER", "99")
     step_name = os.getenv("STEP_NAME", "bygga_qgis_projekt").lower()
     
     # Logg-kataloger
@@ -96,15 +114,16 @@ qgs_app = QgsApplication([], False)
 
 def build_qgis_project():
     """Bygg QGIS-projekt med alla steg."""
+    _t0 = time.time()
     
     # Skapa steg8-katalog
-    output_dir = OUT_BASE / "steg9_qgis_project"
+    output_dir = OUT_BASE / "steg_99_build_qgis_project"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     project_path = output_dir / "Pipeline.qgs"
     
     log.info("══════════════════════════════════════════════════════════")
-    log.info("Steg 9: Bygga QGIS-projekt från alla generaliserade lager")
+    log.info("Steg 99: Bygga QGIS-projekt från alla generaliserade lager")
     log.info("Källmapp : %s", OUT_BASE)
     log.info("Utmapp   : %s", output_dir)
     log.info("══════════════════════════════════════════════════════════")
@@ -132,17 +151,19 @@ def build_qgis_project():
     log.info("✓ Gamla lager rensade\n")
     
     # Definiera steg och deras katalog (med steg-prefix)
-    # Uppdaterad för ny numrering: steg 1-9 (tidigare 1-8)
+    # Uppdaterad för ny numrering: steg 0-9 (0 för verifikation, 1-9 för produktion)
     steps = [
-        (9, "Steg 9 - QGIS-projekt", None),  # Denna steg - ingen egen katalog
-        (8, "Steg 8 - Förenklad (Mapshaper)", OUT_BASE / "steg8_simplified"),
-        (7, "Steg 7 - Vektoriserad", OUT_BASE / "steg7_vectorized"),
-        (6, "Steg 6 - Generaliserad", None),  # Kontrolleras dynamiskt nedan
-        (5, "Steg 5 - Fylld öar", OUT_BASE / "steg5_islands_filled"),
-        (4, "Steg 4 - Fyllda sjöar", OUT_BASE / "steg4_filled"),
-        (3, "Steg 3 - Landskapsbild", OUT_BASE / "steg3_landscape"),
-        (2, "Steg 2 - Skyddade klasser", OUT_BASE / "steg2_protected"),
-        (1, "Steg 1 - Tiles", OUT_BASE / "steg1_tiles"),
+        (99, "Step 99 - QGIS project", None),
+        (9, "Step 9 - Overlaid buildings", OUT_BASE / "steg_9_overlay_buildings"),
+        (8, "Step 8 - Simplified (Mapshaper)", OUT_BASE / "steg_8_simplify"),
+        (7, "Step 7 - Vectorized", OUT_BASE / "steg_7_vectorize"),
+        (6, "Step 6 - Generalized", OUT_BASE / "steg_6_generalize"),
+        (5, "Step 5 - Filtered islands", OUT_BASE / "steg_5_filter_islands"),
+        (4, "Step 4 - Filtered lakes", OUT_BASE / "steg_4_filter_lakes"),
+        (3, "Step 3 - Dissolved classes", OUT_BASE / "steg_3_dissolve"),
+        (2, "Step 2 - Extracted classes", OUT_BASE / "steg_2_extract"),
+        (1, "Step 1 - Tiles with remapping", OUT_BASE / "steg_1_split_tiles"),
+        (0, "Step 0 - Verification tiles (original)", OUT_BASE / "steg_0_verify_tiles"),
     ]
     
     log.info("Lägger till steg i projekt...\n")
@@ -150,19 +171,16 @@ def build_qgis_project():
     total_layers = 0
     for step_num, step_name, step_dir in steps:
         
-        # Hoppa över denna steg (steg 9)
-        if step_num == 9:
+        # Hoppa över denna steg (steg 99)
+        if step_num == 99:
             continue
-        
-        # Steg 6: kontrollera dynamiskt att minst en metodkatalog finns
-        if step_num == 6:
-            all_methods = ["conn4", "conn8", "modal", "semantic"]
-            existing_method_dirs = [OUT_BASE / f"steg6_generalized_{m}" for m in all_methods if (OUT_BASE / f"steg6_generalized_{m}").exists()]
-            if not existing_method_dirs:
-                log.warning(f"⚠️  {step_name:40s} – inga metodkataloger hittades")
-                continue
-        elif not step_dir.exists():
+
+        if not step_dir.exists():
             log.warning(f"⚠️  {step_name:40s} – katalog saknas")
+            continue
+
+        if not QGIS_INCLUDE_STEPS.get(step_num, True):
+            log.info(f"⏭  {step_name:40s} – hoppad (QGIS_INCLUDE_STEPS=False)")
             continue
         
         # Skapa gruppe (minimerad)
@@ -175,13 +193,13 @@ def build_qgis_project():
             methods = ["conn4", "conn8", "modal", "semantic"]
             
             for method in methods:
-                method_dir = OUT_BASE / f"steg6_generalized_{method}"
+                method_dir = step_dir / method
                 if not method_dir.exists():
                     log.debug(f"  Metodkatalog saknas: {method_dir.name}")
                     continue
                 
                 # Skapa sub_group för metoden
-                method_group = QgsLayerTreeGroup(f"Generaliserad ({method.upper()})")
+                method_group = QgsLayerTreeGroup(f"Generalized ({method.upper()})")
                 method_group.setExpanded(False)
                 group.addChildNode(method_group)
                 
@@ -204,7 +222,7 @@ def build_qgis_project():
                         # Exempel: ...modal_k03.tif → "k03"
                         if "_k" in layer_name:
                             setting = layer_name.split("_k")[-1][:2]  # "03", "05", etc
-                            setting_label = f"Klusterradie k={setting}"
+                            setting_label = f"Kernel radius k={setting}"
                         else:
                             continue
                     else:
@@ -222,7 +240,7 @@ def build_qgis_project():
                         # Extrahera MMU-värde och sortera fallande (100 överst, 002 underst)
                         mmu_val = int(label.split()[-1].replace("px", ""))
                         return (0, -mmu_val)  # 0 = MMU-typ, negativ för fallande
-                    elif "Klusterradie" in label:
+                    elif "Kernel radius" in label:
                         # Extrahera kernel-värde och sortera fallande (k=15 överst, k=03 underst)
                         k_val = int(label.split("k=")[-1])
                         return (1, -k_val)   # 1 = Kernel-typ, negativ för fallande
@@ -276,7 +294,7 @@ def build_qgis_project():
                         if rest.startswith("mmu"):
                             return m, f"MMU {rest[3:]}px"
                         elif rest.startswith("k"):
-                            return m, f"Klusterradie k={rest[1:]}"
+                            return m, f"Kernel radius k={rest[1:]}"
                 return None, None
 
             # Bygg metod → {setting_label: [filer]}
@@ -288,7 +306,7 @@ def build_qgis_project():
                 methods_dict.setdefault(method, {}).setdefault(setting_label, []).append(lf)
 
             for method in [m for m in known_methods if m in methods_dict]:
-                method_group = QgsLayerTreeGroup(f"Vektoriserad ({method.upper()})")
+                method_group = QgsLayerTreeGroup(f"Vectorized ({method.upper()})")
                 method_group.setExpanded(False)
                 group.addChildNode(method_group)
 
@@ -309,6 +327,7 @@ def build_qgis_project():
                             if not layer.isValid():
                                 log.debug(f"  ✗ {lf.stem:45s} (ej giltig)")
                                 continue
+                            _apply_no_fill(layer)
                             project.addMapLayer(layer, addToLegend=False)
                             tree_layer = QgsLayerTreeLayer(layer)
                             tree_layer.setExpanded(False)
@@ -341,14 +360,20 @@ def build_qgis_project():
                         if rest.startswith("mmu"):
                             return m, f"MMU {rest[3:]}px", tolerance
                         elif rest.startswith("k"):
-                            return m, f"Klusterradie k={rest[1:]}", tolerance
+                            return m, f"Kernel radius k={rest[1:]}", tolerance
                 return None, None, None
+
+            # Tillåtna toleranser baserade på config
+            allowed_tolerances = {f"p{t}" for t in SIMPLIFICATION_TOLERANCES}
 
             # Bygg metod → setting_label → tolerance → [filer]
             methods_dict = {}
             for lf in layer_files:
                 method, setting_label, tolerance = _parse_steg8(lf.stem)
                 if method is None:
+                    continue
+                if tolerance not in allowed_tolerances:
+                    log.debug(f"  Hoppar {lf.name} – tolerans {tolerance} ej i SIMPLIFICATION_TOLERANCES")
                     continue
                 methods_dict \
                     .setdefault(method, {}) \
@@ -357,7 +382,7 @@ def build_qgis_project():
                     .append(lf)
 
             for method in [m for m in known_methods if m in methods_dict]:
-                method_group = QgsLayerTreeGroup(f"Förenklad ({method.upper()})")
+                method_group = QgsLayerTreeGroup(f"Simplified ({method.upper()})")
                 method_group.setExpanded(False)
                 group.addChildNode(method_group)
 
@@ -386,6 +411,7 @@ def build_qgis_project():
                                 if not layer.isValid():
                                     log.debug(f"  ✗ {lf.stem:45s} (ej giltig)")
                                     continue
+                                _apply_no_fill(layer)
                                 project.addMapLayer(layer, addToLegend=False)
                                 tree_layer = QgsLayerTreeLayer(layer)
                                 tree_layer.setExpanded(False)
@@ -396,7 +422,87 @@ def build_qgis_project():
                                 log.warning(f"  ✗ {lf.stem:45s} ({e})")
 
                 log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
-        
+
+        # Step 9 – With buildings: same file naming as steg 8
+        elif step_num == 9:
+            layer_files = sorted(step_dir.glob("*.gpkg"))
+            if not layer_files:
+                log.warning(f"⚠️  {step_name:40s} – inga filer hittade")
+                continue
+
+            known_methods = ["conn4", "conn8", "modal", "semantic"]
+
+            def _parse_steg9(stem):
+                """conn4_mmu008_simplified_p25 → (method, setting_label, tolerance)"""
+                parts = stem.split("_simplified_")
+                if len(parts) != 2:
+                    return None, None, None
+                variant, tolerance = parts[0], parts[1]
+                for m in known_methods:
+                    if variant.startswith(m + "_"):
+                        rest = variant[len(m) + 1:]
+                        if rest.startswith("mmu"):
+                            return m, f"MMU {rest[3:]}px", tolerance
+                        elif rest.startswith("k"):
+                            return m, f"Kernel radius k={rest[1:]}", tolerance
+                return None, None, None
+
+            allowed_tolerances = {f"p{t}" for t in SIMPLIFICATION_TOLERANCES}
+            methods_dict = {}
+            for lf in layer_files:
+                method, setting_label, tolerance = _parse_steg9(lf.stem)
+                if method is None:
+                    continue
+                if tolerance not in allowed_tolerances:
+                    continue
+                methods_dict \
+                    .setdefault(method, {}) \
+                    .setdefault(setting_label, {}) \
+                    .setdefault(tolerance, []) \
+                    .append(lf)
+
+            for method in [m for m in known_methods if m in methods_dict]:
+                method_group = QgsLayerTreeGroup(f"With buildings ({method.upper()})")
+                method_group.setExpanded(False)
+                group.addChildNode(method_group)
+
+                settings = methods_dict[method]
+                def _sort_setting9(lbl):
+                    if "MMU" in lbl:
+                        return (0, -int(lbl.split()[1].replace("px", "")))
+                    k_val = int(lbl.split("k=")[-1])
+                    return (1, -k_val)
+
+                tolerance_order = ["p90", "p75", "p50", "p25", "p15"]
+
+                for setting_label in sorted(settings.keys(), key=_sort_setting9):
+                    setting_group = QgsLayerTreeGroup(setting_label)
+                    setting_group.setExpanded(False)
+                    method_group.addChildNode(setting_group)
+
+                    tols = settings[setting_label]
+                    for tolerance in [t for t in tolerance_order if t in tols]:
+                        tol_group = QgsLayerTreeGroup(tolerance)
+                        tol_group.setExpanded(False)
+                        setting_group.addChildNode(tol_group)
+                        for lf in tols[tolerance]:
+                            try:
+                                layer = QgsVectorLayer(str(lf), lf.stem, "ogr")
+                                if not layer.isValid():
+                                    log.debug(f"  ✗ {lf.stem:45s} (ej giltig)")
+                                    continue
+                                _apply_no_fill(layer)
+                                project.addMapLayer(layer, addToLegend=False)
+                                tree_layer = QgsLayerTreeLayer(layer)
+                                tree_layer.setExpanded(False)
+                                tol_group.addChildNode(tree_layer)
+                                log.info(f"  ✓ {lf.stem:45s}")
+                                total_layers += 1
+                            except Exception as e:
+                                log.warning(f"  ✗ {lf.stem:45s} ({e})")
+
+                log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
+
         else:
             # Standard-hantering för andra steg
             # Bestäm filtyp
@@ -412,9 +518,9 @@ def build_qgis_project():
                 log.warning(f"⚠️  {step_name:40s} – inga filer hittade")
                 continue
             
-            # Lägg till lager (max 16 per grupp för prestanda)
+            # Lägg till lager
             layers_added = 0
-            for layer_file in layer_files[:16]:
+            for layer_file in layer_files:
                 layer_name = layer_file.stem
                 
                 try:
@@ -430,6 +536,7 @@ def build_qgis_project():
                         if not layer.isValid():
                             log.warning(f"  ✗ {layer_name:45s} (ej giltig)")
                             continue
+                        _apply_no_fill(layer)
                     
                     # Lägg till i projekt
                     project.addMapLayer(layer, addToLegend=False)
@@ -469,7 +576,8 @@ def build_qgis_project():
     
     log.info("")
     log.info("══════════════════════════════════════════════════════════")
-    log.info(f"Steg 9 KLAR")
+    _elapsed = time.time() - _t0
+    log.info(f"Steg 99 KLART  {_elapsed / 60:.1f} min ({_elapsed:.0f}s)")
     log.info(f"Projekt: {project_path.name} ({size_kb:.1f} KB)")
     log.info(f"Totalt lager: {total_layers}")
     log.info("══════════════════════════════════════════════════════════")

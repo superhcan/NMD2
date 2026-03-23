@@ -2,16 +2,18 @@
 """
 run_all_steps.py — Master orchestrator för NMD2 pipeline.
 
-Kör alla 9 steg i rätt ordning:
-  Steg 1: Tileluppdelning (steg_1_split_tiles.py)
-  Steg 2: Extrahera skyddade klasser (steg_2_extract_protected.py)
-  Steg 3: Extrahera landskapsbild (steg_3_extract_landscape.py)
-  Steg 4: Ta bort små sjöar < 1 ha (steg_4_fill_islands.py)
-  Steg 5: Fylla små öar omringade av vatten (steg_5_filter_lakes.py) [VALFRITT]
+Kör alla steg i rätt ordning:
+  Steg 0: Verifikation - tileluppdelning utan omklassificering (steg_0_verify_tiles.py)
+  Steg 1: Tileluppdelning med omklassificering (steg_1_split_tiles.py)
+  Steg 2: Extract classes (steg_2_extract.py)
+  Steg 3: Lös upp klasser i omgivande mark (steg_3_dissolve.py)
+  Steg 4: Ta bort små sjöar < 0,5 ha (steg_4_filter_lakes.py)
+  Steg 5: Fylla små öar omringade av vatten (steg_5_filter_islands.py)
   Steg 6: Generalisering (steg_6_generalize.py)
   Steg 7: Vektorisering (steg_7_vectorize.py)
   Steg 8: Mapshaper-förenkling (steg_8_simplify.py)
-  Steg 9: Bygga QGIS-projekt (steg_9_build_qgis_project.py)
+  Steg 9: Overlay buildings (steg_9_overlay_buildings.py)
+  Steg 99: Bygga QGIS-projekt (steg_99_build_qgis_project.py)
 
 Användning:
   python3 run_all_steps.py              # Kör alla steg
@@ -53,59 +55,70 @@ SRC_DIR = Path(__file__).parent / "src"
 # ══════════════════════════════════════════════════════════════════════════════
 
 STEPS = {
+    0: {
+        "name": "Verifikation - Tileluppdelning (original)",
+        "script": "steg_0_verify_tiles.py",
+        "description": "Delar original-raster i 1024×1024 px tiles utan omklassificering (för verifikation)"
+    },
     1: {
-        "name": "Tileluppdelning",
+        "name": "Tileluppdelning med omklassificering",
         "script": "steg_1_split_tiles.py",
-        "description": "Delar original-raster i 1024×1024 px tiles"
+        "description": "Applicerar CLASS_REMAP på tiles från steg 0",
+        "requires_dir": "steg_0_verify_tiles"
     },
     2: {
-        "name": "Extrahera skyddade klasser",
-        "script": "steg_2_extract_protected.py",
-        "description": "Extraherar vägar, byggnader, vatten som ej ändras",
-        "requires_dir": "steg1_tiles"
+        "name": "Extract classes",
+        "script": "steg_2_extract.py",
+        "description": "Extracts EXTRACT_CLASSES to separate layer for later vectorization",
+        "requires_dir": "steg_1_split_tiles"
     },
     3: {
-        "name": "Extrahera landskapsbild",
-        "script": "steg_3_extract_landscape.py",
-        "description": "Ersätter vägar/byggnader med omkringliggande för generalisering",
-        "requires_dir": "steg1_tiles"
+        "name": "Lös upp klasser i omgivande mark",
+        "script": "steg_3_dissolve.py",
+        "description": "Ersätter DISSOLVE_CLASSES med omkringliggande mark för generalisering",
+        "requires_dir": "steg_1_split_tiles"
     },
     4: {
         "name": "Ta bort små områden",
-        "script": "steg_4_fill_islands.py",
-        "description": "Tar bort små sjöar < 1 ha (< 100 px) och fyller med omkringliggande",
-        "requires_dir": "steg3_landscape"
+        "script": "steg_4_filter_lakes.py",
+        "description": "Tar bort små sjöar < 0,5 ha (< 50 px) och fyller med omkringliggande",
+        "requires_dir": "steg_3_dissolve" if ENABLE_STEPS.get(3, True) else "steg_1_split_tiles"
     },
     5: {
         "name": "Fylla små öar",
-        "script": "steg_5_filter_lakes.py",
-        "description": "Fyller små landöar < 1 ha omringade av vatten",
-        "requires_dir": "steg4_filled",
-        "optional": True
+        "script": "steg_5_filter_islands.py",
+        "description": "Fyller små landöar < 0,5 ha omringade av vatten",
+        "requires_dir": "steg_4_filter_lakes" if ENABLE_STEPS.get(4, True) else "steg_3_dissolve"
     },
     6: {
         "name": "Generalisering",
         "script": "steg_6_generalize.py",
         "description": "Generaliserar landskapsbild med sieve, modal, semantic och halo-teknik",
-        "requires_dir": None  # Kan läsa från steg4_filled eller steg5_islands_filled
+        "requires_dir": None  # Kan läsa från steg_4_filter_lakes eller steg_5_filter_islands
     },
     7: {
         "name": "Vektorisering",
         "script": "steg_7_vectorize.py",
         "description": "Konverterar generaliserade raster till GeoPackage-vektorer",
-        "requires_dir": None  # Kontrolleras dynamiskt i check_prerequisites
+        "requires_dir": "steg_6_generalize"
     },
     8: {
         "name": "Mapshaper-förenkling",
         "script": "steg_8_simplify.py",
         "description": "Förenklar vektorer med topologi-bevarad Mapshaper",
-        "requires_dir": "steg7_vectorized"
+        "requires_dir": "steg_7_vectorize"
     },
     9: {
+        "name": "Overlay buildings",
+        "script": "steg_9_overlay_buildings.py",
+        "description": "Vektoriserar byggnader från steg 2 och lägger till i steg 8-lager",
+        "requires_dir": "steg_8_simplify"
+    },
+    99: {
         "name": "Bygga QGIS-projekt",
-        "script": "steg_9_build_qgis_project.py",
+        "script": "steg_99_build_qgis_project.py",
         "description": "Bygger QGIS-projekt med alla steg organiserade i grupper",
-        "requires_dir": "steg8_simplified"
+        "requires_dir": "steg_8_simplify"
     }
 }
 
@@ -153,15 +166,6 @@ def check_input_directory(step_key):
     if "requires_dir" not in STEPS[step_key]:
         return True  # Steg 1 behöver ingen input-katalog
     
-    # Steg 7: kontrollera dynamiskt att minst en generaliserad metodkatalog finns
-    if step_key == 7:
-        method_dirs = [OUT_BASE / f"steg6_generalized_{m}" for m in GENERALIZATION_METHODS]
-        if not any(d.exists() for d in method_dirs):
-            log.warning(f"⚠️  Steg 7: Inga generaliserade kataloger hittades ({[d.name for d in method_dirs]})")
-            log.warning(f"   Kör steg 6 först eller kontrollera GENERALIZATION_METHODS i config.py")
-            return False
-        return True
-
     req_dir = STEPS[step_key]["requires_dir"]
     if req_dir is None:
         return True  # Steg hanterar input-katalog själv (t.ex. steg 5)
@@ -194,9 +198,6 @@ def run_step(step_key):
     
     # Kontroll av input-katalog
     if not check_input_directory(step_key):
-        if step.get("optional"):
-            log.info(f"⏭️  Hoppar över valfritt steg {step_key}")
-            return True
         return False
     
     # Kör steg
@@ -263,8 +264,7 @@ def list_steps():
     print("\n📋 Tillgängliga steg:\n")
     for step_key in sorted(STEPS.keys(), key=lambda x: (isinstance(x, str), x)):
         step = STEPS[step_key]
-        optional_str = " [VALFRITT]" if step.get("optional") else ""
-        print(f"  Steg {step_key}{optional_str}: {step['name']}")
+        print(f"  Steg {step_key}: {step['name']}")
         print(f"         {step['description']}")
     print()
 

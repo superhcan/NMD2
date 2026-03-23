@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-steg_4_fill_islands.py — Steg 4: Ta bort små sjöar < 1 ha och fylla tomrummen.
+steg_4_filter_lakes.py — Steg 4: Ta bort små sjöar (vattenytor < MMU_ISLAND px) och fyller med omgivande mark.
 
 Använder scipy.ndimage för connected-component labeling för att identifiera
 små sjöar och vattenytor (klasser 61, 62), tar bort dem och fyller tomrummen
@@ -8,7 +8,7 @@ med majoriteten från omkringliggande område (samma approach som steg 3).
 
 Läser från landscape/ (Steg 3), skriver filled/ 
 
-Kör: python3 src/steg_4_fill_islands.py
+Kör: python3 src/steg_4_filter_lakes.py
 
 Kräver: scipy, rasterio, numpy
 """
@@ -23,7 +23,7 @@ import numpy as np
 import rasterio
 from scipy import ndimage
 
-from config import QML_SRC, OUT_BASE, MMU_ISLAND, COMPRESS, WATER_CLASSES
+from config import QML_SRC, OUT_BASE, MMU_ISLAND, COMPRESS, ISLAND_FILL_SURROUNDS
 
 log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -39,7 +39,7 @@ def copy_qml(tif_path: Path):
 def fill_water_islands(tile_paths: list[Path]) -> list[Path]:
     """Ta bort små sjöar < MMU_ISLAND px och fylla tomrummen med omkringliggande majoritet."""
     t0_step   = time.time()
-    out_dir   = OUT_BASE / "steg4_filled"
+    out_dir   = OUT_BASE / "steg_4_filter_lakes"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_paths = []
     
@@ -56,7 +56,7 @@ def fill_water_islands(tile_paths: list[Path]) -> list[Path]:
                     meta = src.meta.copy()
                     data = src.read(1)
                 
-                water_mask = np.isin(data, list(WATER_CLASSES))
+                water_mask = np.isin(data, list(ISLAND_FILL_SURROUNDS))
                 
                 if np.sum(water_mask) == 0:
                     # Ingen vatten - kopiera bara filen
@@ -155,21 +155,26 @@ if __name__ == "__main__":
     step_name = os.getenv("STEP_NAME")
     setup_logging(OUT_BASE, step_num, step_name)
     
-    log_step_header(info, 4, "Fylla små sjöar",
-                    str(OUT_BASE / "steg3_landscape"),
-                    str(OUT_BASE / "steg4_filled"))
+    log_step_header(info, 4, "Ta bort små sjöar",
+                    str(OUT_BASE / "steg_3_dissolve"),
+                    str(OUT_BASE / "steg_4_filter_lakes"))
     
-    # Läs tiles från Steg 3
-    tiles_dir = OUT_BASE / "steg3_landscape"
+    # Läs tiles från Steg 3, eller fallback till Steg 1 om Steg 3 är inaktiverat
+    tiles_dir = OUT_BASE / "steg_3_dissolve"
     if not tiles_dir.exists():
-        print(f"Fel: {tiles_dir} finns ej. Kör Steg 1-3 först")
-        exit(1)
+        fallback = OUT_BASE / "steg_1_split_tiles"
+        if fallback.exists():
+            info.info(f"steg_3_dissolve/ saknas – använder steg_1_split_tiles/ som indata")
+            tiles_dir = fallback
+        else:
+            info.error(f"Fel: {tiles_dir} finns ej. Kör Steg 1-3 först")
+            exit(1)
     
     tiles = sorted(tiles_dir.glob("*.tif"))
     if not tiles:
-        print(f"Fel: Inga TIF-filer i {tiles_dir}")
+        info.error(f"Fel: Inga TIF-filer i {tiles_dir}")
         exit(1)
     
-    print(f"Hittade {len(tiles)} landskapslager från Steg 3")
+    info.info(f"Hittade {len(tiles)} tiles från Steg 3")
     fill_water_islands(tiles)
-    print("Steg 4 klar: 4 lager behandlade")
+    info.info("Steg 4 klart: %d tiles behandlade", len(tiles))

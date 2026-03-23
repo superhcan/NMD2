@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-from config import QML_SRC, OUT_BASE, ROADS_BUILDINGS, COMPRESS, NODATA_TMP
+from config import QML_SRC, OUT_BASE, DISSOLVE_CLASSES as ROADS_BUILDINGS, COMPRESS, NODATA_TMP
 
 log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
