@@ -15,8 +15,9 @@ import numpy as np
 
 SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.tif")
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
+
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_morph_disk_r02_dp10_10proc_v01"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_morph_disk_r02_dp10_1proc_v01"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
@@ -29,7 +30,7 @@ TILE_SIZE        = 1024          # Huvudtile-storlek (pixlar per sida)
 #PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
 #PARENT_TILES     = [(0, col) for col in range(70)]                         # ~1% (rad 0, 70 tiles)
 #PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
-PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6, 490 tiles)
+PARENT_TILES     = [(row, col) for row in range(1) for col in range(70)]   # 10% (rader 0-6, 490 tiles)
 PARENT_TILE_SIZE = 1024          # Matchar TILE_SIZE i steg 1
 SUB_TILE_SIZE    = 1024          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
 HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
@@ -220,7 +221,7 @@ MMU_STEPS    = [2, 4, 8, 16, 32, 50]
 #   - Kernel måste pågå helt inom tile + HALO område
 #   - Begränsning: k≤(2*HALO+1) för att undvika edge-artefakter
 #
-KERNEL_SIZES = [7]
+KERNEL_SIZES = [3, 7]
 
 # Mapshaper Simplification Tolerances (Steg 8)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -253,9 +254,6 @@ KERNEL_SIZES = [7]
 #   - Använd p15-p5 för extrem förenkling (lätta filer)
 #   - Fler nivåer = längre körtid men bättre att jämföra resultat
 #
-<<<<<<< HEAD
-SIMPLIFICATION_TOLERANCES = [15]
-=======
 SIMPLIFICATION_TOLERANCES = [25]
 
 # Förenklingsbackend för steg 8.
@@ -335,19 +333,14 @@ MORPH_SMOOTH_RADIUS = 2        # pixlar — 1 px = 10 m
 # Bas-metoderna (conn4 etc.) körs fortfarande i steg 6 (morph bygger på dem),
 # men ingen GPKG skapas för originalet. Sparar tid och diskutrymme.
 MORPH_ONLY = True
->>>>>>> pipeline-updates
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PIPELINE CONFIGURATION — Vilka steg ska köras?
 # ══════════════════════════════════════════════════════════════════════════════
 
 ENABLE_STEPS = {
-<<<<<<< HEAD
-    1: True,   # Tileluppdelning (genererar 490 tiles = 10% av ytan)
-=======
     0: True,    # Verifikation - tileluppdelning utan omklassificering (grunddata för steg 1)
     1: True,    # Tileluppdelning med omklassificering
->>>>>>> pipeline-updates
     2: True,    # Extrahera skyddade klasser
     3: True,    # Extrahera landskapsbild
     4: False,   # Fylla små landöar < MMU_ISLAND px omringade av vatten
@@ -463,11 +456,7 @@ QGIS_INCLUDE_STEPS = {
 #   GENERALIZATION_METHODS = {"conn4", "conn8"}            # Bara sieve-metoder
 #
 
-<<<<<<< HEAD
-GENERALIZATION_METHODS = {"conn8"}  # Test: endast conn4 och modal
-=======
 GENERALIZATION_METHODS = {"conn4"}
->>>>>>> pipeline-updates
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GDAL & RASTERIO SETTINGS
