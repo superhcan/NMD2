@@ -35,7 +35,7 @@ from rasterio.windows import Window
 from scipy import ndimage
 from scipy.ndimage import uniform_filter
 
-from config import OUT_BASE, SRC, QML_SRC, GENERALIZE_PROTECTED as PROTECTED, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS
+from config import OUT_BASE, SRC, QML_SRC, GENERALIZE_PROTECTED as PROTECTED, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS, MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Logging – två loggers + console
@@ -250,6 +250,154 @@ def modal_filter_once(data: np.ndarray, kernel: int) -> np.ndarray:
     log.debug("modal_filter_once klar: %d px ändrade (%.1f%%)",
               changed, changed / data.size * 100)
     return result
+
+
+# ── Steg 3e: Morfologisk utjämning ───────────────────────────────────────────
+
+def morph_label() -> str:
+    """Returnerar katalog-/lagernamnssuffix för aktiv morph-konfiguration.
+    Ex: 'morph_disk_r02', 'morph_close_r02', eller '' om metod='none'.
+    """
+    if MORPH_SMOOTH_METHOD == "none":
+        return ""
+    _short = {"disk_modal": "disk", "closing": "close"}
+    m = _short.get(MORPH_SMOOTH_METHOD, MORPH_SMOOTH_METHOD)
+    return f"morph_{m}_r{MORPH_SMOOTH_RADIUS:02d}"
+
+
+def _create_disk_footprint(radius: int) -> np.ndarray:
+    """Skapar ett cirkulärt bool-strukturelement med angiven radie."""
+    r = radius
+    y, x = np.ogrid[-r:r + 1, -r:r + 1]
+    return (x ** 2 + y ** 2 <= r ** 2)
+
+
+def apply_morph_smooth(data: np.ndarray) -> np.ndarray:
+    """Applicerar morfologisk utjämning på ett klassificerat raster.
+
+    Metod styrs av MORPH_SMOOTH_METHOD och MORPH_SMOOTH_RADIUS (config).
+
+    disk_modal:
+        Disk-formad majority-filter. Varje pixel tilldelas den klass som
+        dominerar inom en cirkelformad grannskapsradie. Snabb (konvolution
+        per klass), naturligt rundar pixeltrappor.
+
+    closing:
+        Binär morphologisk closing per klass (sorterat stigande area →
+        den störste klass vinner vid konflikter). Fyller konkava notchar
+        längs klassgränser utan att ta bort konvexa utskjutningar.
+    """
+    method = MORPH_SMOOTH_METHOD
+    radius = MORPH_SMOOTH_RADIUS
+    log.debug("apply_morph_smooth: method=%s radius=%d  data=%s", method, radius, data.shape)
+    prot_mask = np.isin(data, list(PROTECTED))
+
+    if method == "disk_modal":
+        from scipy.ndimage import convolve
+        footprint = _create_disk_footprint(radius).astype(np.float32)
+        vote_data = data.copy()
+        vote_data[prot_mask] = 0
+        classes = [int(c) for c in np.unique(vote_data) if c > 0]
+        best_count = np.full(data.shape, -1.0, dtype=np.float32)
+        best_class = np.zeros(data.shape, dtype=np.int32)
+        for cls in classes:
+            mask = (vote_data == cls).astype(np.float32)
+            count = convolve(mask, footprint, mode="nearest")
+            # Liten bonus för befintlig klass → undviker onödig ändring
+            count = count + mask * 1e-4
+            upd = count > best_count
+            best_count = np.where(upd, count, best_count)
+            best_class = np.where(upd, cls, best_class)
+        result = best_class.astype(data.dtype)
+        result[prot_mask] = data[prot_mask]
+        result[data == 0] = 0
+
+    elif method == "closing":
+        from scipy.ndimage import binary_closing
+        footprint = _create_disk_footprint(radius)
+        result = data.copy()
+        # Sortera stigande på area → stor klass skrivs sist och vinner konflikter
+        classes = sorted(
+            [int(c) for c in np.unique(data) if c > 0 and c not in PROTECTED],
+            key=lambda c: int(np.sum(data == c))
+        )
+        for cls in classes:
+            mask = (data == cls)
+            closed = binary_closing(mask, structure=footprint)
+            # Nyupptagna pixlar: closing expanderade hit men originalet hade inte cls
+            new_px = closed & ~mask & ~prot_mask
+            result[new_px] = cls
+        result[prot_mask] = data[prot_mask]
+        result[data == 0] = 0
+
+    else:
+        return data.copy()
+
+    changed = int(np.sum(result != data))
+    log.debug("apply_morph_smooth klar: %d px ändrade (%.2f%%)", changed, changed / data.size * 100)
+    return result
+
+
+def _morph_tile_worker(args):
+    """Worker för ProcessPoolExecutor: kör morfologisk utjämning på en tile."""
+    prev_vrt, tile, out_path = Path(args[0]), Path(args[1]), Path(args[2])
+    if out_path.exists():
+        return str(out_path), 0
+    padded, tile_meta, inner = read_with_halo(prev_vrt, tile)
+    tile_meta.update(compress=COMPRESS)
+    with rasterio.open(tile) as _src:
+        orig = _src.read(1)
+    result = apply_morph_smooth(padded)[inner]
+    changed = int(np.sum(result != orig))
+    with rasterio.open(out_path, "w", **tile_meta) as dst:
+        dst.write(result, 1)
+    copy_qml(out_path)
+    return str(out_path), changed
+
+
+def step5_morph_halo(base_method_dir: str, tile_paths: list):
+    """Applicerar morfologisk utjämning på output från en generaliserings-
+    metod (t.ex. 'conn4' eller 'modal'). Output sparas i
+    steg_6_generalize/{base_method_dir}_{morph_label()}/
+    """
+    label = morph_label()
+    if not label:
+        return
+
+    src_dir = OUT_BASE / "steg_6_generalize" / base_method_dir
+    if not src_dir.exists():
+        log.warning("step5_morph_halo: källkatalog saknas: %s", src_dir)
+        return
+
+    src_tifs = sorted(src_dir.glob("*.tif"))
+    if not src_tifs:
+        log.warning("step5_morph_halo: inga tif-filer i %s", src_dir)
+        return
+
+    out_dir = OUT_BASE / "steg_6_generalize" / f"{base_method_dir}_{label}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    vrt_src = OUT_BASE / f"_morph_{base_method_dir}_src.vrt"
+    build_vrt(src_tifs, vrt_src)
+
+    t0 = time.time()
+    info.info("Steg 6 Morph (%s → %s_%s): %d tiles (halo=%dpx, radius=%dpx)",
+              MORPH_SMOOTH_METHOD, base_method_dir, label, len(tile_paths), HALO, MORPH_SMOOTH_RADIUS)
+
+    task_args = [
+        (str(vrt_src), str(tile),
+         str(out_dir / f"{tile.stem}_{label}.tif"))
+        for tile in tile_paths
+    ]
+    total_changed = 0
+    with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
+        for out_path_str, changed in executor.map(_morph_tile_worker, task_args):
+            total_changed += changed
+
+    vrt_src.unlink(missing_ok=True)
+    elapsed = time.time() - t0
+    info.info("Steg 6 Morph %s_%s KLAR: %d px ändrade  %.1fs",
+              base_method_dir, label, total_changed, elapsed)
 
 
 # ── Steg 3d: Semantisk generalisering ────────────────────────────────────────
@@ -604,6 +752,7 @@ if __name__ == "__main__":
     info.info("MMU-steg  : %s px", MMU_STEPS)
     info.info("Kernelstorlekar (modal): %s", KERNEL_SIZES)
     info.info("Aktiva generaliseringsmetoder: %s", sorted(GENERALIZATION_METHODS))
+    info.info("Morfologisk utjämning : metod=%s  radie=%d px", MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS)
     info.info("══════════════════════════════════════════════════════════")
 
     # Rensa inaktuella metod-mappar (metoder som tagits bort från config)
@@ -668,6 +817,22 @@ if __name__ == "__main__":
     if "semantic" in GENERALIZATION_METHODS:
         info.info("\nSteg 6: Semantisk eliminering (med halo)")
         step5_semantic_halo(tile_paths, landscape_paths)
+
+    # ── Morfologisk utjämning (sista pass, om aktiverad) ─────────────────
+    if MORPH_SMOOTH_METHOD != "none":
+        info.info("\nSteg 6: Morfologisk utjämning (%s, r=%d px)", MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS)
+        # Kör på varje aktiverad metods slutoutput
+        _morph_sources = []
+        if "conn4" in GENERALIZATION_METHODS:
+            _morph_sources.append("conn4")
+        if "conn8" in GENERALIZATION_METHODS:
+            _morph_sources.append("conn8")
+        if "modal" in GENERALIZATION_METHODS:
+            _morph_sources.append("modal")
+        if "semantic" in GENERALIZATION_METHODS:
+            _morph_sources.append("semantic")
+        for src in _morph_sources:
+            step5_morph_halo(src, tile_paths)
 
     elapsed = time.time() - t_total
     info.info("══════════════════════════════════════════════════════════")

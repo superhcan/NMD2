@@ -21,7 +21,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from config import OUT_BASE, GENERALIZATION_METHODS, MMU_STEPS, KERNEL_SIZES
+from config import OUT_BASE, GENERALIZATION_METHODS, MMU_STEPS, KERNEL_SIZES, MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS, MORPH_ONLY
 
 _LOG = None
 
@@ -193,6 +193,63 @@ def vectorize_semantic():
         else:
             log.info("    ✗ failed")
 
+
+def vectorize_morph_dirs():
+    """Auto-detekterar alla *_morph_* undermappar i steg_6_generalize/ och
+    vektoriserar dem. GPKG-namn och lagernamn encodar morph-metod+radie.
+
+    Exempel:
+      steg_6_generalize/conn4_morph_disk_r02/  →
+        steg_7_vectorize/generalized_conn4_mmu050_morph_disk_r02.gpkg
+        lagernamn: markslag_morph_disk_r02
+    """
+    log = logging.getLogger("pipeline.vectorize")
+    gen6_dir = PIPE / "steg_6_generalize"
+    if not gen6_dir.exists():
+        return
+
+    morph_dirs = sorted(d for d in gen6_dir.iterdir()
+                        if d.is_dir() and "_morph_" in d.name)
+    if not morph_dirs:
+        return
+
+    for morph_dir in morph_dirs:
+        tifs = sorted(morph_dir.glob("*.tif"))
+        if not tifs:
+            continue
+
+        # Extrahera morph-suffixet (t.ex. "morph_disk_r02")
+        # Katalognamnet är t.ex. "conn4_morph_disk_r02"
+        morph_match = re.search(r'_(morph_[a-z0-9_]+)$', morph_dir.name)
+        morph_suffix = morph_match.group(1) if morph_match else morph_dir.name
+        layer_name = f"markslag_{morph_suffix}"
+
+        log.info("\nMorph: %s (%d tiles)", morph_dir.name, len(tifs))
+
+        gpkg = OUT / f"generalized_{morph_dir.name}.gpkg"
+        if gpkg.exists():
+            gpkg.unlink()
+
+        vrt_tmp = f"/tmp/_vect_{morph_dir.name}.vrt"
+        file_list_tmp = f"/tmp/_vect_{morph_dir.name}.txt"
+        with open(file_list_tmp, "w") as fh:
+            fh.write("\n".join(str(t) for t in tifs))
+        subprocess.run(["gdalbuildvrt", "-input_file_list", file_list_tmp, vrt_tmp],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["gdal_polygonize.py", vrt_tmp, "-f", "GPKG",
+                        str(gpkg), "DN", layer_name],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import os as _os
+        _os.unlink(vrt_tmp) if _os.path.exists(vrt_tmp) else None
+        _os.unlink(file_list_tmp) if _os.path.exists(file_list_tmp) else None
+
+        if gpkg.exists() and gpkg.stat().st_size > 1000:
+            sz = gpkg.stat().st_size / 1e6
+            log.info("    ✓ %s (%.1f MB)  lager: %s", gpkg.name, sz, layer_name)
+        else:
+            log.info("    ✗ misslyckades: %s", gpkg.name)
+
+
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     log = _setup_logging(OUT_BASE)
@@ -234,23 +291,29 @@ if __name__ == "__main__":
                 log.info("  Raderat inaktuell kernel-fil: %s", gpkg.name)
 
     # Vektorisera endast aktiverade metoder
-    if "conn4" in GENERALIZATION_METHODS:
-        log.info("\nCONN4")
-        vectorize_sieve(4)
-    
-    if "conn8" in GENERALIZATION_METHODS:
-        log.info("\nCONN8")
-        vectorize_sieve(8)
-    
-    if "modal" in GENERALIZATION_METHODS:
-        log.info("\nModal filter")
-        vectorize_modal()
-    
-    if "semantic" in GENERALIZATION_METHODS:
-        log.info("\nSemantisk generalisering")
-        # Denna funktion är bara en stub i nuläget - modal är prioriterad
-        log.warning("  ⚠ Semantic vektorisering ännu ej implementerad")
-    
+    if MORPH_ONLY and MORPH_SMOOTH_METHOD != "none":
+        log.info("MORPH_ONLY=True — hoppar över bas-vektorisering (conn4/conn8/modal/semantic)")
+    else:
+        if "conn4" in GENERALIZATION_METHODS:
+            log.info("\nCONN4")
+            vectorize_sieve(4)
+        
+        if "conn8" in GENERALIZATION_METHODS:
+            log.info("\nCONN8")
+            vectorize_sieve(8)
+        
+        if "modal" in GENERALIZATION_METHODS:
+            log.info("\nModal filter")
+            vectorize_modal()
+        
+        if "semantic" in GENERALIZATION_METHODS:
+            log.info("\nSemantisk generalisering")
+            # Denna funktion är bara en stub i nuläget - modal är prioriterad
+            log.warning("  ⚠ Semantic vektorisering ännu ej implementerad")
+
+    # Morfologiska undermappar — auto-detekterade
+    vectorize_morph_dirs()
+
     elapsed = time.time() - t0
     log.info("══════════════════════════════════════════════════════════")
     log.info("Steg 7 KLART: %.0fs (%.1f min)", elapsed, elapsed / 60)

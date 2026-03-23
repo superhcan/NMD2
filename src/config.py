@@ -17,7 +17,7 @@ SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.ti
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_10proc_v04"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_morph_disk_r02_dp10_10proc_v01"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
@@ -27,7 +27,10 @@ TILE_SIZE        = 1024          # Huvudtile-storlek (pixlar per sida)
 # 20% av total yta: rader 30-43 × 70 kolumner = 980 tiles
 #PARENT_TILES     = [(row, col) for row in range(30, 44) for col in range(70)]
 #PARENT_TILES     = [(row, col) for row in range(35) for col in range(70)]  # Norra halvan (rader 0-34)
-PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
+#PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
+#PARENT_TILES     = [(0, col) for col in range(70)]                         # ~1% (rad 0, 70 tiles)
+#PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
+PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6, 490 tiles)
 PARENT_TILE_SIZE = 1024          # Matchar TILE_SIZE i steg 1
 SUB_TILE_SIZE    = 1024          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
 HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
@@ -252,6 +255,84 @@ KERNEL_SIZES = [3, 7]
 #   - Fler nivåer = längre körtid men bättre att jämföra resultat
 #
 SIMPLIFICATION_TOLERANCES = [25]
+
+# Förenklingsbackend för steg 8.
+# "mapshaper" — Mapshaper CLI (snabb, men kraschar på filer > ~3 GB pga Node.js string-limit)
+# "grass"     — GRASS v.generalize (diskbaserad, inga storleksgränser, bevarar topologi)
+# "auto"      — Välj mapshaper om GeoJSON < 2 GB, annars grass
+SIMPLIFY_BACKEND = "grass"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GRASS v.generalize — Algoritm och parametrar (Steg 8)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# GRASS_SIMPLIFY_METHOD — Vilken algoritm som används:
+#   "douglas"        — Douglas-Peucker. Tar bort vertexer. Dålig på raster-
+#                      trappsteg (blockeras av topologikonstraints).
+#   "chaiken"        — Chaikin corner-cutting. Mjukar ut rätvinkliga pixelkanter
+#                      till rundade kurvor. Rätt verktyg för rasteriserade polygoner.
+#   "douglas+chaiken"— Två pass: Douglas tar bort kolineära punkter först,
+#                      sedan Chaikin rundar hörnen. Kombinerad effekt.
+#
+# GRASS_CHAIKEN_THRESHOLD — Minsta avstånd (meter) mellan punkter i Chaikin-output.
+#   Lägre värde → fler punkter, slätare kurvor, större fil.
+#   Rekommenderat: 5–15 m (pixelstorlek 10 m → 5 m ger ca 2 punkter/pixel).
+#
+# GRASS_DOUGLAS_THRESHOLD — Tolerans (meter) för Douglas-Peucker-passa.
+#   Används bara vid method="douglas" eller "douglas+chaiken".
+#   2 m = tar bort kolineära punkter utan att ändra formen (förpass).
+#   25 m = aggressiv förenkling.
+#
+# Exempel:
+#   GRASS_SIMPLIFY_METHOD = "chaiken"
+#   GRASS_CHAIKEN_THRESHOLD = 5.0     # mjuk utjämning
+#
+#   GRASS_SIMPLIFY_METHOD = "douglas+chaiken"
+#   GRASS_DOUGLAS_THRESHOLD = 2.0     # städa bort kolineära punkter
+#   GRASS_CHAIKEN_THRESHOLD = 5.0     # runda sedan hörnen
+#
+GRASS_SIMPLIFY_METHOD    = "douglas"           # "douglas", "chaiken", "douglas+chaiken"
+GRASS_CHAIKEN_THRESHOLD  = 10.0       # meter — Chaikin min-avstånd mellan punkter
+GRASS_DOUGLAS_THRESHOLD  = 10.0       # meter — Douglas förpass (douglas+chaiken)
+GRASS_SIMPLIFY_THRESHOLD = 10.0       # meter — bakåtkompatibelt (douglas-only tolerance-loop)
+
+# GRASS_VECTOR_MEMORY — RAM som GRASS får använda för topologinätet (MB).
+# Default i GRASS är ~1000 MB. Med mycket RAM: sätt högt för att hålla hela
+# topologistrukturen i minnet → undviker paginering → 2–4× snabbare.
+# Lämna minst 8–16 GB över till OS + övriga processer.
+GRASS_VECTOR_MEMORY = 40000  # MB (40 GB av 56 GB)
+
+# GRASS_PARALLEL_GPKG — Max antal parallella GRASS-jobb (ett jobb per GPKG).
+# Dela ALDRIG en GPKG — ett jobb måste alltid processera hela filen.
+GRASS_PARALLEL_GPKG = 4  # begränsas automatiskt av antalet GPKGs
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MORFOLOGISK UTJÄMNING — Rasterbaserad kantutjämning (Steg 6, sista pass)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# MORPH_SMOOTH_METHOD — Metod för kantutjämning på raster INNAN polygonisering.
+#   "none"         — Ingen utjämning (standard)
+#   "disk_modal"   — Disk-formad majority-filter. Snabb, mjukar pixeltrappor utan
+#                    att förflytta gränser mer än ~radius pixlar.
+#   "closing"      — Binär morphologisk closing per klass. Fyller konkava notchar
+#                    längs gränser ("pixelsteg inåt"). Gränser förflyttas max R px.
+#
+# MORPH_SMOOTH_RADIUS — Radie i pixlar för strukturelementet.
+#   1 px = 10 m vid NMD:s 10 m upplösning.
+#   Rekommenderat: 2–4 px (20–40 m).
+#
+# Katalog- och lagernamn encodar metod+radie automatiskt:
+#   disk_modal r2 → undermapp: {method}_morph_disk_r02
+#   closing    r2 → undermapp: {method}_morph_close_r02
+#   Lagernamn i GPKG: markslag_morph_disk_r02 / markslag_morph_close_r02
+#
+MORPH_SMOOTH_METHOD = "disk_modal"  # "none", "disk_modal", "closing"
+MORPH_SMOOTH_RADIUS = 2        # pixlar — 1 px = 10 m
+
+# MORPH_ONLY — Om True: vektorisera/förenkla BARA morph-katalogerna i steg 7/8.
+# Bas-metoderna (conn4 etc.) körs fortfarande i steg 6 (morph bygger på dem),
+# men ingen GPKG skapas för originalet. Sparar tid och diskutrymme.
+MORPH_ONLY = True
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PIPELINE CONFIGURATION — Vilka steg ska köras?
