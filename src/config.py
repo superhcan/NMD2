@@ -17,7 +17,7 @@ SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.ti
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_morph_disk_r02_dp10_25pct_v05_grass78"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_morph_disk_r02_dp10_25pct_v06_buildings"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
@@ -39,10 +39,10 @@ HALO             = 100           # px – kant på varje sida vid generalisering
 # CLASSIFICATION CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-GENERALIZE_PROTECTED = {51, 61, 62}                # Skyddade klasser i steg 6 (generalisering): maskeras vid sieve/modal, exkluderas från areafilter.
-SIMPLIFY_PROTECTED   = {51}                        # Skyddade klasser i steg 8 (Mapshaper): förenklas aldrig (sp=1.0). Kan skilja sig från GENERALIZE_PROTECTED.
+GENERALIZE_PROTECTED = {61, 62}                     # Skyddade klasser i steg 6 (generalisering): maskeras vid sieve/modal, exkluderas från areafilter. (51 borttagen — löses upp i steg 3)
+SIMPLIFY_PROTECTED   = set()                       # Skyddade klasser i steg 8 (Mapshaper): förenklas aldrig (sp=1.0). (51 borttagen — löses upp i steg 3)
 EXTRACT_CLASSES  = {51, 53, 61, 62}                # Klasser som extraheras separat i steg 2 (vektoriseras senare): Byggnad, Väg/järnväg, Vatten
-DISSOLVE_CLASSES = {53}                            # Klasser som löses upp i omgivande mark i steg 3: Väg/järnväg
+DISSOLVE_CLASSES = {51, 53}                        # Klasser som löses upp i omgivande mark i steg 3: Byggnad + Väg/järnväg
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CLASS REMAPPING — Omklassificering från NMD till slutklasser (Steg 0)
@@ -51,77 +51,77 @@ DISSOLVE_CLASSES = {53}                            # Klasser som löses upp i om
 # Originalklasser sparas i separat _original_class-lager per tile.
 
 CLASS_REMAP = {
-    # Skogsklasser — sammanför fastmark och våtmark till samma klass
-    111: 111,  # Tallskog på fastmark → 111
-    121: 111,  # Tallskog på våtmark → 111
-    112: 112,  # Granskog på fastmark → 112
-    122: 112,  # Granskog på våtmark → 112
-    113: 113,  # Barrblandskog på fastmark → 113
-    123: 113,  # Barrblandskog på våtmark → 113
-    114: 114,  # Lövblandad barrskog på fastmark → 114
-    124: 114,  # Lövblandad barrskog på våtmark → 114
-    115: 115,  # Triviallövskog på fastmark → 115
-    125: 115,  # Triviallövskog på våtmark → 115
-    116: 116,  # Ädellövskog på fastmark → 116
-    126: 116,  # Ädellövskog på våtmark → 116
-    117: 117,  # Triviallövskog m. ädellövinslag på fastmark → 117
-    127: 117,  # Triviallövskog m. ädellövinslag på våtmark → 117
-    118: 118,  # Temporärt ej skog på fastmark → 118
-    128: 118,  # Temporärt ej skog på våtmark → 118
+    # Skogsklasser — sammanför fastmark och våtmark för tallskog till samma klass
+    111: 110,  # Tallskog på fastmark → 110
+    121: 110,  # Tallskog på våtmark → 110
+    112: 112,  # Granskog på fastmark → oförändrad 112
+    122: 122,  # Granskog på våtmark → oförändrad 122
+    113: 113,  # Barrblandskog på fastmark → oförändrad 113
+    123: 123,  # Barrblandskog på våtmark → oförändrad 123
+    114: 114,  # Lövblandad barrskog på fastmark → oförändrad 114
+    124: 124,  # Lövblandad barrskog på våtmark → oförändrad 124
+    115: 115,  # Triviallövskog på fastmark → oförändrad 115
+    125: 125,  # Triviallövskog på våtmark → oförändrad 125
+    116: 116,  # Ädellövskog på fastmark → oförändrad 116
+    126: 126,  # Ädellövskog på våtmark → oförändrad 126
+    117: 117,  # Triviallövskog m. ädellövinslag på fastmark → oförändrad 117
+    127: 127,  # Triviallövskog m. ädellövinslag på våtmark → oförändrad 127
+    118: 118,  # Temporärt ej skog på fastmark → oförändrad 118
+    128: 128,  # Temporärt ej skog på våtmark → oförändrad 128
     
     # Våtmarksklasser — grupperas till två huvudgrupper
-    200: 211,   # Öppen våtmark utan underindelning → 21 (Öppen våtmark på myr)
-    211: 211,   # Buskmyr → 21
-    212: 211,   # Ristuvemyr → 21
-    213: 211,   # Fastmattemyr, mager → 21
-    214: 211,   # Fastmattemyr, frodig → 21
-    215: 211,   # Sumpcärr → 21
-    216: 211,   # Mjukmattemyr → 21
-    217: 211,   # Lösbottenmyr → 21
-    218: 211,   # Övrig öppen myr → 21
+    200: 200,   # Öppen våtmark utan underindelning → 200 (ofärändrad)
+    211: 21,   # Buskmyr → 21 (Öppen våtmark på myr)
+    212: 21,   # Ristuvemyr → 21 (Öppen våtmark på myr)
+    213: 21,   # Fastmattemyr, mager → 21 (Öppen våtmark på myr)
+    214: 21,   # Fastmattemyr, frodig → 21 (Öppen våtmark på myr)
+    215: 21,   # Sumpcärr → 21 (Öppen våtmark på myr)
+    216: 21,   # Mjukmattemyr → 21 (Öppen våtmark på myr)
+    217: 21,   # Lösbottenmyr → 21 (Öppen våtmark på myr)
+    218: 21,   # Övrig öppen myr → 21 (Öppen våtmark på myr)
     
-    221: 221,   # Våtmark med buskar → 22 (Öppen våtmark ej på myr)
-    222: 221,   # Risdominerad våtmark → 22
-    223: 221,   # Gräsdominerad våtmark, mager → 22
-    224: 221,   # Gräsdominerad våtmark, frodvuxen → 22
-    225: 221,   # Gräsdominerad våtmark, högvuxen → 22
-    226: 221,   # Mossdominerad våtmark → 22
-    227: 221,   # Våtmark utan växtäcke → 22
-    228: 221,   # Övrig öppen våtmark → 22
+    221: 22,   # Våtmark med buskar → 22 (Öppen våtmark ej på myr)
+    222: 22,   # Risdominerad våtmark → 22 (Öppen våtmark ej på myr)
+    223: 22,   # Gräsdominerad våtmark, mager → 22 (Öppen våtmark ej på myr)
+    224: 22,   # Gräsdominerad våtmark, frodvuxen → 22 (Öppen våtmark ej på myr)
+    225: 22,   # Gräsdominerad våtmark, högvuxen → 22 (Öppen våtmark ej på myr)
+    226: 22,   # Mossdominerad våtmark → 22 (Öppen våtmark ej på myr)
+    227: 22,   # Våtmark utan växtäcke → 22 (Öppen våtmark ej på myr)
+    228: 22,   # Övrig öppen våtmark → 22 (Öppen våtmark ej på myr)
     
     # Fjällskogar — sammanför fastmark och våtmark
-    23: 23,    # Låg fjällskog på våtmark → 23
-    43: 23,    # Låg fjällskog på fastmark → 23
+    23: 103,    # Låg fjällskog på våtmark → 103
+    43: 103,    # Låg fjällskog på fastmark → 103
     
     # Åkermark
     3: 3,      # Åkermark → 3 (ingen förändring)
     
     # Öppen mark
-    411: 411,   # Öppen fastmark utan vegetation (ej glaciär, varaktigt snöfält) → 41
-    412: 411,   # Samma som 411 → 41
-    413: 411,   # Samma som 411 → 41
+    411: 41,   # Öppen fastmark utan vegetation (ej glaciär, varaktigt snöfält) → 41
+    412: 41,   # Samma som 411 → 41
+    413: 41,   # Samma som 411 → 41
     
-    4211: 4211, # Torr buskdominerad mark → 421
-    4212: 4211, # Frisk buskdominerad mark → 421
-    4213: 4211, # Frisk-fuktig buskdominerad mark → 421
+    421: 421, # Torr buskdominerad mark → 421
+    421: 421, # Frisk buskdominerad mark → 421
+    423: 421, # Frisk-fuktig buskdominerad mark → 421
     
-    4221: 4221, # Torr risdominerad mark → 422
-    4222: 4221, # Frisk risdominerad mark → 422
-    4223: 4221, # Frisk-fuktig risdominerad mark → 422
+    422: 422, # Torr risdominerad mark → 422
+    422: 422, # Frisk risdominerad mark → 422
+    422: 422, # Frisk-fuktig risdominerad mark → 422
     
-    4231: 4231, # Torr gräsdominerad mark → 423
-    4232: 4231, # Frisk gräsdominerad mark → 423
-    4233: 4231, # Frisk-fuktig gräsdominerad mark → 423
+    423: 423, # Torr gräsdominerad mark → 423
+    423: 423, # Frisk gräsdominerad mark → 423
+    423: 423, # Frisk-fuktig gräsdominerad mark → 423
 
     # Bebyggelse och infrastruktur
     51: 51,    # Byggnad → 51 (ingen förändring)
     52: 52,    # Anlagd mark, ej byggnad eller väg/järnväg → 52 (ingen förändring)
-    53: 53,    # Väg eller järnväg → 53 (ingen förändring)
+    53: 53,    # Väg eller järnväg → 53 (ingen förändring, ingår ej)
     54: 54,    # Torvtäkt → 54 (ingen förändring)
     
     # Vatten
-    61: 61,    # Inlandsvatten → 61 (ingen förändring, skyddad klass)
-    62: 62,    # Hav → 62 (ingen förändring, skyddad klass)
+    61: 61,    # Inlandsvatten → 61 (ingen förändring)
+    62: 62,    # Hav → 62 (ingen förändring)
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -374,7 +374,7 @@ ENABLE_STEPS = {
     6: True,    # Generalisering
     7: True,    # Vektorisering
     8: True,    # Mapshaper-förenkling
-    9: False,   # Overlay byggnader från steg 2 på steg 8
+    9: True,    # Overlay byggnader från steg 2 på steg 8
     99: True,   # Bygga QGIS-projekt
 }
 
