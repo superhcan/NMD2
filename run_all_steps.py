@@ -35,7 +35,7 @@ import argparse
 
 # Import pipeline configuration
 sys.path.insert(0, str(Path(__file__).parent / "src"))
-from config import ENABLE_STEPS, OUT_BASE, GENERALIZATION_METHODS
+from config import ENABLE_STEPS, OUT_BASE, GENERALIZATION_METHODS, GRASS_USE_COMBINED_78
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SETUP
@@ -98,15 +98,20 @@ STEPS = {
     },
     7: {
         "name": "Vektorisering",
-        "script": "steg_7_vectorize.py",
+        # När GRASS_USE_COMBINED_78=True hoppas steg 7 över — steg 8 gör allt.
+        "script": None if GRASS_USE_COMBINED_78 else "steg_7_vectorize.py",
         "description": "Konverterar generaliserade raster till GeoPackage-vektorer",
         "requires_dir": "steg_6_generalize"
     },
     8: {
-        "name": "Mapshaper-förenkling",
-        "script": "steg_8_simplify.py",
-        "description": "Förenklar vektorer med topologi-bevarad Mapshaper",
-        "requires_dir": "steg_7_vectorize"
+        "name": "GRASS 7+8 (r.external→v.generalize)" if GRASS_USE_COMBINED_78 else "Mapshaper-förenkling",
+        "script": "steg_78_grass.py" if GRASS_USE_COMBINED_78 else "steg_8_simplify.py",
+        "description": (
+            "r.external→r.patch→r.to.vect→v.generalize→v.clean→v.out.ogr i en GRASS-session"
+            if GRASS_USE_COMBINED_78
+            else "Förenklar vektorer med topologi-bevarad Mapshaper"
+        ),
+        "requires_dir": "steg_6_generalize" if GRASS_USE_COMBINED_78 else "steg_7_vectorize"
     },
     9: {
         "name": "Overlay buildings",
@@ -152,6 +157,8 @@ def check_requirements():
 def check_step_script(step_key):
     """Kontrollera att steg-scriptet finns."""
     script = STEPS[step_key]["script"]
+    if script is None:
+        return True   # Steget är avsiktligt inaktiverat
     script_path = SRC_DIR / script
     
     if not script_path.exists():
@@ -184,6 +191,15 @@ def run_step(step_key):
     """Kör ett enskilt steg."""
     step = STEPS[step_key]
     script = step["script"]
+
+    # Steget är avsiktligt inaktiverat (t.ex. steg 7 när GRASS_USE_COMBINED_78=True)
+    if script is None:
+        log.info("")
+        log.info("=" * 78)
+        log.info(f"\u23ed  STEG {step_key}: {step['name']} — HOPPAS ÖVER (ersätts av steg 8)")
+        log.info("=" * 78)
+        return True
+
     script_path = SRC_DIR / script
     
     log.info("")

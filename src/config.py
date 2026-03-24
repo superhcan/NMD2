@@ -17,7 +17,7 @@ SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.ti
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_morph_disk_r02_dp10_1proc_v01"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_morph_disk_r02_dp10_25pct_v05_grass78"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
@@ -30,7 +30,7 @@ TILE_SIZE        = 1024          # Huvudtile-storlek (pixlar per sida)
 #PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
 #PARENT_TILES     = [(0, col) for col in range(70)]                         # ~1% (rad 0, 70 tiles)
 #PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
-PARENT_TILES     = [(row, col) for row in range(1) for col in range(70)]   # 10% (rader 0-6, 490 tiles)
+PARENT_TILES     = [(row, col) for row in range(18) for col in range(70)]  # ~25% (rader 0-17, 1260 tiles)
 PARENT_TILE_SIZE = 1024          # Matchar TILE_SIZE i steg 1
 SUB_TILE_SIZE    = 1024          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
 HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
@@ -300,11 +300,37 @@ GRASS_SIMPLIFY_THRESHOLD = 10.0       # meter — bakåtkompatibelt (douglas-onl
 # Default i GRASS är ~1000 MB. Med mycket RAM: sätt högt för att hålla hela
 # topologistrukturen i minnet → undviker paginering → 2–4× snabbare.
 # Lämna minst 8–16 GB över till OS + övriga processer.
-GRASS_VECTOR_MEMORY = 40000  # MB (40 GB av 56 GB)
+GRASS_VECTOR_MEMORY = 48000  # MB (48 GB av 56 GB)
+
+# GRASS_OMP_THREADS — antal trådar för OpenMP-stödda delar i GRASS/GDAL.
+# Sätts som OMP_NUM_THREADS i steg 8. Om modul saknar OpenMP ignoreras värdet.
+GRASS_OMP_THREADS = 22
 
 # GRASS_PARALLEL_GPKG — Max antal parallella GRASS-jobb (ett jobb per GPKG).
 # Dela ALDRIG en GPKG — ett jobb måste alltid processera hela filen.
-GRASS_PARALLEL_GPKG = 4  # begränsas automatiskt av antalet GPKGs
+GRASS_PARALLEL_GPKG = 8  # begränsas automatiskt av antalet GPKGs
+
+# GRASS_USE_TILED — Tilebaserad parallelism i steg 8.
+# Delar input-GPKG:n i horisontella bands (hela tile-rader) med överlapp och kör
+# GRASS parallellt på varje band. Klipps sedan tillbaka och sätts ihop.
+# GRASS_TILE_ROWS        — Antal tile-rader per GRASS-chunk (1 = max parallelism).
+# GRASS_TILE_ROW_OVERLAP — Extra buffert-rader ovanför/nedanför varje chunk.
+GRASS_USE_TILED        = True  # True: tilebaserad parallelism; False: ett jobb per GPKG
+# GRASS_USE_COMBINED_78 — Kör steg 7+8 som en enda GRASS-session (steg_78_grass.py).
+# r.external → r.patch → r.to.vect → v.generalize → v.clean → v.out.ogr.
+# Eliminerar topologiska sömsglapp i grunden. Steg 7 hoppas över i run_all_steps.py.
+GRASS_USE_COMBINED_78  = True   # True: använd steg_78_grass.py; False: gamla steg 7+8
+GRASS_TILE_ROWS        = 1     # Tile-rader per chunk
+GRASS_TILE_ROW_OVERLAP = 1     # Buffert-rader (hela tile-rader) som överlapp per sida
+# GRASS_MERGE_BEFORE_GENERALIZE — Ny approach: centroid-baserad extraktion i chunks (parallellt),
+# sedan enskild GRASS-session med v.in.ogr × N → v.patch → v.generalize → v.clean → v.out.ogr.
+# Löser topologiska glapp längs chunkgränser (generaliseringen sker på hela datasetet).
+GRASS_MERGE_BEFORE_GENERALIZE = True   # True: merge-first; False: gammal per-chunk-approach
+# GRASS_SNAP_TOLERANCE — Snap-tolerans (meter) i v.clean-steget efter chunk-merge.
+# Används för att läka topologiska glapp längs chunkgränser som uppstår när samma
+# polygon-kant generaliserats oberoende i två olika GRASS-körningar.
+# Bör sättas till minst lika stort som GRASS_DOUGLAS_THRESHOLD.
+GRASS_SNAP_TOLERANCE   = 0.5   # meter — ST_Buffer(+δ) på varje polygon för att stänga glapp längs chunkgränser
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MORFOLOGISK UTJÄMNING — Rasterbaserad kantutjämning (Steg 6, sista pass)
