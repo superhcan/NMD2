@@ -22,23 +22,23 @@ QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
 # TODO: Ta bort miljövariabeln och hårdkoda OUT_BASE när pipeline är stabil och klar för produktion
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_1proc_v04"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_100proc_v02"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-TILE_SIZE        = 1024          # Huvudtile-storlek (pixlar per sida)
+TILE_SIZE        = 2048          # Huvudtile-storlek (pixlar per sida)
 # 20% av total yta: rader 30-43 × 70 kolumner = 980 tiles
 #PARENT_TILES     = [(row, col) for row in range(30, 44) for col in range(70)]
 #PARENT_TILES     = [(row, col) for row in range(35) for col in range(70)]  # Norra halvan (rader 0-34)
 #PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
-PARENT_TILES     = [(0, col) for col in range(70)]                         # ~1% (rad 0, 70 tiles)
+#PARENT_TILES     = [(0, col) for col in range(70)]                         # ~1% (rad 0, 70 tiles)
 #PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
 #PARENT_TILES     = [(row, col) for row in range(18) for col in range(70)]  # ~25% (rader 0-17, 1260 tiles)
-#PARENT_TILES     = [(row, col) for row in range(70) for col in range(70)]  # 100% (alla 4900 tiles)
-PARENT_TILE_SIZE = 1024          # Matchar TILE_SIZE i steg 1
-SUB_TILE_SIZE    = 1024          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
+PARENT_TILES     = [(row, col) for row in range(35) for col in range(35)]  # 100% (alla 1225 tiles à 2048 px)
+PARENT_TILE_SIZE = 2048          # Matchar TILE_SIZE i steg 1
+SUB_TILE_SIZE    = 2048          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
 HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
 
 # ══════════════════════════════════════════════════════════════════════════════
