@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 steg_78_grass.py — Steg 7+8 kombinerat: r.external → r.patch → r.to.vect →
                     v.generalize → v.clean → v.out.ogr i en enda GRASS-session.

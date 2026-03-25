@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 steg_9_overlay_buildings.py — Step 9: Overlay buildings from steg 2 onto steg 8.
 

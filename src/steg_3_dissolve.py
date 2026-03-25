@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 steg_3_dissolve.py — Steg 3: Lös upp utvalda klasser i omgivande mark.
 

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 steg_99_build_qgis_project.py — Steg 99: Bygg QGIS-projekt från alla steg.
 

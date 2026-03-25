@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 steg_5_filter_islands.py — Steg 5: Fyller små öar < MMU_ISLAND px omringade av vatten.
 

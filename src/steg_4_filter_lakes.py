@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 steg_4_filter_lakes.py — Steg 4: Ta bort små sjöar (vattenytor < MMU_ISLAND px) och fyller med omgivande mark.
 

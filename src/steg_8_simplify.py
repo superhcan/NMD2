@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 steg_8_simplify.py — Steg 8: Mapshaper-baserad vektorförenkling med topologibevarand.
 

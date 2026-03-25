@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 steg_7_vectorize.py — Steg 7: Vektorisering av generaliserat raster.
 
