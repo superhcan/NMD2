@@ -1,17 +1,11 @@
 """
 steg_6_generalize.py — Steg 6: Generalisering med halo-teknik.
 
-Som pipeline_1024_halo.py men nu som separat steg. Använder halo/överlapp vid generalisering
-för att säkerställa att ytor som korsar tilekanter generaliseras korrekt.
+Använder halo/överlapp vid generaliseringför att säkerställa att ytor som korsar 
+tilekanter generaliseras korrekt.
 
 HALO = 100 px på varje tilekant säkerställer att ytor ses som sammanhängande patch 
-istället för två separata när de ligger på tilegrä.
-
-Nyckelskillnad mot tidigare pipeline:
-  - Generaliseringen körs STEG-FÖR-STEG (inte tile-för-tile):
-      Alla tiles → MMU=2 → bygg VRT → alla tiles → MMU=4 → bygg VRT → ...
-  - Varje steg läser HALO px extra från granntilesna via VRT.
-  - Bara den inre kärnan (utan halo) skrivs till utfilen.
+istället för två separata när de ligger på tilegränser.
 
 Kör: python3 src/steg_6_generalize.py
 
