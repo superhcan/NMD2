@@ -1,10 +1,14 @@
 """
 steg_2_extract.py — Steg 2: Extrahera skyddade klasser till separat lager.
 
-Syfte:
-  Vissa klasser (t.ex. byggnader, vägar, vatten — se EXTRACT_CLASSES i config.py)
-  ska INTE generaliseras i steg 6. De sparas undan här och läggs ev tillbaka
-  ovanpå det generaliserade resultatet i steg 9 (overlay).
+Klasser som vägar och byggnader (EXTRACT_CLASSES) ska INTE generaliseras i
+steg 6-8. De sparas undan här och läggs ev tillbaka ovanpå det generaliserade
+resultatet i steg 9 (overlay).
+
+Input:  steg_1_reclassify/*.tif (omklassificerade tiles)
+Output: steg_2_extract/*.tif (enbart EXTRACT_CLASSES, övriga pixlar = 0)
+
+Varje tile får en kopia av .qml-filen så att QGIS laddar paletten automatiskt.
 
 Kör: python3 src/steg_2_extract.py
 """
@@ -41,18 +45,10 @@ def copy_qml(tif_path: Path):
 
 
 def _extract_tile_worker(args):
-    """
-    Parallelworker — körs i en separat process via ProcessPoolExecutor.
+    """Top-level worker för ProcessPoolExecutor.
 
-    Måste vara en top-level-funktion (inte lambdas eller metoder) för att
-    Python's pickle-serialisering ska fungera vid multiprocessing.
-
-    Steg:
-      1. Hoppa över om output redan finns (inkrementell körning).
-      2. Läs rasterdata från steg-1-tile.
-      3. Bygg binär mask för EXTRACT_CLASSES.
-      4. Sätt alla icke-extraherade pixlar till 0 (bakgrund/nodata).
-      5. Skriv resultado-tile och kopiera QML.
+    Måste vara en top-level-funktion (inte lambda eller nästlad) för att
+    kunna serialiseras med pickle mellan processer.
     """
     tile_str, out_path_str, extract_classes_frozen = args
     tile = Path(tile_str)
@@ -91,10 +87,9 @@ def _extract_tile_worker(args):
 
 
 def extract_protected_classes(tile_paths: list[Path]) -> list[Path]:
-    """
-    Extraherar EXTRACT_CLASSES från alla tiles parallellt.
+    """Extraherar EXTRACT_CLASSES från alla tiles parallellt till steg_2_extract/.
 
-    Returnerar lista med sökvägar till output-tiles i steg_2_extract/.
+    Returnerar lista med sökvägar i samma ordning som tile_paths.
     """
     t0_step = time.time()
     out_dir = OUT_BASE / "steg_2_extract"
