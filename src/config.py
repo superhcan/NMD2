@@ -17,7 +17,7 @@ SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.ti
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_morph_disk_r02_dp10_25pct_v06_buildings"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_morph_disk_r02_dp10_100pct_v01_buildings"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
@@ -30,7 +30,8 @@ TILE_SIZE        = 1024          # Huvudtile-storlek (pixlar per sida)
 #PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
 #PARENT_TILES     = [(0, col) for col in range(70)]                         # ~1% (rad 0, 70 tiles)
 #PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
-PARENT_TILES     = [(row, col) for row in range(18) for col in range(70)]  # ~25% (rader 0-17, 1260 tiles)
+#PARENT_TILES     = [(row, col) for row in range(18) for col in range(70)]  # ~25% (rader 0-17, 1260 tiles)
+PARENT_TILES     = [(row, col) for row in range(70) for col in range(70)]  # 100% (alla 4900 tiles)
 PARENT_TILE_SIZE = 1024          # Matchar TILE_SIZE i steg 1
 SUB_TILE_SIZE    = 1024          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
 HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
@@ -52,30 +53,31 @@ DISSOLVE_CLASSES = {51, 53}                        # Klasser som löses upp i om
 
 CLASS_REMAP = {
     # Skogsklasser — sammanför fastmark och våtmark för tallskog till samma klass
-    111: 110,  # Tallskog på fastmark → 110
-    121: 110,  # Tallskog på våtmark → 110
-    112: 112,  # Granskog på fastmark → oförändrad 112
-    122: 122,  # Granskog på våtmark → oförändrad 122
-    113: 113,  # Barrblandskog på fastmark → oförändrad 113
-    123: 123,  # Barrblandskog på våtmark → oförändrad 123
-    114: 114,  # Lövblandad barrskog på fastmark → oförändrad 114
-    124: 124,  # Lövblandad barrskog på våtmark → oförändrad 124
-    115: 115,  # Triviallövskog på fastmark → oförändrad 115
-    125: 125,  # Triviallövskog på våtmark → oförändrad 125
-    116: 116,  # Ädellövskog på fastmark → oförändrad 116
-    126: 126,  # Ädellövskog på våtmark → oförändrad 126
-    117: 117,  # Triviallövskog m. ädellövinslag på fastmark → oförändrad 117
-    127: 127,  # Triviallövskog m. ädellövinslag på våtmark → oförändrad 127
-    118: 118,  # Temporärt ej skog på fastmark → oförändrad 118
-    128: 128,  # Temporärt ej skog på våtmark → oförändrad 128
+    111: 101,  # Tallskog på fastmark → 101
+    121: 101,  # Tallskog på våtmark → 101
+    112: 102,  # Granskog på fastmark → 102
+    122: 102,  # Granskog på våtmark → 102
+    113: 103,  # Barrblandskog på fastmark → 103
+    123: 103,  # Barrblandskog på våtmark → 103
+    114: 104,  # Lövblandad barrskog på fastmark → 104
+    124: 104,  # Lövblandad barrskog på våtmark → 104
+    115: 105,  # Triviallövskog på fastmark → 105
+    125: 105,  # Triviallövskog på våtmark → 105
+    116: 106,  # Ädellövskog på fastmark → 106
+    126: 106,  # Ädellövskog på våtmark → 106
+    117: 107,  # Triviallövskog m. ädellövinslag på fastmark → 107
+    127: 107,  # Triviallövskog m. ädellövinslag på våtmark → 107
+    118: 108,  # Temporärt ej skog på fastmark → 108
+    128: 108,  # Temporärt ej skog på våtmark → 108
     
     # Våtmarksklasser — grupperas till två huvudgrupper
-    200: 200,   # Öppen våtmark utan underindelning → 200 (ofärändrad)
+    200: 200,  # Öppen våtmark utan underindelning → 200 (oförändrad)
+    
     211: 21,   # Buskmyr → 21 (Öppen våtmark på myr)
     212: 21,   # Ristuvemyr → 21 (Öppen våtmark på myr)
     213: 21,   # Fastmattemyr, mager → 21 (Öppen våtmark på myr)
     214: 21,   # Fastmattemyr, frodig → 21 (Öppen våtmark på myr)
-    215: 21,   # Sumpcärr → 21 (Öppen våtmark på myr)
+    215: 21,   # Sumpkärr → 21 (Öppen våtmark på myr)
     216: 21,   # Mjukmattemyr → 21 (Öppen våtmark på myr)
     217: 21,   # Lösbottenmyr → 21 (Öppen våtmark på myr)
     218: 21,   # Övrig öppen myr → 21 (Öppen våtmark på myr)
@@ -86,41 +88,42 @@ CLASS_REMAP = {
     224: 22,   # Gräsdominerad våtmark, frodvuxen → 22 (Öppen våtmark ej på myr)
     225: 22,   # Gräsdominerad våtmark, högvuxen → 22 (Öppen våtmark ej på myr)
     226: 22,   # Mossdominerad våtmark → 22 (Öppen våtmark ej på myr)
-    227: 22,   # Våtmark utan växtäcke → 22 (Öppen våtmark ej på myr)
+    227: 22,   # Våtmark utan växttäcke → 22 (Öppen våtmark ej på myr)
     228: 22,   # Övrig öppen våtmark → 22 (Öppen våtmark ej på myr)
     
     # Fjällskogar — sammanför fastmark och våtmark
-    23: 103,    # Låg fjällskog på våtmark → 103
-    43: 103,    # Låg fjällskog på fastmark → 103
+    23: 103,   # Låg fjällskog på våtmark → 103
+    43: 103,   # Låg fjällskog på fastmark → 103
+    230: 103,  # Låg fjällskog på övrig våtmark → 103
     
     # Åkermark
     3: 3,      # Åkermark → 3 (ingen förändring)
     
     # Öppen mark
-    411: 41,   # Öppen fastmark utan vegetation (ej glaciär, varaktigt snöfält) → 41
-    412: 41,   # Samma som 411 → 41
-    413: 41,   # Samma som 411 → 41
+    411: 41,   # Öppen mark utan vegetation (ej glaciär eller varaktigt snöfält) → 41
+    412: 41,   # Glaciär → 41
+    413: 41,   # Varaktigt snöfält → 41
     
-    421: 421, # Torr buskdominerad mark → 421
-    421: 421, # Frisk buskdominerad mark → 421
-    423: 421, # Frisk-fuktig buskdominerad mark → 421
+    4211: 421, # Torr buskdominerad mark → 421
+    4212: 421, # Frisk buskdominerad mark → 421
+    4213: 421, # Frisk-fuktig buskdominerad mark → 421
     
-    422: 422, # Torr risdominerad mark → 422
-    422: 422, # Frisk risdominerad mark → 422
-    422: 422, # Frisk-fuktig risdominerad mark → 422
+    4221: 422, # Torr risdominerad mark → 422
+    4222: 422, # Frisk risdominerad mark → 422
+    4223: 422, # Frisk-fuktig risdominerad mark → 422
     
-    423: 423, # Torr gräsdominerad mark → 423
-    423: 423, # Frisk gräsdominerad mark → 423
-    423: 423, # Frisk-fuktig gräsdominerad mark → 423
+    4231: 423, # Torr gräsdominerad mark → 423
+    4232: 423, # Frisk gräsdominerad mark → 423
+    4233: 423, # Frisk-fuktig gräsdominerad mark → 423
 
     # Bebyggelse och infrastruktur
-    51: 51,    # Byggnad → 51 (ingen förändring)
-    52: 52,    # Anlagd mark, ej byggnad eller väg/järnväg → 52 (ingen förändring)
-    53: 53,    # Väg eller järnväg → 53 (ingen förändring, ingår ej)
-    54: 54,    # Torvtäkt → 54 (ingen förändring)
+    51: 51,    # Exploaterad mark, byggnad → 51 (ingen förändring)
+    52: 52,    # Exploaterad mark, ej byggnad eller väg/järnväg → 52 (ingen förändring)
+    53: 53,    # Exploaterad mark, väg/järnväg → 53 (ingen förändring, ingår ej)
+    54: 54,    # Exploaterad mark, torvtäkt → 54 (ingen förändring)
     
     # Vatten
-    61: 61,    # Inlandsvatten → 61 (ingen förändring)
+    61: 61,    # Sjö och vattendrag → 61 (ingen förändring)
     62: 62,    # Hav → 62 (ingen förändring)
 }
 

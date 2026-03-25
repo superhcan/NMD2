@@ -37,6 +37,7 @@ from config import OUT_BASE
 BUILDING_CLASS = 51
 LN = "markslag"
 N_WORKERS = mp.cpu_count()
+N_IO_WORKERS = min(8, mp.cpu_count())  # tile-maskning är disk-I/O-bound, inte CPU-bound
 
 # ─── Module-level globals — sätts i main-processen INNAN Pool skapas. ───────
 # Med fork (Linux default) ärvs de COW i worker-processer utan kopiering.
@@ -134,21 +135,23 @@ def vectorize_buildings(steg2_dir, tmp_dir, log):
         log.warning("No TIF files found in steg2_extracted")
         return None
 
-    log.info("  Maskar %d tiles till klass %d (%d kärnor)...", len(tifs), BUILDING_CLASS, N_WORKERS)
+    log.info("  Maskar %d tiles till klass %d (%d I/O-workers)...", len(tifs), BUILDING_CLASS, N_IO_WORKERS)
     mask_args = [
         (str(tif), str(tmp_dir / f"mask_{tif.name}"), BUILDING_CLASS)
         for tif in tifs
     ]
-    with mp.Pool(N_WORKERS) as pool:
-        masked_paths = pool.map(_mask_tile, mask_args)
+    with mp.Pool(N_IO_WORKERS) as pool:
+        masked_paths = pool.map(_mask_tile, mask_args, chunksize=50)
     masked_tifs = [Path(p) for p in masked_paths]
 
-    # Build VRT over all masked tiles
+    # Build VRT over all masked tiles — använd input_file_list för att undvika
+    # "Argument list too long" vid >~1000 filer
     vrt = tmp_dir / "buildings.vrt"
-    tif_str = " ".join(f'"{t}"' for t in masked_tifs)
+    file_list = tmp_dir / "masked_tifs.txt"
+    file_list.write_text("\n".join(str(t) for t in masked_tifs))
     r = subprocess.run(
-        f'gdalbuildvrt "{vrt}" {tif_str}',
-        shell=True, capture_output=True, text=True,
+        ["gdalbuildvrt", "-input_file_list", str(file_list), str(vrt)],
+        capture_output=True, text=True,
     )
     if r.returncode != 0:
         log.error("gdalbuildvrt failed: %s", r.stderr)
@@ -308,7 +311,9 @@ if __name__ == "__main__":
     log.info("Output       : %s", out_dir)
     log.info("══════════════════════════════════════════════════════════")
 
-    tmp_dir = Path(tempfile.mkdtemp(prefix="steg9_"))
+    # Placera tmp i out_dir (inte /tmp) — 4900 masktiles ≈ 5 GB
+    tmp_dir = out_dir / "_tmp_steg9"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
     try:
         log.info("Step 1: Vectorize buildings (class 51) from steg 2...")
         buildings_gpkg = vectorize_buildings(steg2_dir, tmp_dir, log)
