@@ -162,7 +162,7 @@ def build_qgis_project():
         (4, "Step 4 - Filtered lakes", OUT_BASE / "steg_4_filter_lakes"),
         (3, "Step 3 - Dissolved classes", OUT_BASE / "steg_3_dissolve"),
         (2, "Step 2 - Extracted classes", OUT_BASE / "steg_2_extract"),
-        (1, "Step 1 - Tiles with remapping", OUT_BASE / "steg_1_split_tiles"),
+        (1, "Step 1 - Reclassified tiles", OUT_BASE / "steg_1_reclassify"),
         (0, "Step 0 - Verification tiles (original)", OUT_BASE / "steg_0_verify_tiles"),
     ]
     

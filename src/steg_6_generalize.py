@@ -793,7 +793,7 @@ if __name__ == "__main__":
         raise FileNotFoundError(f"Varken steg_4_filter_lakes/ eller steg_5_filter_islands/")
 
     landscape_paths = sorted(landscape_dir.glob("*.tif"))
-    tile_paths = sorted((OUT_BASE / "steg_1_split_tiles").glob("*.tif")) if (OUT_BASE / "steg_1_split_tiles").exists() else []
+    tile_paths = sorted((OUT_BASE / "steg_1_reclassify").glob("*.tif")) if (OUT_BASE / "steg_1_reclassify").exists() else []
 
     # Kör bara aktiverade generaliseringsmetoder
     if "conn4" in GENERALIZATION_METHODS:

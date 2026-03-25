@@ -2,7 +2,7 @@
 
 ## Analys av steg_*.py Loggning
 
-### Steg 1: steg_1_split_tiles.py
+### Steg 1: steg_1_reclassify.py
 **Setup-funktion:** `setup_logging()` från `logging_setup`  
 **Separator lines:** Nej  
 **__main__ Loggning:**

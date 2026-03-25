@@ -109,13 +109,13 @@ if __name__ == "__main__":
     setup_logging(OUT_BASE, step_num, step_name)
     
     log_step_header(info, 2, "Extract classes",
-                    str(OUT_BASE / "steg_1_split_tiles"),
+                    str(OUT_BASE / "steg_1_reclassify"),
                     str(OUT_BASE / "steg_2_extract"))
     
     # Läs tiles från Steg 1
-    tiles_dir = OUT_BASE / "steg_1_split_tiles"
+    tiles_dir = OUT_BASE / "steg_1_reclassify"
     if not tiles_dir.exists():
-        info.error(f"Fel: {tiles_dir} finns ej. Kör Steg 1 först (steg_1_split_tiles.py)")
+        info.error(f"Fel: {tiles_dir} finns ej. Kör Steg 1 först (steg_1_reclassify.py)")
         exit(1)
     
     tile_paths = sorted(tiles_dir.glob("*.tif"))

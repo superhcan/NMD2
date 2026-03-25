@@ -162,9 +162,9 @@ if __name__ == "__main__":
     # Läs tiles från Steg 3, eller fallback till Steg 1 om Steg 3 är inaktiverat
     tiles_dir = OUT_BASE / "steg_3_dissolve"
     if not tiles_dir.exists():
-        fallback = OUT_BASE / "steg_1_split_tiles"
+        fallback = OUT_BASE / "steg_1_reclassify"
         if fallback.exists():
-            info.info(f"steg_3_dissolve/ saknas – använder steg_1_split_tiles/ som indata")
+            info.info(f"steg_3_dissolve/ saknas – använder steg_1_reclassify/ som indata")
             tiles_dir = fallback
         else:
             info.error(f"Fel: {tiles_dir} finns ej. Kör Steg 1-3 först")

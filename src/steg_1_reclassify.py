@@ -1,5 +1,5 @@
 """
-steg_1_split_tiles.py — Steg 1: Klassomklassificering från steg 0 tiles.
+steg_1_reclassify.py — Steg 1: Omklassificering av tiles från steg 0.
 
 Läser redan uppdelade tiles från steg0_verify_tiles/ och applicerar
 CLASS_REMAP för omklassificering från NMD-koder till slutklasser.
@@ -10,7 +10,7 @@ Output: steg1_tiles/*.tif (omklassificerade tiles)
 Namnkonvention: NMD2023bas_tile_r{rad:03d}_c{kol:03d}.tif
 Varje tile får en kopia av .qml-filen så att QGIS hittar paletten automatiskt.
 
-Kör: python3 steg_1_split_tiles.py
+Kör: python3 steg_1_reclassify.py
 """
 
 import logging
@@ -40,7 +40,7 @@ for _old, _new in CLASS_REMAP.items():
 # ──────────────────────────────────────────────────────────────────────────────
 
 STEG0_DIR = OUT_BASE / "steg_0_verify_tiles"
-OUT_DIR   = OUT_BASE / "steg_1_split_tiles"
+OUT_DIR   = OUT_BASE / "steg_1_reclassify"
 
 
 def _remap_worker(args):

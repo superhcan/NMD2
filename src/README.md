@@ -15,7 +15,7 @@ All aktiv pipeline-kod läggs här. Pipeline är organiserad som **separata steg
 ### 🚀 Pipeline-Steg (i ordning)
 
 **Steg 1: Tileluppdelning**
-- **`steg_1_split_tiles.py`** - Delar original-raster (5.8 GB) i 1024×1024 px tiles (16 st)
+- **`steg_1_reclassify.py`** - Omklassificerar tiles med CLASS_REMAP (LUT)
 
 **Steg 2: Extrahera skyddade klasser**
 - **`steg_2_extract_protected.py`** - Extraherar vägar, byggnader, vatten (klass 51-54, 61-62) för senare sammansättning
@@ -69,7 +69,7 @@ python3 run_all_steps.py --list         # Visa alla steg
 cd /home/hcn/projects/NMD2/src
 
 # Steg 1: Tileluppdelning
-python3 steg_1_split_tiles.py
+python3 steg_1_reclassify.py
 
 # Steg 2: Extrahera skyddade klasser
 python3 steg_2_extract.py

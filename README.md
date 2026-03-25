@@ -30,7 +30,7 @@ source .venv/bin/activate
 cd src
 
 # Steg 1-4: Förberedelse
-python3 steg_1_split_tiles.py
+python3 steg_1_reclassify.py
 python3 steg_2_extract_protected.py
 python3 steg_3_extract_landscape.py
 python3 steg_4_filter_lakes.py
@@ -48,7 +48,7 @@ python3 steg_9_build_qgis_project.py
 ## 📂 Projektstruktur - 9 Steg
 
 **Nya separata steg-filer (i ordning):**
-- `steg_1_split_tiles.py` — Tileluppdelning (1024×1024 px)
+- `steg_1_reclassify.py` — Omklassificering av tiles (CLASS_REMAP via LUT)
 - `steg_2_extract_protected.py` — Extrahera skyddade klasser
 - `steg_3_extract_landscape.py` — Extrahera landskapsbild
 - `steg_4_filter_lakes.py` — Ta bort små sjöar

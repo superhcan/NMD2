@@ -4,7 +4,7 @@ run_all_steps.py — Master orchestrator för NMD2 pipeline.
 
 Kör alla steg i rätt ordning:
   Steg 0: Verifikation - tileluppdelning utan omklassificering (steg_0_verify_tiles.py)
-  Steg 1: Tileluppdelning med omklassificering (steg_1_split_tiles.py)
+  Steg 1: Omklassificering av tiles (steg_1_reclassify.py)
   Steg 2: Extract classes (steg_2_extract.py)
   Steg 3: Lös upp klasser i omgivande mark (steg_3_dissolve.py)
   Steg 4: Ta bort små sjöar < 0,5 ha (steg_4_filter_lakes.py)
@@ -61,8 +61,8 @@ STEPS = {
         "description": "Delar original-raster i 1024×1024 px tiles utan omklassificering (för verifikation)"
     },
     1: {
-        "name": "Tileluppdelning med omklassificering",
-        "script": "steg_1_split_tiles.py",
+        "name": "Omklassificering av tiles",
+        "script": "steg_1_reclassify.py",
         "description": "Applicerar CLASS_REMAP på tiles från steg 0",
         "requires_dir": "steg_0_verify_tiles"
     },
@@ -70,19 +70,19 @@ STEPS = {
         "name": "Extract classes",
         "script": "steg_2_extract.py",
         "description": "Extracts EXTRACT_CLASSES to separate layer for later vectorization",
-        "requires_dir": "steg_1_split_tiles"
+        "requires_dir": "steg_1_reclassify"
     },
     3: {
         "name": "Lös upp klasser i omgivande mark",
         "script": "steg_3_dissolve.py",
         "description": "Ersätter DISSOLVE_CLASSES med omkringliggande mark för generalisering",
-        "requires_dir": "steg_1_split_tiles"
+        "requires_dir": "steg_1_reclassify"
     },
     4: {
         "name": "Ta bort små områden",
         "script": "steg_4_filter_lakes.py",
         "description": "Tar bort små sjöar < 0,5 ha (< 50 px) och fyller med omkringliggande",
-        "requires_dir": "steg_3_dissolve" if ENABLE_STEPS.get(3, True) else "steg_1_split_tiles"
+        "requires_dir": "steg_3_dissolve" if ENABLE_STEPS.get(3, True) else "steg_1_reclassify"
     },
     5: {
         "name": "Fylla små öar",

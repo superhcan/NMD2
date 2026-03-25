@@ -120,11 +120,11 @@ if __name__ == "__main__":
     setup_logging(OUT_BASE, step_num, step_name)
     
     log_step_header(info, 3, "Lös upp klasser i omgivande mark",
-                    str(OUT_BASE / "steg_1_split_tiles"),
+                    str(OUT_BASE / "steg_1_reclassify"),
                     str(OUT_BASE / "steg_3_dissolve"))
     
     # Läs tiles från Steg 1
-    tiles_dir = OUT_BASE / "steg_1_split_tiles"
+    tiles_dir = OUT_BASE / "steg_1_reclassify"
     if not tiles_dir.exists():
         info.error(f"Fel: {tiles_dir} finns ej. Kör Steg 1 först (split_tiles.py)")
         exit(1)
