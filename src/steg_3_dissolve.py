@@ -20,7 +20,7 @@ import numpy as np
 import rasterio
 from scipy import ndimage
 
-from config import QML_SRC, OUT_BASE, DISSOLVE_CLASSES, STRUCT_4, COMPRESS
+from config import QML_RECLASSIFY, OUT_BASE, DISSOLVE_CLASSES, STRUCT_4, COMPRESS
 
 N_WORKERS = max(1, (os.cpu_count() or 1) - 2)
 
@@ -30,8 +30,8 @@ info = logging.getLogger("pipeline.summary")
 
 def copy_qml(tif_path: Path):
     """Kopiera referens-QML-fil till TIF-filen."""
-    if QML_SRC.exists():
-        shutil.copy2(QML_SRC, tif_path.with_suffix(".qml"))
+    if QML_RECLASSIFY.exists():
+        shutil.copy2(QML_RECLASSIFY, tif_path.with_suffix(".qml"))
         log.debug("QML kopierad → %s", tif_path.with_suffix(".qml").name)
 
 
@@ -69,8 +69,8 @@ def _dissolve_tile_worker(args):
     with rasterio.open(out_path, "w", **meta) as dst:
         dst.write(landscape_data, 1)
 
-    if QML_SRC.exists():
-        shutil.copy2(QML_SRC, out_path.with_suffix(".qml"))
+    if QML_RECLASSIFY.exists():
+        shutil.copy2(QML_RECLASSIFY, out_path.with_suffix(".qml"))
 
     elapsed = time.time() - t0
     return out_path_str, px_replaced, elapsed

@@ -15,9 +15,14 @@ import numpy as np
 
 SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.tif")
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
+# QML-fil för reklassificerade tiles (steg 1 och framåt).
+# Faller tillbaka på QML_SRC om filen saknas.
+_RECLASSIFY_QML = Path(__file__).parent / "qml" / "steg_1_reclassify.qml"
+QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_1proc_v01"))
+# TODO: Ta bort miljövariabeln och hårdkoda OUT_BASE när pipeline är stabil och klar för produktion
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_1proc_v02"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
@@ -376,7 +381,7 @@ ENABLE_STEPS = {
     5: True,    # Ta bort (filtrera) små sjöar < 0,5 ha
     6: True,    # Generalisering
     7: True,    # Vektorisering
-    8: True,    # Mapshaper-förenkling
+    8: True,    # Simplifiering
     9: True,    # Overlay byggnader från steg 2 på steg 8
     99: True,   # Bygga QGIS-projekt
 }
@@ -390,10 +395,10 @@ ENABLE_STEPS = {
 QGIS_INCLUDE_STEPS = {
     0: True,   # Verifieringstiles (original, 980 rasterfiler)
     1: True,   # Tiles med omklassificering (980 rasterfiler)
-    2: False,  # Extraherade skyddade klasser (980 rasterfiler)
-    3: False,   # Upplöst landskapsbild (980 rasterfiler)
+    2: True,  # Extraherade skyddade klasser (980 rasterfiler)
+    3: True,   # Upplöst landskapsbild (980 rasterfiler)
     4: False,   # Fyllda sjöar (980 rasterfiler)
-    5: False,   # Fyllda öar (980 rasterfiler)
+    5: True,   # Fyllda öar (980 rasterfiler)
     6: True,    # Generaliserat raster (steg6_generalized_*/)
     7: False,    # Vektoriserade GeoPackage
     8: True,    # Förenklat (Mapshaper)

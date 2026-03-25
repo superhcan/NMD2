@@ -23,7 +23,7 @@ import numpy as np
 import rasterio
 from scipy import ndimage
 
-from config import QML_SRC, OUT_BASE, MMU_ISLAND, COMPRESS, ISLAND_FILL_SURROUNDS
+from config import QML_RECLASSIFY, OUT_BASE, MMU_ISLAND, COMPRESS, ISLAND_FILL_SURROUNDS
 
 log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -31,8 +31,8 @@ info = logging.getLogger("pipeline.summary")
 
 def copy_qml(tif_path: Path):
     """Kopiera referens-QML-fil till TIF-filen."""
-    if QML_SRC.exists():
-        shutil.copy2(QML_SRC, tif_path.with_suffix(".qml"))
+    if QML_RECLASSIFY.exists():
+        shutil.copy2(QML_RECLASSIFY, tif_path.with_suffix(".qml"))
         log.debug("QML kopierad → %s", tif_path.with_suffix(".qml").name)
 
 

@@ -29,7 +29,7 @@ from rasterio.windows import Window
 from scipy import ndimage
 from scipy.ndimage import uniform_filter
 
-from config import OUT_BASE, SRC, QML_SRC, GENERALIZE_PROTECTED as PROTECTED, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS, MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS
+from config import OUT_BASE, SRC, QML_RECLASSIFY, GENERALIZE_PROTECTED as PROTECTED, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS, MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Logging – två loggers + console
@@ -123,8 +123,8 @@ STRUCT_4 = np.array([[0, 1, 0],
 # ══════════════════════════════════════════════════════════════════════════════
 
 def copy_qml(tif_path: Path):
-    if QML_SRC.exists():
-        shutil.copy2(QML_SRC, tif_path.with_suffix(".qml"))
+    if QML_RECLASSIFY.exists():
+        shutil.copy2(QML_RECLASSIFY, tif_path.with_suffix(".qml"))
         log.debug("QML kopierad → %s", tif_path.with_suffix(".qml").name)
 
 
