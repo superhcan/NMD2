@@ -17,7 +17,7 @@ SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.ti
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_morph_disk_r02_dp10_100pct_v01_buildings"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_1proc_v01"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
@@ -28,10 +28,10 @@ TILE_SIZE        = 1024          # Huvudtile-storlek (pixlar per sida)
 #PARENT_TILES     = [(row, col) for row in range(30, 44) for col in range(70)]
 #PARENT_TILES     = [(row, col) for row in range(35) for col in range(70)]  # Norra halvan (rader 0-34)
 #PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
-#PARENT_TILES     = [(0, col) for col in range(70)]                         # ~1% (rad 0, 70 tiles)
+PARENT_TILES     = [(0, col) for col in range(70)]                         # ~1% (rad 0, 70 tiles)
 #PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
 #PARENT_TILES     = [(row, col) for row in range(18) for col in range(70)]  # ~25% (rader 0-17, 1260 tiles)
-PARENT_TILES     = [(row, col) for row in range(70) for col in range(70)]  # 100% (alla 4900 tiles)
+#PARENT_TILES     = [(row, col) for row in range(70) for col in range(70)]  # 100% (alla 4900 tiles)
 PARENT_TILE_SIZE = 1024          # Matchar TILE_SIZE i steg 1
 SUB_TILE_SIZE    = 1024          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
 HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
@@ -389,8 +389,8 @@ ENABLE_STEPS = {
 #
 QGIS_INCLUDE_STEPS = {
     0: True,   # Verifieringstiles (original, 980 rasterfiler)
-    1: False,   # Tiles med omklassificering (980 rasterfiler)
-    2: False,   # Extraherade skyddade klasser (980 rasterfiler)
+    1: True,   # Tiles med omklassificering (980 rasterfiler)
+    2: False,  # Extraherade skyddade klasser (980 rasterfiler)
     3: False,   # Upplöst landskapsbild (980 rasterfiler)
     4: False,   # Fyllda sjöar (980 rasterfiler)
     5: False,   # Fyllda öar (980 rasterfiler)

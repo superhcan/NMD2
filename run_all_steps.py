@@ -123,7 +123,12 @@ STEPS = {
         "name": "Bygga QGIS-projekt",
         "script": "steg_99_build_qgis_project.py",
         "description": "Bygger QGIS-projekt med alla steg organiserade i grupper",
-        "requires_dir": "steg_8_simplify"
+        # Minst ett av dessa steg måste ha körts; steg 99 hanterar själv saknade kataloger
+        "requires_any_dir": ["steg_9_overlay_buildings", "steg_8_simplify",
+                             "steg_7_vectorize", "steg_6_generalize",
+                             "steg_5_filter_islands", "steg_4_filter_lakes",
+                             "steg_3_dissolve", "steg_2_extract",
+                             "steg_1_reclassify", "steg_0_verify_tiles"]
     }
 }
 
@@ -170,19 +175,29 @@ def check_step_script(step_key):
 
 def check_input_directory(step_key):
     """Kontrollera att input-katalogen från föregående steg finns."""
-    if "requires_dir" not in STEPS[step_key]:
-        return True  # Steg 1 behöver ingen input-katalog
-    
-    req_dir = STEPS[step_key]["requires_dir"]
-    if req_dir is None:
-        return True  # Steg hanterar input-katalog själv (t.ex. steg 5)
-    
-    input_path = OUT_BASE / req_dir
-    
-    if not input_path.exists():
-        log.warning(f"⚠️  Steg {step_key}: Input-katalog {req_dir}/ saknas")
-        log.warning(f"   Kör föregående steg först eller kontrollera paths")
-        return False
+    if "requires_dir" not in STEPS[step_key] and "requires_any_dir" not in STEPS[step_key]:
+        return True  # Steget behöver ingen input-katalog
+
+    # Krav på exakt en katalog
+    if "requires_dir" in STEPS[step_key]:
+        req_dir = STEPS[step_key]["requires_dir"]
+        if req_dir is None:
+            return True  # Steget hanterar input-katalog själv (t.ex. steg 5)
+        input_path = OUT_BASE / req_dir
+        if not input_path.exists():
+            log.warning(f"⚠️  Steg {step_key}: Input-katalog {req_dir}/ saknas")
+            log.warning(f"   Kör föregående steg först eller kontrollera paths")
+            return False
+        return True
+
+    # Krav på minst en av flera kataloger (t.ex. steg 99)
+    candidates = STEPS[step_key]["requires_any_dir"]
+    for candidate in candidates:
+        if (OUT_BASE / candidate).exists():
+            return True
+    log.warning(f"⚠️  Steg {step_key}: Ingen av katalogerna finns: {', '.join(candidates[:3])} ...")
+    log.warning(f"   Kör minst ett föregående steg (t.ex. steg 0) först")
+    return False
     
     return True
 
