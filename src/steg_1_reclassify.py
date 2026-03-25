@@ -26,6 +26,11 @@ import rasterio
 
 from config import QML_SRC, OUT_BASE, COMPRESS, CLASS_REMAP
 
+# QML-fil som stämmer med de reklassificerade koderna.
+# Genereras av generate_reclassify_qml.py; faller tillbaka på original-QML om den saknas.
+_RECLASSIFY_QML = Path(__file__).parent / "steg_1_reclassify.qml"
+QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
+
 # Två separata loggers: 'debug' för detaljerade meddelanden, 'summary' för pipeline-översikten
 log = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -61,7 +66,7 @@ def _remap_worker(args):
     src = Path(src_str)
     out = Path(out_str)
 
-    # Stöd för återupptagen körning: hoppa över tiles som redan är klara
+    # Stöd för återupptagen körning: hoppa över tiles som redan är klara.
     if out.exists():
         return out_str, 0.0
 
@@ -85,9 +90,9 @@ def _remap_worker(args):
     with rasterio.open(out, "w", **meta) as f:
         f.write(remapped, 1)
 
-    # Kopiera QML-stilfil så att QGIS laddar färgpaletten automatiskt vid öppning
-    if QML_SRC.exists():
-        shutil.copy2(QML_SRC, out.with_suffix(".qml"))
+    # Kopiera QML-stilfil (reklassificeringspalett) så att QGIS laddar rätt färger automatiskt
+    if QML_RECLASSIFY.exists():
+        shutil.copy2(QML_RECLASSIFY, out.with_suffix(".qml"))
 
     return out_str, time.time() - t0
 
