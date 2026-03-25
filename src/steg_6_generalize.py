@@ -39,8 +39,8 @@ _LOGGERS = {}
 
 def _setup_logging(out_base: Path):
     """Skapar två loggfiler:
-      debug   – alla level (DEBUG+)  → log/debug_steg_N_namn_ts.log
-      summary – INFO+                → summary/summary_steg_N_namn_ts.log + console
+      debug   - alla level (DEBUG+)  → log/debug_steg_N_namn_ts.log
+      summary - INFO+                → summary/summary_steg_N_namn_ts.log + console
     """
     import os
     log_dir = out_base / "log"
@@ -143,9 +143,9 @@ def read_with_halo(vrt_path: Path, tile_path: Path):
     Läser tile + HALO px kant från VRT.
 
     Returnerar:
-      padded_data  – numpy array (h+2*halo, w+2*halo) klippt mot VRT-gränser
-      tile_meta    – meta dict för originaltilen (för skrivning av utdata)
-      inner_slice  – (row_slice, col_slice) som plockar ut tile-kärnan
+      padded_data  - numpy array (h+2*halo, w+2*halo) klippt mot VRT-gränser
+      tile_meta    - meta dict för originaltilen (för skrivning av utdata)
+      inner_slice  - (row_slice, col_slice) som plockar ut tile-kärnan
     """
     with rasterio.open(vrt_path) as vrt, rasterio.open(tile_path) as tile:
         vt = vrt.transform
@@ -789,7 +789,7 @@ if __name__ == "__main__":
         landscape_dir = OUT_BASE / "steg_3_dissolve"
 
     if not landscape_dir.exists():
-        info.error("❌ Ingen input-katalog hittad. Kör Steg 1-5 först.")
+        info.error("Ingen input-katalog hittad. Kör Steg 1-5 först.")
         raise FileNotFoundError(f"Varken steg_4_filter_lakes/ eller steg_5_filter_islands/")
 
     landscape_paths = sorted(landscape_dir.glob("*.tif"))
@@ -830,6 +830,6 @@ if __name__ == "__main__":
 
     elapsed = time.time() - t_total
     info.info("══════════════════════════════════════════════════════════")
-    info.info("Steg 6 KLART  totaltid: %.0fs (%.1f min)", elapsed, elapsed / 60)
+    info.info("Steg 6 klart  totaltid: %.1f min (%.0fs)", elapsed / 60, elapsed)
     info.info("Utdata: %s", OUT_BASE)
-    info.info("════════════════════════════════════════════════════════════")
+    info.info("═══════════════════════════════════════════════════════════════")

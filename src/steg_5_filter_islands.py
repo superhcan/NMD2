@@ -103,9 +103,10 @@ def fill_small_islands(data: np.ndarray, water_classes: set, mmu: int) -> tuple[
 
         # Mask för just den här komponenten inom sub-matrisen.
         local_mask    = (sub_labeled == comp_id)
-        # Dilatera masken en pixel — ger komponenten + dess direkta grannar.
+        # binary_dilation expanderar masken ett steg i varje riktning (upp/ner/vänster/höger).
+        # Resultatet = komponenten + dess direkta 4-grannar.
         local_dilated = ndimage.binary_dilation(local_mask, structure=STRUCT_4)
-        # "Ringen" = grannarna utan komponenten själv.
+        # "Ringen" = grannpixlarna runt komponenten (den expanderade masken minus komponenten själv).
         local_ring    = local_dilated & ~local_mask
 
         neighbors = sub_data[local_ring]

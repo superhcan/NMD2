@@ -22,7 +22,7 @@ QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
 # TODO: Ta bort miljövariabeln och hårdkoda OUT_BASE när pipeline är stabil och klar för produktion
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_1proc_v03"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_1proc_v04"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
@@ -502,6 +502,8 @@ NODATA_TMP = 65535          # Temporär nodata-värde för sieve-masking
 # ══════════════════════════════════════════════════════════════════════════════
 # STRUCTURAL ELEMENTS
 # ══════════════════════════════════════════════════════════════════════════════
+
+# TODO: Används denna fortfarande? 
 
 STRUCT_4 = np.array([[0, 1, 0],
                      [1, 1, 1],
