@@ -28,7 +28,7 @@ from config import QML_SRC, OUT_BASE, COMPRESS, CLASS_REMAP
 
 # QML-fil som stämmer med de reklassificerade koderna.
 # Genereras av generate_reclassify_qml.py; faller tillbaka på original-QML om den saknas.
-_RECLASSIFY_QML = Path(__file__).parent / "steg_1_reclassify.qml"
+_RECLASSIFY_QML = Path(__file__).parent / "qml" / "steg_1_reclassify.qml"
 QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 
 # Två separata loggers: 'debug' för detaljerade meddelanden, 'summary' för pipeline-översikten

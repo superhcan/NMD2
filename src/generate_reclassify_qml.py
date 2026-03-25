@@ -23,7 +23,7 @@ from config import QML_SRC, CLASS_REMAP
 
 # Utdatafilen hamnar i samma katalog som det här skriptet (src/).
 # steg_1_reclassify.py letar efter den med __file__.parent / "steg_1_reclassify.qml".
-OUT_QML = Path(__file__).parent / "steg_1_reclassify.qml"
+OUT_QML = Path(__file__).parent / "qml" / "steg_1_reclassify.qml"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Svenska namn för de nya slutklasserna efter reklassificering
