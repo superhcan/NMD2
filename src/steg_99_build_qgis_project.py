@@ -339,7 +339,9 @@ def build_qgis_project():
 
                 log.info(f"  {method.upper():45s} ({sum(len(v) for v in settings.values())} lager)\n")
 
-        # Speciell hantering för Steg 8 – metod → MMU/kernel → tolerance → lager
+        # Speciell hantering för Steg 8 – metod → variant → tolerance → lager
+        # Hanterar både Mapshaper-format (conn4_mmu008_simplified_p25)
+        # och GRASS-format     (conn4_morph_disk_r02_dp10)
         elif step_num == 8:
             layer_files = sorted(step_dir.glob("*.gpkg"))
             if not layer_files:
@@ -348,22 +350,36 @@ def build_qgis_project():
 
             known_methods = ["conn4", "conn8", "modal", "semantic"]
 
+            import re as _re8
+
             def _parse_steg8(stem):
-                """conn4_mmu008_simplified_p25 → (method, setting_label, tolerance)"""
-                parts = stem.split("_simplified_")
-                if len(parts) != 2:
-                    return None, None, None
-                variant, tolerance = parts[0], parts[1]
-                for m in known_methods:
-                    if variant.startswith(m + "_"):
-                        rest = variant[len(m) + 1:]
-                        if rest.startswith("mmu"):
-                            return m, f"MMU {rest[3:]}px", tolerance
-                        elif rest.startswith("k"):
-                            return m, f"Kernel radius k={rest[1:]}", tolerance
+                """
+                Mapshaper: conn4_mmu008_simplified_p25 → (method, setting_label, tolerance)
+                GRASS:     conn4_morph_disk_r02_dp10   → (method, setting_label, tolerance)
+                """
+                # Mapshaper-format: innehåller '_simplified_'
+                if "_simplified_" in stem:
+                    parts = stem.split("_simplified_")
+                    if len(parts) == 2:
+                        variant, tolerance = parts[0], parts[1]
+                        for m in known_methods:
+                            if variant.startswith(m + "_"):
+                                rest = variant[len(m) + 1:]
+                                if rest.startswith("mmu"):
+                                    return m, f"MMU {rest[3:]}px", tolerance
+                                elif rest.startswith("k"):
+                                    return m, f"Kernel radius k={rest[1:]}", tolerance
+                # GRASS-format: suffix = dp{N} | chaiken_t{N} | dp{N}_chaiken_t{N}
+                sfx_m = _re8.search(r'_(dp\d+(?:_chaiken_t\d+)?|chaiken_t\d+)$', stem)
+                if sfx_m:
+                    sfx = sfx_m.group(1)
+                    before = stem[:sfx_m.start()]
+                    for m in known_methods:
+                        if before.startswith(m + "_"):
+                            return m, before[len(m) + 1:], sfx
                 return None, None, None
 
-            # Tillåtna toleranser baserade på config
+            # Tillåtna Mapshaper-toleranser; GRASS-suffix (dp*, chaiken_t*) alltid tillåtna
             allowed_tolerances = {f"p{t}" for t in SIMPLIFICATION_TOLERANCES}
 
             # Bygg metod → setting_label → tolerance → [filer]
@@ -371,8 +387,10 @@ def build_qgis_project():
             for lf in layer_files:
                 method, setting_label, tolerance = _parse_steg8(lf.stem)
                 if method is None:
+                    log.debug(f"  Hoppar {lf.name} – okänt namnformat")
                     continue
-                if tolerance not in allowed_tolerances:
+                is_grass_sfx = bool(_re8.match(r'dp\d+|chaiken_t\d+', tolerance))
+                if not is_grass_sfx and tolerance not in allowed_tolerances:
                     log.debug(f"  Hoppar {lf.name} – tolerans {tolerance} ej i SIMPLIFICATION_TOLERANCES")
                     continue
                 methods_dict \
@@ -390,10 +408,11 @@ def build_qgis_project():
                 def _sort_setting8(lbl):
                     if "MMU" in lbl:
                         return (0, -int(lbl.split()[1].replace("px", "")))
-                    k_val = int(lbl.split("k=")[-1])
-                    return (1, -k_val)
+                    if "k=" in lbl:
+                        return (1, -int(lbl.split("k=")[-1]))
+                    return (2, lbl)
 
-                tolerance_order = ["p90", "p75", "p50", "p25", "p15"]
+                mapshaper_tol_order = ["p90", "p75", "p50", "p25", "p15"]
 
                 for setting_label in sorted(settings.keys(), key=_sort_setting8):
                     setting_group = QgsLayerTreeGroup(setting_label)
@@ -401,7 +420,10 @@ def build_qgis_project():
                     method_group.addChildNode(setting_group)
 
                     tols = settings[setting_label]
-                    for tolerance in [t for t in tolerance_order if t in tols]:
+                    # Mapshaper: fast ordning; GRASS: alla nyckel i sorterad ordning
+                    ordered = [t for t in mapshaper_tol_order if t in tols] + \
+                              sorted(t for t in tols if t not in mapshaper_tol_order)
+                    for tolerance in ordered:
                         tol_group = QgsLayerTreeGroup(tolerance)
                         tol_group.setExpanded(False)
                         setting_group.addChildNode(tol_group)
@@ -423,7 +445,8 @@ def build_qgis_project():
 
                 log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
 
-        # Step 9 – With buildings: same file naming as steg 8
+        # Step 9 – With buildings: samma namnformat som steg 8
+        # Hanterar Mapshaper (conn4_mmu008_simplified_p25) och GRASS (conn4_morph_disk_r02_dp10)
         elif step_num == 9:
             layer_files = sorted(step_dir.glob("*.gpkg"))
             if not layer_files:
@@ -432,19 +455,29 @@ def build_qgis_project():
 
             known_methods = ["conn4", "conn8", "modal", "semantic"]
 
+            import re as _re9
+
             def _parse_steg9(stem):
-                """conn4_mmu008_simplified_p25 → (method, setting_label, tolerance)"""
-                parts = stem.split("_simplified_")
-                if len(parts) != 2:
-                    return None, None, None
-                variant, tolerance = parts[0], parts[1]
-                for m in known_methods:
-                    if variant.startswith(m + "_"):
-                        rest = variant[len(m) + 1:]
-                        if rest.startswith("mmu"):
-                            return m, f"MMU {rest[3:]}px", tolerance
-                        elif rest.startswith("k"):
-                            return m, f"Kernel radius k={rest[1:]}", tolerance
+                # Mapshaper-format
+                if "_simplified_" in stem:
+                    parts = stem.split("_simplified_")
+                    if len(parts) == 2:
+                        variant, tolerance = parts[0], parts[1]
+                        for m in known_methods:
+                            if variant.startswith(m + "_"):
+                                rest = variant[len(m) + 1:]
+                                if rest.startswith("mmu"):
+                                    return m, f"MMU {rest[3:]}px", tolerance
+                                elif rest.startswith("k"):
+                                    return m, f"Kernel radius k={rest[1:]}", tolerance
+                # GRASS-format
+                sfx_m = _re9.search(r'_(dp\d+(?:_chaiken_t\d+)?|chaiken_t\d+)$', stem)
+                if sfx_m:
+                    sfx = sfx_m.group(1)
+                    before = stem[:sfx_m.start()]
+                    for m in known_methods:
+                        if before.startswith(m + "_"):
+                            return m, before[len(m) + 1:], sfx
                 return None, None, None
 
             allowed_tolerances = {f"p{t}" for t in SIMPLIFICATION_TOLERANCES}
@@ -452,8 +485,10 @@ def build_qgis_project():
             for lf in layer_files:
                 method, setting_label, tolerance = _parse_steg9(lf.stem)
                 if method is None:
+                    log.debug(f"  Hoppar {lf.name} – okänt namnformat")
                     continue
-                if tolerance not in allowed_tolerances:
+                is_grass_sfx = bool(_re9.match(r'dp\d+|chaiken_t\d+', tolerance))
+                if not is_grass_sfx and tolerance not in allowed_tolerances:
                     continue
                 methods_dict \
                     .setdefault(method, {}) \
@@ -470,10 +505,11 @@ def build_qgis_project():
                 def _sort_setting9(lbl):
                     if "MMU" in lbl:
                         return (0, -int(lbl.split()[1].replace("px", "")))
-                    k_val = int(lbl.split("k=")[-1])
-                    return (1, -k_val)
+                    if "k=" in lbl:
+                        return (1, -int(lbl.split("k=")[-1]))
+                    return (2, lbl)
 
-                tolerance_order = ["p90", "p75", "p50", "p25", "p15"]
+                mapshaper_tol_order = ["p90", "p75", "p50", "p25", "p15"]
 
                 for setting_label in sorted(settings.keys(), key=_sort_setting9):
                     setting_group = QgsLayerTreeGroup(setting_label)
@@ -481,7 +517,9 @@ def build_qgis_project():
                     method_group.addChildNode(setting_group)
 
                     tols = settings[setting_label]
-                    for tolerance in [t for t in tolerance_order if t in tols]:
+                    ordered = [t for t in mapshaper_tol_order if t in tols] + \
+                              sorted(t for t in tols if t not in mapshaper_tol_order)
+                    for tolerance in ordered:
                         tol_group = QgsLayerTreeGroup(tolerance)
                         tol_group.setExpanded(False)
                         setting_group.addChildNode(tol_group)
