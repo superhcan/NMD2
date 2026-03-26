@@ -22,7 +22,7 @@ QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
 # TODO: Ta bort miljövariabeln och hårdkoda OUT_BASE när pipeline är stabil och klar för produktion
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_4096_1tile_v03"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_4096_1tile_v04"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION

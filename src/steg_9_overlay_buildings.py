@@ -1,17 +1,17 @@
 """
-steg_9_overlay_buildings.py — Step 9: Overlay buildings from steg 2 onto steg 8.
+steg_9_overlay_buildings.py — Steg 9: Lägg byggnader från steg 2 ovanpå steg 8.
 
-Extracts building pixels (class 51) from steg_2_extract rasters, vectorizes them
-and integrerar byggnadspolygonerna i landskapslagret utan överlapp:
-  1. Klipper ut byggnadsytan ur landskapspolygonerna (difference)
-  2. Slår ihop det klippta landskapet + byggnadspolygonerna → ett sömlöst lager
+Extraherar byggnadspixlar (klass 51) från steg_2_extract-rasters, vektoriserar dem
+och integrerar byggnadspolygonerna i det simplifierade lagret utan överlapp:
+  1. Klipper ut byggnadsytan ur polygonerna (difference)
+  2. Slår ihop det klippta lagret + byggnadspolygonerna → ett sömlöst lager
 
 Parallellisering:
   - Tile-maskning:   multiprocessing.Pool (N kärnor)
   - Difference-steg: STRtree (lokala kandidater per polygon) + multiprocessing.Pool
                      Globals delas via Linux fork/COW utan kopiering.
 
-Run: python3 src/steg_9_overlay_buildings.py
+Kör: python3 src/steg_9_overlay_buildings.py
 """
 
 import logging
@@ -81,7 +81,20 @@ def _clip_chunk(span: tuple) -> list:
 
 
 def setup_logging(out_base):
-    """Setup step-labelled logging for Step 9."""
+    """Konfigurerar loggning för steg 9 med tre handlers.
+
+    Skapar katalogerna ``log/`` och ``summary/`` under *out_base* om de
+    saknas, och returnerar en namngiven logger (``pipeline.overlay_buildings``).
+
+    Handlers
+    --------
+    debug_steg_9_*.log   : DEBUG och uppåt — fullständig spårbarhet.
+    summary_steg_9_*.log : INFO och uppåt — för snabb genomläsning.
+    StreamHandler        : INFO och uppåt — visas direkt i terminalen.
+
+    Loggerns namn och stegnummer kan åsidosättas med miljövariablerna
+    ``STEP_NUMBER`` respektive ``STEP_NAME``.
+    """
     log_dir = out_base / "log"
     summary_dir = out_base / "summary"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -124,10 +137,23 @@ def setup_logging(out_base):
 
 
 def vectorize_buildings(steg2_dir, tmp_dir, log):
-    """
-    Mask steg2 rasters to class 51 only, then vectorize to a buildings GPKG.
-    Returns Path to the filtered buildings GPKG, or None on failure.
-    Tile-maskningen körs parallellt med N_WORKERS processer.
+    """Extraherar byggnadspolygoner (klass 51) från steg 2-rasters och
+    returnerar en GPKG med enbart byggnadspixlar vektoriserade.
+
+    Flöde
+    -----
+    1. Parallell tile-maskning (N_IO_WORKERS) — nollställer alla pixlar
+       utom BUILDING_CLASS; resultaten skrivs som temporära TIF-filer.
+    2. VRT-sammansättning — ``gdalbuildvrt`` med ``-input_file_list`` för
+       att undvika "Argument list too long" vid >~1 000 filer.
+    3. Vektorisering — ``gdal_polygonize.py`` omvandlar byggnadsraster
+       till polygoner och skriver till ``buildings_raw.gpkg``.
+    4. Filtrering — ``ogr2ogr -where`` tar bort bakgrundspolygoner (DN=0)
+       och producerar den slutliga ``buildings.gpkg``.
+
+    Returnerar
+    ----------
+    Path till den filtrerade GPKG:n, eller None om något steg misslyckas.
     """
     tifs = sorted(steg2_dir.glob("*.tif"))
     if not tifs:
@@ -143,8 +169,8 @@ def vectorize_buildings(steg2_dir, tmp_dir, log):
         masked_paths = pool.map(_mask_tile, mask_args, chunksize=50)
     masked_tifs = [Path(p) for p in masked_paths]
 
-    # Build VRT over all masked tiles — använd input_file_list för att undvika
-    # "Argument list too long" vid >~1000 filer
+    # Bygg VRT över alla maskade tiles — använd input_file_list för att undvika
+    # "Argument list too long" vid >~1 000 filer
     vrt = tmp_dir / "buildings.vrt"
     file_list = tmp_dir / "masked_tifs.txt"
     file_list.write_text("\n".join(str(t) for t in masked_tifs))
@@ -156,7 +182,7 @@ def vectorize_buildings(steg2_dir, tmp_dir, log):
         log.error("gdalbuildvrt failed: %s", r.stderr)
         return None
 
-    # Vectorize
+    # Vektorisera VRT:n till råa byggnadspolygoner (inkl. bakgrund DN=0)
     raw_gpkg = tmp_dir / "buildings_raw.gpkg"
     r = subprocess.run(
         f'gdal_polygonize.py "{vrt}" -f GPKG "{raw_gpkg}" DN {LN}',
@@ -166,7 +192,7 @@ def vectorize_buildings(steg2_dir, tmp_dir, log):
         log.error("gdal_polygonize failed: %s", r.stderr)
         return None
 
-    # Remove background (class 0) polygons
+    # Filtrera bort bakgrundspolygoner (DN=0) — behåll enbart klass 51
     buildings_gpkg = tmp_dir / "buildings.gpkg"
     r = subprocess.run(
         [
@@ -180,7 +206,7 @@ def vectorize_buildings(steg2_dir, tmp_dir, log):
         log.error("ogr2ogr filter failed: %s", r.stderr)
         return None
 
-    # Count features
+    # Räkna features för loggning — ogrinfo -so ger snabb statistik utan att läsa geometrier
     info = subprocess.run(
         ["ogrinfo", "-al", "-so", str(buildings_gpkg)],
         capture_output=True, text=True,
@@ -190,7 +216,7 @@ def vectorize_buildings(steg2_dir, tmp_dir, log):
         if "Feature Count:" in line:
             n = int(line.split(":")[-1].strip())
             break
-    log.info("  ✓ %d building polygons vectorized", n)
+    log.info("  %d building polygons vectorized", n)
     return buildings_gpkg
 
 
@@ -218,7 +244,8 @@ def integrate_buildings(buildings_gpkg, steg8_dir, out_dir, log):
     buildings = buildings[["DN", "geometry"]].copy()
     log.info("  %d byggnadspolygoner inlästa", len(buildings))
 
-    # Bygg rumsligt index — sätts som global INNAN Pool skapas (Linux fork/COW)
+    # Bygg spatial index och sätt global INNAN Pool skapas.
+    # Med Linux fork/COW ärvs arrayen av worker-processer utan kopiering.
     _BGEOMS = buildings.geometry.values
     tree = STRtree(_BGEOMS)
     log.info("  STRtree byggt (%d noder)", len(_BGEOMS))
@@ -230,17 +257,20 @@ def integrate_buildings(buildings_gpkg, steg8_dir, out_dir, log):
         log.info("    %d landskapspolygoner", len(landscape))
         geom_col = landscape.geometry.name
 
-        # Sätt global landscape-array INNAN pool-skapande
+        # Sätt global landscape-array INNAN pool skapas så att
+        # worker-processer kan läsa den via fork/COW utan extra IPC.
         _LGEOMS = landscape.geometry.values
         n = len(_LGEOMS)
 
         # Bulk STRtree-query: hitta alla (l_idx, b_idx)-par på en gång
         t_q = time.time()
-        log.info("    Bulk STRtree-query (%d × %d byggnader)...", n, len(_BGEOMS))
+        log.info("    Bulk STRtree-query (%d x %d byggnader)...", n, len(_BGEOMS))
         l_idx, b_idx = tree.query(_LGEOMS, predicate="intersects")
         log.info("    %d par funna  (%.1fs)", len(l_idx), time.time() - t_q)
 
-        # Gruppera byggnadsindex per landskapspolygon
+        # Gruppera byggnadsindex per polygon och bygg _CANDIDATES-listan.
+        # _CANDIDATES[i] är en int64-array med index i _BGEOMS för alla byggnader
+        # som skär (intersects) polygon i — tom array om ingen.
         groups: dict[int, list] = defaultdict(list)
         for li, bi in zip(l_idx, b_idx):
             groups[li].append(bi)
@@ -251,10 +281,11 @@ def integrate_buildings(buildings_gpkg, steg8_dir, out_dir, log):
         n_with_buildings = sum(1 for c in _CANDIDATES if len(c) > 0)
         log.info("    %d av %d polygoner berör byggnader", n_with_buildings, n)
 
-        # Dela upp i lika stora chunk-intervall för Pool.map
+        # Dela upp i lika stora chunk-intervall — ett per kärna för jämn belastning.
+        # Pool.map skickar (start, end)-tupler till _clip_chunk-workers.
         chunk_size = max(1, (n + N_WORKERS - 1) // N_WORKERS)
         spans = [(s, min(s + chunk_size, n)) for s in range(0, n, chunk_size)]
-        log.info("    Klipper geometrier parallellt (%d chunks × %d kärnor)...", len(spans), N_WORKERS)
+        log.info("    Klipper geometrier parallellt (%d chunks x %d kärnor)...", len(spans), N_WORKERS)
 
         t_d = time.time()
         with mp.Pool(N_WORKERS) as pool:
@@ -262,14 +293,17 @@ def integrate_buildings(buildings_gpkg, steg8_dir, out_dir, log):
         new_geoms = [g for chunk in chunk_results for g in chunk]
         log.info("    Difference klar  (%.1fs)", time.time() - t_d)
 
-        # Uppdatera landskapets geometrikolumn
+        # Uppdatera lagrets geometrikolumn med de klippta geometrierna.
+        # Tomma/NaN-geometrier (polygoner som täcktes helt av byggnader) tas bort.
         landscape_cut = landscape.copy()
         landscape_cut[geom_col] = new_geoms
         landscape_cut = landscape_cut[~landscape_cut.geometry.is_empty]
         landscape_cut = landscape_cut[landscape_cut.geometry.notna()]
         log.info("    %d polygoner efter klippning", len(landscape_cut))
 
-        # Anpassa byggnadslagret till landskapets kolumnstruktur
+        # Anpassa byggnadslagret till lagrets kolumnstruktur:
+        # byt geometrikolumnnamn om det skiljer sig (t.ex. "geom" vs "geometry")
+        # och fyll saknade attributkolumner med None för sömlös concat.
         b_gdf = buildings[["DN", "geometry"]].copy()
         if geom_col != "geometry":
             b_gdf = b_gdf.rename_geometry(geom_col)
@@ -298,6 +332,7 @@ if __name__ == "__main__":
     log = setup_logging(OUT_BASE)
     t0 = time.time()
 
+    # Katalogstruktur: steg 2 levererar byggnadsrasters, steg 8 landskapsvektorer.
     steg2_dir = OUT_BASE / "steg_2_extract"
     steg8_dir = OUT_BASE / "steg_8_simplify"
     out_dir   = OUT_BASE / "steg_9_overlay_buildings"
@@ -310,23 +345,24 @@ if __name__ == "__main__":
     log.info("Output       : %s", out_dir)
     log.info("══════════════════════════════════════════════════════════")
 
-    # Placera tmp i out_dir (inte /tmp) — 4900 masktiles ≈ 5 GB
+    # Placera tmp i out_dir (inte /tmp) — 4 900 maskade tiles ≈ 5 GB.
+    # finally-blocket rensar tmp_dir oavsett om pipelinen lyckas eller ej.
     tmp_dir = out_dir / "_tmp_steg9"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     try:
-        log.info("Step 1: Vectorize buildings (class 51) from steg 2...")
+        log.info("Steg 1: Vektorisera byggnader (klass 51) från steg 2...")
         buildings_gpkg = vectorize_buildings(steg2_dir, tmp_dir, log)
         if buildings_gpkg is None:
             log.error("Vectorization failed — aborting")
             raise SystemExit(1)
 
-        log.info("Step 2: Integrera byggnader i steg 8 (difference + concat)...")
+        log.info("Steg 2: Integrera byggnader i steg 8 (difference + concat)...")
         n = integrate_buildings(buildings_gpkg, steg8_dir, out_dir, log)
 
         elapsed = time.time() - t0
         log.info("")
         log.info("══════════════════════════════════════════════════════════")
-        log.info("Step 9 KLART — %d filer skapade  %.1f min (%.0fs)", n, elapsed / 60, elapsed)
+        log.info("Step 9 klart — %d filer skapade  %.1f min (%.0fs)", n, elapsed / 60, elapsed)
         log.info("══════════════════════════════════════════════════════════")
 
     finally:
