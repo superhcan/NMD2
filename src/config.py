@@ -22,33 +22,27 @@ QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
 # TODO: Ta bort miljövariabeln och hårdkoda OUT_BASE när pipeline är stabil och klar för produktion
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/pipeline_test_100proc_v02"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_4096_1tile_v03"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-TILE_SIZE        = 2048          # Huvudtile-storlek (pixlar per sida)
-# 20% av total yta: rader 30-43 × 70 kolumner = 980 tiles
-#PARENT_TILES     = [(row, col) for row in range(30, 44) for col in range(70)]
-#PARENT_TILES     = [(row, col) for row in range(35) for col in range(70)]  # Norra halvan (rader 0-34)
-#PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
-#PARENT_TILES     = [(0, col) for col in range(70)]                         # ~1% (rad 0, 70 tiles)
-#PARENT_TILES     = [(row, col) for row in range(7) for col in range(70)]   # 10% (rader 0-6)
-#PARENT_TILES     = [(row, col) for row in range(18) for col in range(70)]  # ~25% (rader 0-17, 1260 tiles)
-PARENT_TILES     = [(row, col) for row in range(35) for col in range(35)]  # 100% (alla 1225 tiles à 2048 px)
-PARENT_TILE_SIZE = 2048          # Matchar TILE_SIZE i steg 1
-SUB_TILE_SIZE    = 2048          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
+TILE_SIZE        = 4096          # Huvudtile-storlek (pixlar per sida)
+# Vid 4096 px: 18 kolumner × 18 rader = 324 tiles totalt (71273×70880 px källraster)
+PARENT_TILES     = [(0, 8)]      # 1 tile: nordligaste raden, mitten (col 8 av 18)
+PARENT_TILE_SIZE = 4096          # Matchar TILE_SIZE i steg 1
+SUB_TILE_SIZE    = 4096          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
 HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CLASSIFICATION CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-GENERALIZE_PROTECTED = {61, 62}                     # Skyddade klasser i steg 6 (generalisering): maskeras vid sieve/modal, exkluderas från areafilter. (51 borttagen — löses upp i steg 3)
+GENERALIZE_PROTECTED = {51,61, 62}                     # Skyddade klasser i steg 6 (generalisering): maskeras vid sieve/modal, exkluderas från areafilter. (51 borttagen — löses upp i steg 3)
 SIMPLIFY_PROTECTED   = set()                       # Skyddade klasser i steg 8 (Mapshaper): förenklas aldrig (sp=1.0). (51 borttagen — löses upp i steg 3)
-EXTRACT_CLASSES  = {51, 53, 61, 62}                # Klasser som extraheras separat i steg 2 (vektoriseras senare): Byggnad, Väg/järnväg, Vatten
-DISSOLVE_CLASSES = {51, 53}                        # Klasser som löses upp i omgivande mark i steg 3: Byggnad + Väg/järnväg
+EXTRACT_CLASSES  = {53, 61, 62}                # Klasser som extraheras separat i steg 2 (vektoriseras senare): Byggnad, Väg/järnväg, Vatten
+DISSOLVE_CLASSES = {53}                        # Klasser som löses upp i omgivande mark i steg 3: Byggnad + Väg/järnväg
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CLASS REMAPPING — Omklassificering från NMD till slutklasser (Steg 0)

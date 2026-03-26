@@ -32,7 +32,7 @@ except ImportError as e:
     print("   Installera QGIS först: apt install qgis python3-qgis")
     sys.exit(1)
 
-from config import OUT_BASE, ENABLE_STEPS, SIMPLIFICATION_TOLERANCES, QGIS_INCLUDE_STEPS
+from config import OUT_BASE, SRC, ENABLE_STEPS, SIMPLIFICATION_TOLERANCES, QGIS_INCLUDE_STEPS
 
 
 def _apply_no_fill(layer):
@@ -596,18 +596,44 @@ def build_qgis_project():
     project.write(str(project_path))
     log.info(f"  ✓ Sparat: {project_path.name}")
     
-    # Minimera legend i XML
+    # Minimera legend i XML + sätt initial vy till hela källrasterns utbredning
     import xml.etree.ElementTree as ET
+    import rasterio
     try:
         tree = ET.parse(str(project_path))
         xml_root = tree.getroot()
+
+        # Minimera legendpanelen
         legend = xml_root.find("legend")
         if legend is not None:
             legend.set("openPanel", "false")
+
+        # Sätt initial mapcanvas-vy till hela källrasterns utbredning så att
+        # QGIS inte zoomar in till det första lagret (övre vänstra tilen) vid öppning.
+        with rasterio.open(SRC) as src_raster:
+            b = src_raster.bounds   # left, bottom, right, top
+        mapcanvas = xml_root.find("mapcanvas[@name='theMapCanvas']")
+        if mapcanvas is None:
+            mapcanvas = xml_root.find("mapcanvas")
+        if mapcanvas is not None:
+            ext = mapcanvas.find("extent")
+            if ext is None:
+                ext = ET.SubElement(mapcanvas, "extent")
+            for tag, val in [("xmin", b.left), ("ymin", b.bottom),
+                              ("xmax", b.right), ("ymax", b.top)]:
+                el = ext.find(tag)
+                if el is None:
+                    el = ET.SubElement(ext, tag)
+                el.text = str(val)
+            log.info(f"  ✓ Initial vy satt till hela källrasterns utbredning "
+                     f"({b.left:.0f},{b.bottom:.0f} → {b.right:.0f},{b.top:.0f})")
+        else:
+            log.warning("  ⚠️  Kunde inte hitta mapcanvas i XML — initial vy ej satt")
+
         tree.write(str(project_path), encoding='utf-8', xml_declaration=True)
         log.info(f"  ✓ Legend minimerad")
     except Exception as e:
-        log.warning(f"  ⚠️  Kunde inte minimera legend: {e}")
+        log.warning(f"  ⚠️  Kunde inte modifiera XML: {e}")
     
     size_kb = project_path.stat().st_size / 1024
     

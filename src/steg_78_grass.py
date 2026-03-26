@@ -128,11 +128,18 @@ def _run_grass_78(
         f'run(["g.region", "raster={maps_csv}", "--verbose"], "g.region")'
     )
 
-    # 3) r.patch: mosaic — skriver en ny raster i GRASS
-    lines.append(
-        f'run(["r.patch", "input={maps_csv}", "output=mosaic", '
-        f'"--overwrite", "--verbose"], "r.patch")'
-    )
+    # 3) r.patch: mosaic — skriver en ny raster i GRASS.
+    # r.patch kräver ≥2 inrastrar; vid enstaka tile används g.rename istället.
+    if len(rmap_names) == 1:
+        lines.append(
+            f'run(["g.rename", "raster={rmap_names[0]},mosaic", '
+            f'"--overwrite"], "r.patch (rename single tile)")'
+        )
+    else:
+        lines.append(
+            f'run(["r.patch", "input={maps_csv}", "output=mosaic", '
+            f'"--overwrite", "--verbose"], "r.patch")'
+        )
 
     # 4) r.to.vect: polygonisering inom GRASS-topologi (conn-4 är default)
     lines.append(
