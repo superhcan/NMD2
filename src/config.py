@@ -22,17 +22,17 @@ QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
 # TODO: Ta bort miljövariabeln och hårdkoda OUT_BASE när pipeline är stabil och klar för produktion
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_4096_1tile_v04"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_2048_5proc_v01"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-TILE_SIZE        = 4096          # Huvudtile-storlek (pixlar per sida)
-# Vid 4096 px: 18 kolumner × 18 rader = 324 tiles totalt (71273×70880 px källraster)
-PARENT_TILES     = [(0, 8)]      # 1 tile: nordligaste raden, mitten (col 8 av 18)
-PARENT_TILE_SIZE = 4096          # Matchar TILE_SIZE i steg 1
-SUB_TILE_SIZE    = 4096          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
+TILE_SIZE        = 2048          # Huvudtile-storlek (pixlar per sida)
+# Vid 2048 px: 36 kolumner × 36 rader = 1296 tiles totalt (71273×70880 px källraster)
+PARENT_TILES     = [(r, c) for r in range(8) for c in range(8)]  # 8×8 = 64 tiles ≈ 5 % av rastret (35×35 grid vid TILE_SIZE=2048)
+PARENT_TILE_SIZE = 2048          # Matchar TILE_SIZE i steg 1
+SUB_TILE_SIZE    = 2048          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
 HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
 
 # ══════════════════════════════════════════════════════════════════════════════

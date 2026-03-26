@@ -303,7 +303,7 @@ def build_qgis_project():
                         try:
                             layer = QgsRasterLayer(str(layer_file), layer_name, "gdal")
                             if not layer.isValid():
-                                log.debug(f"  ✗ {layer_name:45s} (ej giltig)")
+                                log.debug(f" {layer_name:45s} (ej giltig)")
                                 continue
                             
                             project.addMapLayer(layer, addToLegend=False)
@@ -311,11 +311,11 @@ def build_qgis_project():
                             tree_layer.setExpanded(False)
                             setting_group.addChildNode(tree_layer)
                             
-                            log.info(f"  ✓ {layer_name:45s}")
+                            log.info(f" {layer_name:45s}")
                             total_layers += 1
                             
                         except Exception as e:
-                            log.warning(f"  ✗ {layer_name:45s} ({e})")
+                            log.warning(f" {layer_name:45s} ({e})")
                             continue
                     
                     log.info(f"  {setting_label:45s} ({len(settings_dict[setting_label])} lager)")
@@ -379,17 +379,17 @@ def build_qgis_project():
                         try:
                             layer = QgsVectorLayer(str(lf), lf.stem, "ogr")
                             if not layer.isValid():
-                                log.debug(f"  ✗ {lf.stem:45s} (ej giltig)")
+                                log.debug(f" {lf.stem:45s} (ej giltig)")
                                 continue
                             _apply_no_fill(layer)
                             project.addMapLayer(layer, addToLegend=False)
                             tree_layer = QgsLayerTreeLayer(layer)
                             tree_layer.setExpanded(False)
                             setting_group.addChildNode(tree_layer)
-                            log.info(f"  ✓ {lf.stem:45s}")
+                            log.info(f" {lf.stem:45s}")
                             total_layers += 1
                         except Exception as e:
-                            log.warning(f"  ✗ {lf.stem:45s} ({e})")
+                            log.warning(f" {lf.stem:45s} ({e})")
 
                 log.info(f"  {method.upper():45s} ({sum(len(v) for v in settings.values())} lager)\n")
 
@@ -488,17 +488,17 @@ def build_qgis_project():
                             try:
                                 layer = QgsVectorLayer(str(lf), lf.stem, "ogr")
                                 if not layer.isValid():
-                                    log.debug(f"  ✗ {lf.stem:45s} (ej giltig)")
+                                    log.debug(f" {lf.stem:45s} (ej giltig)")
                                     continue
                                 _apply_no_fill(layer)
                                 project.addMapLayer(layer, addToLegend=False)
                                 tree_layer = QgsLayerTreeLayer(layer)
                                 tree_layer.setExpanded(False)
                                 tol_group.addChildNode(tree_layer)
-                                log.info(f"  ✓ {lf.stem:45s}")
+                                log.info(f" {lf.stem:45s}")
                                 total_layers += 1
                             except Exception as e:
-                                log.warning(f"  ✗ {lf.stem:45s} ({e})")
+                                log.warning(f" {lf.stem:45s} ({e})")
 
                 log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
 
@@ -597,17 +597,17 @@ def build_qgis_project():
                             try:
                                 layer = QgsVectorLayer(str(lf), lf.stem, "ogr")
                                 if not layer.isValid():
-                                    log.debug(f"  ✗ {lf.stem:45s} (ej giltig)")
+                                    log.debug(f" {lf.stem:45s} (ej giltig)")
                                     continue
                                 _apply_no_fill(layer)
                                 project.addMapLayer(layer, addToLegend=False)
                                 tree_layer = QgsLayerTreeLayer(layer)
                                 tree_layer.setExpanded(False)
                                 tol_group.addChildNode(tree_layer)
-                                log.info(f"  ✓ {lf.stem:45s}")
+                                log.info(f" {lf.stem:45s}")
                                 total_layers += 1
                             except Exception as e:
-                                log.warning(f"  ✗ {lf.stem:45s} ({e})")
+                                log.warning(f" {lf.stem:45s} ({e})")
 
                 log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
 
@@ -653,12 +653,12 @@ def build_qgis_project():
                     tree_layer.setExpanded(True)  # Expandera lagret i träd
                     group.addChildNode(tree_layer)
                     
-                    log.info(f"  ✓ {layer_name:45s}")
+                    log.info(f" {layer_name:45s}")
                     layers_added += 1
                     total_layers += 1
                     
                 except Exception as e:
-                    log.warning(f"  ✗ {layer_name:45s} ({e})")
+                    log.warning(f" {layer_name:45s} ({e})")
                     continue
             
             log.info(f"  {step_name:45s} → {layers_added} lager\n")
@@ -666,7 +666,7 @@ def build_qgis_project():
     # Spara projekt
     log.info(f"Sparar projekt...")
     project.write(str(project_path))
-    log.info(f"  ✓ Sparat: {project_path.name}")
+    log.info(f" Sparat: {project_path.name}")
     
     # Minimera legend i XML + sätt initial vy till hela källrasterns utbredning
     import xml.etree.ElementTree as ET
@@ -697,13 +697,13 @@ def build_qgis_project():
                 if el is None:
                     el = ET.SubElement(ext, tag)
                 el.text = str(val)
-            log.info(f"  ✓ Initial vy satt till hela källrasterns utbredning "
+            log.info(f" Initial vy satt till hela källrasterns utbredning "
                      f"({b.left:.0f},{b.bottom:.0f} → {b.right:.0f},{b.top:.0f})")
         else:
             log.warning("Kunde inte hitta mapcanvas i XML — initial vy ej satt")
 
         tree.write(str(project_path), encoding='utf-8', xml_declaration=True)
-        log.info(f"  ✓ Legend minimerad")
+        log.info(f" Legend minimerad")
     except Exception as e:
         log.warning(f"Kunde inte modifiera XML: {e}")
     
@@ -725,7 +725,7 @@ if __name__ == "__main__":
         success = build_qgis_project()
         sys.exit(0 if success else 1)
     except Exception as e:
-        log.error(f"❌ Fel: {e}", exc_info=True)
+        log.error(f"Fel: {e}", exc_info=True)
         sys.exit(1)
     finally:
         qgs_app.exitQgis()
