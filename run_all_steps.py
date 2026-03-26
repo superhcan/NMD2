@@ -58,7 +58,7 @@ STEPS = {
     0: {
         "name": "Verifikation - Tileluppdelning (original)",
         "script": "steg_0_verify_tiles.py",
-        "description": "Delar original-raster i 1024×1024 px tiles utan omklassificering (för verifikation)"
+        "description": "Delar original-raster i 1024x1024 px tiles utan omklassificering (för verifikation)"
     },
     1: {
         "name": "Omklassificering av tiles",
@@ -138,24 +138,24 @@ STEPS = {
 
 def check_requirements():
     """Kontrollera att alla förutsättningar är uppfyllda."""
-    log.info("🔍 Kontrollerar förutsättningar...")
+    log.info("Kontrollerar förutsättningar...")
     
     # Kontrollera src-katalog
     if not SRC_DIR.exists():
-        log.error(f"❌ Kan inte hitta src/ i {SRC_DIR}")
+        log.error(f"Kan inte hitta src/ i {SRC_DIR}")
         return False
     
     # Kontrollera config
     if not (SRC_DIR / "config.py").exists():
-        log.error("❌ config.py saknas")
+        log.error("config.py saknas")
         return False
     
     # Kontrollera logging_setup
     if not (SRC_DIR / "logging_setup.py").exists():
-        log.error("❌ logging_setup.py saknas")
+        log.error("logging_setup.py saknas")
         return False
     
-    log.info("✓ Grundläggande filer OK")
+    log.info("Grundläggande filer OK")
     return True
 
 
@@ -167,7 +167,7 @@ def check_step_script(step_key):
     script_path = SRC_DIR / script
     
     if not script_path.exists():
-        log.error(f"❌ Steg {step_key}: {script} saknas i {SRC_DIR}")
+        log.error(f"Steg {step_key}: {script} saknas i {SRC_DIR}")
         return False
     
     return True
@@ -185,7 +185,7 @@ def check_input_directory(step_key):
             return True  # Steget hanterar input-katalog själv (t.ex. steg 5)
         input_path = OUT_BASE / req_dir
         if not input_path.exists():
-            log.warning(f"⚠️  Steg {step_key}: Input-katalog {req_dir}/ saknas")
+            log.warning(f" Steg {step_key}: Input-katalog {req_dir}/ saknas")
             log.warning(f"   Kör föregående steg först eller kontrollera paths")
             return False
         return True
@@ -195,7 +195,7 @@ def check_input_directory(step_key):
     for candidate in candidates:
         if (OUT_BASE / candidate).exists():
             return True
-    log.warning(f"⚠️  Steg {step_key}: Ingen av katalogerna finns: {', '.join(candidates[:3])} ...")
+    log.warning(f" Steg {step_key}: Ingen av katalogerna finns: {', '.join(candidates[:3])} ...")
     log.warning(f"   Kör minst ett föregående steg (t.ex. steg 0) först")
     return False
     
@@ -219,7 +219,7 @@ def run_step(step_key):
     
     log.info("")
     log.info("=" * 78)
-    log.info(f"🚀 STEG {step_key}: {step['name']}")
+    log.info(f"STEG {step_key}: {step['name']}")
     log.info(f"   {step['description']}")
     log.info("=" * 78)
     
@@ -251,13 +251,13 @@ def run_step(step_key):
         
         result = subprocess.run(cmd, cwd=SRC_DIR.parent, env=env, check=True)
         elapsed = time.time() - t0
-        log.info(f"✓ STEG {step_key} KLART ({elapsed:.1f}s)")
+        log.info(f"STEG {step_key} KLART ({elapsed:.1f}s)")
         return True
     except subprocess.CalledProcessError as e:
-        log.error(f"❌ STEG {step_key} MISSLYCKADES (exit code {e.returncode})")
+        log.error(f"STEG {step_key} MISSLYCKADES (exit code {e.returncode})")
         return False
     except Exception as e:
-        log.error(f"❌ STEG {step_key} MISSLYCKADES: {e}")
+        log.error(f"STEG {step_key} MISSLYCKADES: {e}")
         return False
 
 
@@ -292,7 +292,7 @@ Exempel:
 
 def list_steps():
     """Visa alla tillgängliga steg."""
-    print("\n📋 Tillgängliga steg:\n")
+    print("\nTillgängliga steg:\n")
     for step_key in sorted(STEPS.keys(), key=lambda x: (isinstance(x, str), x)):
         step = STEPS[step_key]
         print(f"  Steg {step_key}: {step['name']}")
@@ -333,9 +333,9 @@ def main():
     disabled_steps = [k for k in step_keys if not ENABLE_STEPS.get(k, True)]
     
     if disabled_steps:
-        log.info(f"⏭️  Hoppar över (inaktiverade i config): {', '.join(str(k) for k in disabled_steps)}\n")
+        log.info(f" Hoppar över (inaktiverade i config): {', '.join(str(k) for k in disabled_steps)}\n")
     
-    log.info(f"🔄 Kör: {', '.join(str(k) for k in enabled_steps)}\n")
+    log.info(f"Kör: {', '.join(str(k) for k in enabled_steps)}\n")
     
     # Kör steg
     t0_total = time.time()
@@ -344,7 +344,7 @@ def main():
     for step_key in enabled_steps:
         results[step_key] = run_step(step_key)
         if not results[step_key]:
-            log.error(f"\n❌ Steg {step_key} misslyckades. Avbryter.")
+            log.error(f"\nSteg {step_key} misslyckades. Avbryter.")
             break
     
     elapsed_total = time.time() - t0_total
@@ -352,22 +352,22 @@ def main():
     # Sammanfattning
     log.info("")
     log.info("=" * 78)
-    log.info("📊 RESULTAT")
+    log.info("RESULTAT")
     log.info("=" * 78)
     
     success_count = sum(1 for v in results.values() if v)
     total_count = len(results)
     
     for step_key in sorted(results.keys(), key=lambda x: (isinstance(x, str), x)):
-        status = "✓ OK" if results[step_key] else "❌ MISSLYCKAD"
+        status = "OK" if results[step_key] else "MISSLYCKAD"
         log.info(f"  Steg {step_key}: {status}")
     
     log.info("")
     if success_count == total_count:
-        log.info(f"✅ ALLA STEG KLARA ({elapsed_total:.1f}s totalt)\n")
+        log.info(f"ALLA STEG KLARA ({elapsed_total:.1f}s totalt)\n")
         return 0
     else:
-        log.error(f"❌ {total_count - success_count} steg misslyckades\n")
+        log.error(f"{total_count - success_count} steg misslyckades\n")
         return 1
 
 

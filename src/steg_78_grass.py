@@ -175,10 +175,12 @@ def _run_grass_78(
         log.error(f"Okänd GRASS_SIMPLIFY_METHOD: '{method}'")
         return False
 
-    # 6) v.clean: snap + rmdupl + bpol
+    # 6) v.clean: snap → bpol → rmdupl.
+    # Ordning är kritisk: bpol bryter korsande gränser INNAN rmdupl tar bort
+    # dubbletter som uppstår vid uppbrytningen.
     lines.append(
         'run(["v.clean", "input=simplified", "output=cleaned", '
-        '"tool=snap,rmdupl,bpol", "threshold=0.01,0,0", '
+        '"tool=snap,bpol,rmdupl", "threshold=0.01,0,0", '
         '"--overwrite", "--verbose"], "v.clean")'
     )
 
@@ -230,6 +232,20 @@ def _run_grass_78(
     if not output_gpkg.exists():
         log.error(f"[{variant_name}] v.out.ogr producerade ingen fil")
         return False
+
+    # GEOS-validitet kan skilja sig från GRASS topologikorrektet — kör makevalid
+    # som ett säkerhetsnät. Skriver över filen på plats via en tmp-fil.
+    valid_tmp = output_gpkg.with_suffix(".valid_tmp.gpkg")
+    r_mv = subprocess.run(
+        ["ogr2ogr", "-f", "GPKG", "-makevalid", str(valid_tmp), str(output_gpkg)],
+        capture_output=True, text=True,
+    )
+    if r_mv.returncode == 0 and valid_tmp.exists():
+        output_gpkg.unlink()
+        valid_tmp.rename(output_gpkg)
+    else:
+        log.warning(f"[{variant_name}] ogr2ogr -makevalid misslyckades — behåller original")
+        valid_tmp.unlink(missing_ok=True)
 
     elapsed = time.time() - t0
     log.info(f"[{variant_name}] ✓ {output_gpkg.name} "

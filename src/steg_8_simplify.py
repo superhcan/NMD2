@@ -378,7 +378,9 @@ run(["v.in.ogr", "input={input_path}", "layer={layer_name}",
      "output={layer_name}", "--overwrite", "--quiet"])
 run(["v.generalize", "input={layer_name}", "output=simplified",
      "method=douglas", "threshold={douglas_threshold:.2f}", "--overwrite", "--quiet"])
-run(["v.out.ogr", "input=simplified", "output={output_gpkg}",
+run(["v.clean", "input=simplified", "output=cleaned",
+     "tool=bpol,rmdupl", "--overwrite", "--quiet"])
+run(["v.out.ogr", "input=cleaned", "output={output_gpkg}",
      "format=GPKG", "--overwrite", "--quiet"])
 print("OK")
 """
@@ -396,7 +398,9 @@ run(["v.in.ogr", "input={input_path}", "layer={layer_name}",
      "output={layer_name}", "--overwrite", "--quiet"])
 run(["v.generalize", "input={layer_name}", "output=simplified",
      "method=chaiken", "threshold={chaiken_threshold:.2f}", "--overwrite", "--quiet"])
-run(["v.out.ogr", "input=simplified", "output={output_gpkg}",
+run(["v.clean", "input=simplified", "output=cleaned",
+     "tool=bpol,rmdupl", "--overwrite", "--quiet"])
+run(["v.out.ogr", "input=cleaned", "output={output_gpkg}",
      "format=GPKG", "--overwrite", "--quiet"])
 print("OK")
 """
@@ -418,7 +422,9 @@ run(["v.generalize", "input={layer_name}", "output=after_douglas",
      "method=douglas", "threshold={douglas_threshold:.2f}", "--overwrite", "--quiet"])
 run(["v.generalize", "input=after_douglas", "output=simplified",
      "method=chaiken", "threshold={chaiken_threshold:.2f}", "--overwrite", "--quiet"])
-run(["v.out.ogr", "input=simplified", "output={output_gpkg}",
+run(["v.clean", "input=simplified", "output=cleaned",
+     "tool=bpol,rmdupl", "--overwrite", "--quiet"])
+run(["v.out.ogr", "input=cleaned", "output={output_gpkg}",
      "format=GPKG", "--overwrite", "--quiet"])
 print("OK")
 """
@@ -807,7 +813,9 @@ run(["v.generalize", "input=after_dp", "output=simplified",
      "method=chaiken", "threshold={chaiken_threshold:.2f}", "--overwrite", "--quiet"])
 """
         grass_body += f"""
-run(["v.out.ogr", "input=simplified", "output={simplified_gpkg}",
+run(["v.clean", "input=simplified", "output=cleaned",
+     "tool=bpol,rmdupl", "--overwrite", "--quiet"])
+run(["v.out.ogr", "input=cleaned", "output={simplified_gpkg}",
      "format=GPKG", "--overwrite", "--quiet"])
 print("OK")
 """
