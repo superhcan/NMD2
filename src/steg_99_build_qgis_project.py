@@ -36,7 +36,11 @@ from config import OUT_BASE, SRC, ENABLE_STEPS, SIMPLIFICATION_TOLERANCES, QGIS_
 
 
 def _apply_no_fill(layer):
-    """Sätter fyllnadsstil till Ingen fyllning för ett vektorlager."""
+    """Sätter fyllnadsstil till Ingen fyllning för ett vektorlager.
+
+    Används på alla vektorlager (steg 7-9) så att polygoner visas som enbart
+    konturer i QGIS.
+    """
     renderer = layer.renderer()
     if renderer is None:
         return
@@ -54,7 +58,15 @@ def _apply_no_fill(layer):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def setup_logging(out_base):
-    """Setup steg-märkad loggning för Steg 99."""
+    """Skapar en logger med tre handlers: debug-fil, summary-fil och console.
+
+    Debug-filen tar emot alla nivåer (DEBUG+); summary-fil och console tar
+    bara INFO+. Loggernamnet är 'pipeline.build_qgis'.
+    Loggfilnamnen inkluderar steg-info (STEP_NUMBER/STEP_NAME) från miljövariabler
+    om de finns, annars default-värden '99' och 'bygga_qgis_projekt'.
+    Returnerar (log, log) — samma objekt två gånger för baklängeskompatibilitet
+    med kod som använder separata 'log' och 'dbg'-variabler.
+    """
     step_num = os.getenv("STEP_NUMBER", "99")
     step_name = os.getenv("STEP_NAME", "bygga_qgis_projekt").lower()
     
@@ -108,11 +120,37 @@ log, dbg = setup_logging(OUT_BASE)
 # QGIS INITIALIZATION
 # ══════════════════════════════════════════════════════════════════════════════
 
+# QgsApplication måste initieras före alla andra QGIS-anrop.
+# setPrefixPath('/usr') pekar på QGIS-installationen (apt-paket på Debian/Ubuntu).
+# QgsApplication([], False) = headless-läge utan GUI.
 QgsApplication.setPrefixPath('/usr', True)
 qgs_app = QgsApplication([], False)
 
 def build_qgis_project():
-    """Bygg QGIS-projekt med alla steg."""
+    """Bygger ett QGIS-projekt (.qgs) med alla pipeline-lager organiserade i grupper.
+
+    Läser utdata från steg 0-9 (om de finns) och lägger till dem som lager i ett
+    QgsProject med följande trädstruktur:
+
+      Steg N (grupp, minimerad)
+        └─ Metod (t.ex. CONN4)     [steg 6-9 har metodundergrupper]
+             └─ Setting (MMU/kernel)
+                  └─ Lagernamn
+
+    Steg med specialhantering:
+      Steg 6 : Rastergrupper per metod (conn4/conn8/modal/semantic) x MMU/kernel
+      Steg 7 : Vektorgrupperper metod x MMU/kernel
+      Steg 8 : Vektorgrupper per metod x setting x tolerance (Mapshaper: p25 etc;
+               GRASS: dp10, chaiken_t20 etc)
+      Steg 9 : Som steg 8 men medbyggnader överlagda
+      Övriga : Alla .tif/.gpkg/.shp i katalogen listas platt under steggruppen
+
+    XML-post-processing:
+      - Legend-panelen minimeras (openPanel='false')
+      - Initial vy sätts till hela källrasterns utbredning via rasterio
+
+    Returnerar True vid framgång.
+    """
     _t0 = time.time()
     
     # Skapa steg8-katalog
@@ -133,10 +171,10 @@ def build_qgis_project():
     
     if project_path.exists():
         project.read(str(project_path))
-        log.info(f"  ✓ Befintligt projekt läst")
+        log.info(f"Befintligt projekt läst")
     else:
         project.setCrs(QgsCoordinateReferenceSystem("EPSG:3006"))
-        log.info(f"  ✓ Nytt projekt skapat (EPSG:3006)")
+        log.info(f"Nytt projekt skapat (EPSG:3006)")
     
     # Rensa gamla grupper
     root = project.layerTreeRoot()
@@ -147,14 +185,16 @@ def build_qgis_project():
         root.removeChildNode(child)
     project.removeAllMapLayers()
     
-    log.info("✓ Gamla lager rensade\n")
+    log.info("Gamla lager rensade\n")
     
-    # Definiera steg och deras katalog (med steg-prefix)
-    # Uppdaterad för ny numrering: steg 0-9 (0 för verifikation, 1-9 för produktion)
+    # Definierar alla pipeline-steg med numrering, visningsnamn och katalog.
+    # Stegen listas i omvänd ordning (högst steg först) så att mer färdiga lager
+    # hamnar överst i QGIS-legendän.
+    # step_dir=None för steg 99 (detta steg producerar inga datalager).
     steps = [
         (99, "Step 99 - QGIS project", None),
         (9, "Step 9 - Overlaid buildings", OUT_BASE / "steg_9_overlay_buildings"),
-        (8, "Step 8 - Simplified (Mapshaper)", OUT_BASE / "steg_8_simplify"),
+        (8, "Step 8 - Simplified", OUT_BASE / "steg_8_simplify"),
         (7, "Step 7 - Vectorized", OUT_BASE / "steg_7_vectorize"),
         (6, "Step 6 - Generalized", OUT_BASE / "steg_6_generalize"),
         (5, "Step 5 - Filtered islands", OUT_BASE / "steg_5_filter_islands"),
@@ -170,16 +210,17 @@ def build_qgis_project():
     total_layers = 0
     for step_num, step_name, step_dir in steps:
         
-        # Hoppa över denna steg (steg 99)
+        # Hoppa över detta steg (steg 99 producerar självt projektet)
         if step_num == 99:
             continue
 
+        # Hoppa över om katalogen inte existerar (steget inte körts ännu)
         if not step_dir.exists():
-            log.warning(f"⚠️  {step_name:40s} – katalog saknas")
+            log.warning(f"{step_name:40s} - katalog saknas")
             continue
 
         if not QGIS_INCLUDE_STEPS.get(step_num, True):
-            log.info(f"⏭  {step_name:40s} – hoppad (QGIS_INCLUDE_STEPS=False)")
+            log.info(f"{step_name:40s} - hoppad (QGIS_INCLUDE_STEPS=False)")
             continue
         
         # Skapa gruppe (minimerad)
@@ -187,7 +228,7 @@ def build_qgis_project():
         group.setExpanded(False)
         root.addChildNode(group)
         
-        # Speciell hantering för Steg 6 – skapa sub_groups för varje metod + setting
+        # Speciell hantering för Steg 6 - skapa sub_groups för varje metod + setting
         if step_num == 6:
             methods = ["conn4", "conn8", "modal", "semantic"]
             
@@ -235,6 +276,12 @@ def build_qgis_project():
                 # Lägg till lager grupperat per setting
                 # Sortera så mest generaliserad överst (högsta MMU/kernel underst)
                 def sort_settings(label):
+                    """Sorteringsnyckel för labels inom en metod.
+
+                    MMU-grupper sorteras fallande på pixelantal (högst generalisering
+                    överst); kernel-grupper sorteras fallande på storlek.
+                    Okkända labels hamnar sist.
+                    """
                     if "MMU" in label:
                         # Extrahera MMU-värde och sortera fallande (100 överst, 002 underst)
                         mmu_val = int(label.split()[-1].replace("px", ""))
@@ -275,17 +322,24 @@ def build_qgis_project():
                 
                 log.info(f"  {step_name:45s} {method.upper():6s} ({len(layer_files)} lager totalt)\n")
         
-        # Speciell hantering för Steg 7 – metod → MMU/kernel → lager
+        # Speciell hantering för Steg 7 - metod → MMU/kernel → lager
         elif step_num == 7:
             layer_files = sorted(step_dir.glob("*.gpkg"))
             if not layer_files:
-                log.warning(f"⚠️  {step_name:40s} – inga filer hittade")
+                log.warning(f"{step_name:40s} - inga filer hittade")
                 continue
 
             known_methods = ["conn4", "conn8", "modal", "semantic"]
 
             def _parse_steg7(stem):
-                """generalized_conn4_mmu008 → (method, setting_label)"""
+                """Tolkar filnamnet från steg 7 till (metod, setting_label).
+
+                Exempel:
+                  'generalized_conn4_mmu008' → ('conn4', 'MMU 008px')
+                  'generalized_modal_k15'    → ('modal', 'Kernel radius k=15')
+
+                Returnerar (None, None) om formatet inte känns igen.
+                """
                 s = stem.replace("generalized_", "", 1)
                 for m in known_methods:
                     if s.startswith(m + "_"):
@@ -311,6 +365,7 @@ def build_qgis_project():
 
                 settings = methods_dict[method]
                 def _sort_setting(lbl):
+                    """Sorteringsnyckel för steg 7-settings: MMU fallande, sedan kernel fallande."""
                     if "MMU" in lbl:
                         return (0, -int(lbl.split()[1].replace("px", "")))
                     k_val = int(lbl.split("k=")[-1])
@@ -338,13 +393,13 @@ def build_qgis_project():
 
                 log.info(f"  {method.upper():45s} ({sum(len(v) for v in settings.values())} lager)\n")
 
-        # Speciell hantering för Steg 8 – metod → variant → tolerance → lager
+        # Speciell hantering för Steg 8 - metod → variant → tolerance → lager
         # Hanterar både Mapshaper-format (conn4_mmu008_simplified_p25)
         # och GRASS-format     (conn4_morph_disk_r02_dp10)
         elif step_num == 8:
             layer_files = sorted(step_dir.glob("*.gpkg"))
             if not layer_files:
-                log.warning(f"⚠️  {step_name:40s} – inga filer hittade")
+                log.warning(f"{step_name:40s} - inga filer hittade")
                 continue
 
             known_methods = ["conn4", "conn8", "modal", "semantic"]
@@ -386,11 +441,11 @@ def build_qgis_project():
             for lf in layer_files:
                 method, setting_label, tolerance = _parse_steg8(lf.stem)
                 if method is None:
-                    log.debug(f"  Hoppar {lf.name} – okänt namnformat")
+                    log.debug(f"Hoppar {lf.name} - okänt namnformat")
                     continue
                 is_grass_sfx = bool(_re8.match(r'dp\d+|chaiken_t\d+', tolerance))
                 if not is_grass_sfx and tolerance not in allowed_tolerances:
-                    log.debug(f"  Hoppar {lf.name} – tolerans {tolerance} ej i SIMPLIFICATION_TOLERANCES")
+                    log.debug(f"Hoppar {lf.name} - tolerans {tolerance} ej i SIMPLIFICATION_TOLERANCES")
                     continue
                 methods_dict \
                     .setdefault(method, {}) \
@@ -405,6 +460,9 @@ def build_qgis_project():
 
                 settings = methods_dict[method]
                 def _sort_setting8(lbl):
+                    """Sorteringsnyckel för steg 8-settings: MMU fallande, sedan kernel fallande,
+                    sedan övriga (GRASS morph-varianter) alfabetiskt.
+                    """
                     if "MMU" in lbl:
                         return (0, -int(lbl.split()[1].replace("px", "")))
                     if "k=" in lbl:
@@ -444,12 +502,12 @@ def build_qgis_project():
 
                 log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
 
-        # Step 9 – With buildings: samma namnformat som steg 8
+        # Step 9 - With buildings: samma namnformat som steg 8
         # Hanterar Mapshaper (conn4_mmu008_simplified_p25) och GRASS (conn4_morph_disk_r02_dp10)
         elif step_num == 9:
             layer_files = sorted(step_dir.glob("*.gpkg"))
             if not layer_files:
-                log.warning(f"⚠️  {step_name:40s} – inga filer hittade")
+                log.warning(f"{step_name:40s} - inga filer hittade")
                 continue
 
             known_methods = ["conn4", "conn8", "modal", "semantic"]
@@ -457,6 +515,16 @@ def build_qgis_project():
             import re as _re9
 
             def _parse_steg9(stem):
+                """Tolkar filnamnet från steg 9 till (metod, setting_label, tolerance).
+
+                Identisk logik som _parse_steg8 — steg 9 är samma namnformat som
+                steg 8 men med byggnader överlagda.
+
+                Mapshaper-format: 'conn4_mmu008_simplified_p25' → ('conn4','MMU 008px','p25')
+                GRASS-format:    'conn4_morph_disk_r02_dp10'   → ('conn4','morph_disk_r02','dp10')
+
+                Returnerar (None, None, None) om formatet inte känns igen.
+                """
                 # Mapshaper-format
                 if "_simplified_" in stem:
                     parts = stem.split("_simplified_")
@@ -484,7 +552,7 @@ def build_qgis_project():
             for lf in layer_files:
                 method, setting_label, tolerance = _parse_steg9(lf.stem)
                 if method is None:
-                    log.debug(f"  Hoppar {lf.name} – okänt namnformat")
+                    log.debug(f"Hoppar {lf.name} - okänt namnformat")
                     continue
                 is_grass_sfx = bool(_re9.match(r'dp\d+|chaiken_t\d+', tolerance))
                 if not is_grass_sfx and tolerance not in allowed_tolerances:
@@ -502,6 +570,7 @@ def build_qgis_project():
 
                 settings = methods_dict[method]
                 def _sort_setting9(lbl):
+                    """Sorteringsnyckel för steg 9-labels: identisk med _sort_setting8."""
                     if "MMU" in lbl:
                         return (0, -int(lbl.split()[1].replace("px", "")))
                     if "k=" in lbl:
@@ -516,6 +585,8 @@ def build_qgis_project():
                     method_group.addChildNode(setting_group)
 
                     tols = settings[setting_label]
+                    # Mapshaper: fast ordning från minst till mest förenklad;
+                    # GRASS: övriga nyckel läggs till sorterade sist.
                     ordered = [t for t in mapshaper_tol_order if t in tols] + \
                               sorted(t for t in tols if t not in mapshaper_tol_order)
                     for tolerance in ordered:
@@ -541,8 +612,9 @@ def build_qgis_project():
                 log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
 
         else:
-            # Standard-hantering för andra steg
-            # Bestäm filtyp
+            # Standard-hantering för steg 0-5: alla filer i katalogen listas platt
+            # under steggruppen utan ytterligare undergruppering.
+            # Steg 0-6 = raster (.tif); steg 7+ = vektor (.gpkg/.shp)
             if step_num <= 6:
                 # Raster-filer
                 layer_files = sorted(step_dir.glob("*.tif"))
@@ -552,7 +624,7 @@ def build_qgis_project():
                               sorted(step_dir.glob("*.shp")))
             
             if not layer_files:
-                log.warning(f"⚠️  {step_name:40s} – inga filer hittade")
+                log.warning(f"{step_name:40s} - inga filer hittade")
                 continue
             
             # Lägg till lager
@@ -628,12 +700,12 @@ def build_qgis_project():
             log.info(f"  ✓ Initial vy satt till hela källrasterns utbredning "
                      f"({b.left:.0f},{b.bottom:.0f} → {b.right:.0f},{b.top:.0f})")
         else:
-            log.warning("  ⚠️  Kunde inte hitta mapcanvas i XML — initial vy ej satt")
+            log.warning("Kunde inte hitta mapcanvas i XML — initial vy ej satt")
 
         tree.write(str(project_path), encoding='utf-8', xml_declaration=True)
         log.info(f"  ✓ Legend minimerad")
     except Exception as e:
-        log.warning(f"  ⚠️  Kunde inte modifiera XML: {e}")
+        log.warning(f"Kunde inte modifiera XML: {e}")
     
     size_kb = project_path.stat().st_size / 1024
     
