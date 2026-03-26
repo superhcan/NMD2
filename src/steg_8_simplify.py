@@ -37,7 +37,13 @@ from config import (
 )
 
 def setup_logging(out_base):
-    """Setup logging with step-aware filenames."""
+    """Skapar en logger med tre handlers: debug-fil, summary-fil och console.
+
+    Debug-filen tar emot alla nivåer (DEBUG+); summary-fil och console tar
+    bara INFO+. Loggernamnet är 'pipeline.simplify'.
+    Loggfilnamnen inkluderar steginfo (STEP_NUMBER/STEP_NAME) från miljövariabler
+    om de finns, annars bara en tidsstampel.
+    """
     log_dir = out_base / "log"
     summary_dir = out_base / "summary"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -104,15 +110,6 @@ def simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances=[90
     
     if log is None:
         log = logging.getLogger("pipeline.simplify")
-    """
-    Simplify GeoPackage using Mapshaper CLI with topology preservation.
-    
-    Args:
-        input_file: Path to input GeoPackage
-        output_dir: Directory for output files
-        tolerances: List of percentage values (% of removable vertices to retain)
-                   90% = minimal simplification, 25% = aggressive simplification
-    """
     
     input_path = Path(input_file)
     output_path = Path(output_dir)
@@ -579,7 +576,7 @@ def run(cmd):
 
     # ══════════════════════════════════════════════════════════════════════
     # MERGE-FIRST-LÄGE: centroid-extraktion → enskild GRASS-session
-    # Generaliseringen sker på hela datasetet → inga topologiska sömsglapp.
+    # Generaliseringen sker på hela datasetet → inga topologiska sömglapp.
     # ══════════════════════════════════════════════════════════════════════
     if GRASS_MERGE_BEFORE_GENERALIZE:
         # Detektera geometrikolumn i input-GPKG
@@ -596,6 +593,13 @@ def run(cmd):
                     break
 
         def _extract_owned(chunk):
+            """Extraherar polygoner vars centroid ligger inom chunk:ens ägda rader.
+
+            Använder ST_Centroid-filter i steg för centroid-ägarskap så att
+            varje polygon tilldelas exakt en chunk oavsett hur stor den är.
+            Ingen geometri klipps — fullständiga polygoner skickas vidare
+            till GRASS så att topologin byggs korrekt.
+            """
             ci       = chunk["idx"]
             y_ow_min = chunk["y_ow_min"]
             y_ow_max = chunk["y_ow_max"]
@@ -737,6 +741,15 @@ def run(cmd):
     # GAMMAL PER-CHUNK-KOD (GRASS_MERGE_BEFORE_GENERALIZE = False)
     # ══════════════════════════════════════════════════════════════════════
     def process_chunk(chunk):
+        """Bearbetar ett enskilt band-chunk i tre steg:
+
+          A) Extrahera överlappszon (spatial filter, geometrier klipps EJ) → extract.gpkg
+          B) Kör GRASS v.generalize på extraherad GPKG → simplified.gpkg
+          C) Centroid-filter: behåll bara polygoner vars centroid ligger inom
+             ägda rader (y_ow_min … y_ow_max) → owned.gpkg
+
+        Returnerar Path till owned.gpkg, eller None vid fel.
+        """
         ci        = chunk["idx"]
         y_ov_min  = chunk["y_ov_min"]
         y_ov_max  = chunk["y_ov_max"]
@@ -892,6 +905,7 @@ print("OK")
     with ThreadPoolExecutor(max_workers=n_workers) as ex:
         clipped_files = list(ex.map(process_chunk, chunks))
 
+    # Filtrera bort chunks som returnerade None (misslyckade)
     clipped_files = [f for f in clipped_files if f is not None]
     if not clipped_files:
         log.error("❌ Inga chunks slutfördes!")
@@ -903,11 +917,13 @@ print("OK")
         final_gpkg.unlink()
     for i, cfile in enumerate(clipped_files):
         if i == 0:
+            # Första chunk skapar filen och sätter schema
             r_m = subprocess.run(
                 ["ogr2ogr", "-f", "GPKG", str(final_gpkg), str(cfile)],
                 capture_output=True, text=True
             )
         else:
+            # Följande chunks läggs till med -append -update (schema måste matcha)
             r_m = subprocess.run(
                 ["ogr2ogr", "-f", "GPKG", "-append", "-update", str(final_gpkg), str(cfile)],
                 capture_output=True, text=True
@@ -1028,6 +1044,16 @@ if __name__ == "__main__":
             log.warning("Inga GeoPackage-filer hittades i %s", vectorized_dir)
         else:
             def _process_gpkg(input_file):
+                """Behandlar en enstaka GPKG från steg 7.
+
+                Väljer backend (mapshaper eller GRASS) baserat på SIMPLIFY_BACKEND:
+                  'mapshaper' : alltid Mapshaper
+                  'grass'     : alltid GRASS
+                  'auto'      : GRASS om filen är > 800 MB, annars Mapshaper
+
+                Vid GRASS avgjör GRASS_USE_TILED om tilebaserad (simplify_with_grass_tiled)
+                eller enkel (simplify_with_grass) körning används.
+                """
                 variant_name = input_file.stem.replace("generalized_", "")
                 log.info(f"\n➤ {variant_name.upper()}")
 
@@ -1062,12 +1088,16 @@ if __name__ == "__main__":
                 else:
                     simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances, log)
 
+            # Starta en eller flera workers beroende på hur många GPKG:er som finns.
+            # GRASS_PARALLEL_GPKG begränsar hur många GRASS-sessioner som körs samtidigt
+            # (var och en kan vara minnesintensiv).
             n_workers = min(len(gpkg_files), GRASS_PARALLEL_GPKG)
             if n_workers > 1:
                 log.info(f"Kör {len(gpkg_files)} GPKG:er parallellt (max {n_workers} jobb)")
                 with ThreadPoolExecutor(max_workers=n_workers) as ex:
                     list(ex.map(_process_gpkg, gpkg_files))
             else:
+                # Sekventiell körning vid enbart ett jobb
                 for input_file in gpkg_files:
                     _process_gpkg(input_file)
     else:
@@ -1075,6 +1105,6 @@ if __name__ == "__main__":
 
     _elapsed = _time.time() - _t0
     log.info("\n══════════════════════════════════════════════════════════")
-    log.info(f"Steg 8 KLART: {_elapsed:.0f}s ({_elapsed/60:.1f} min)")
+    log.info(f"Steg 8 klart: {_elapsed:.0f}s ({_elapsed/60:.1f} min)")
     log.info(f"Output i {output_dir}")
     log.info("══════════════════════════════════════════════════════════")
