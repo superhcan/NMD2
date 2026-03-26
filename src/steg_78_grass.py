@@ -6,7 +6,7 @@ Ersätter steg_7_vectorize.py + steg_8_simplify.py när GRASS används som backe
 Ingen mellanlanding i GPKG — polygoniseringen sker direkt i GRASS-topologin.
 
 Fördelar vs separat steg 7 + steg 8:
-  - Inga topologiska sömsglapp (aldrig någon vektorsöm att läka)
+  - Inga topologiska sömglapp
   - Slipper skriva/läsa 1.8 GB GPKG i steg 7
   - Enklare kod
 
@@ -95,7 +95,7 @@ def _run_grass_78(
     log,
 ):
     """
-    Kör r.external × N → r.patch → r.to.vect → v.generalize → v.clean → v.out.ogr
+    Kör r.external x N → r.patch → r.to.vect → v.generalize → v.clean → v.out.ogr
     i en enda GRASS --tmp-project-session.
 
     tif_files      : sorterad lista med Path till steg_6-tile-TIFFar
@@ -224,11 +224,11 @@ def _run_grass_78(
         shutil.rmtree(gtmp, ignore_errors=True)
 
     if proc.returncode != 0:
-        log.error(f"[{variant_name}] ❌ GRASS returnerade kod {proc.returncode}")
+        log.error(f"[{variant_name}] GRASS returnerade kod {proc.returncode}")
         return False
 
     if not output_gpkg.exists():
-        log.error(f"[{variant_name}] ❌ v.out.ogr producerade ingen fil")
+        log.error(f"[{variant_name}] v.out.ogr producerade ingen fil")
         return False
 
     elapsed = time.time() - t0
@@ -289,7 +289,7 @@ if __name__ == "__main__":
         out_gpkg = output_dir / f"{variant_name}_{sfx}.gpkg"
 
         log.info("")
-        log.info("➤ %s", variant_name.upper())
+        log.info("%s", variant_name.upper())
         success = _run_grass_78(
             tif_files=tifs,
             variant_name=variant_name,
@@ -302,7 +302,7 @@ if __name__ == "__main__":
         if success:
             ok_count += 1
         else:
-            log.error("❌ Misslyckades för variant: %s", variant_name)
+            log.error("Misslyckades för variant: %s", variant_name)
 
     elapsed_total = time.time() - t_start
     log.info("")
