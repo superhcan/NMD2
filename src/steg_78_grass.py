@@ -1,3 +1,6 @@
+steg_78_grass.py — Steg 7+8 kombinerat: r.external → r.patch → r.to.vect →
+
+__version__ = "0.3"
 """
 steg_78_grass.py — Steg 7+8 kombinerat: r.external → r.patch → r.to.vect →
                     v.generalize → v.clean → v.out.ogr i en enda GRASS-session.
