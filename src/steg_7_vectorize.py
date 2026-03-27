@@ -159,10 +159,10 @@ def vectorize_sieve(conn):
         else:
             log.info("    ✗ failed")
 
-def vectorize_modal():
-    """Vektoriserar modal-filter-generaliserade raster.
+def vectorize_majority():
+    """Vektoriserar majority-filter-generaliserade raster.
 
-    Söker igenom steg_6_generalize/modal/ efter TIF-filer, grupperar dem
+    Söker igenom steg_6_generalize/majority/ efter TIF-filer, grupperar dem
     per kernelstorlek (extraherad som '_kNN' ur filnamnet) och skriver
     ett GeoPackage per kernel-variant.
 
@@ -171,7 +171,7 @@ def vectorize_modal():
     majoritetsröstningen i ett k×k-fönster.
     """
     log = logging.getLogger("pipeline.vectorize")
-    in_dir = PIPE / "steg_6_generalize" / "modal"
+    in_dir = PIPE / "steg_6_generalize" / "majority"
     if not in_dir.exists():
         return   # Metoden är inte aktiverad eller har inte körts
     tifs = sorted(in_dir.glob("*.tif"))
@@ -191,15 +191,15 @@ def vectorize_modal():
         k_tifs = [t for t in tifs if f"_k{k_str}" in t.name and t.name.endswith('.tif')]
         if not k_tifs:
             continue
-        gpkg = OUT / f"generalized_modal_k{k_str}.gpkg"
+        gpkg = OUT / f"generalized_majority_k{k_str}.gpkg"
         # Radera eventuell gammal GPKG — OGR tillåter inte överskrivning utan -overwrite
         if gpkg.exists():
             gpkg.unlink()
-        log.info("  modal k=%d (eff. MMU ≈ %d px): %d tiles", k, eff_mmu, len(k_tifs))
+        log.info("  majority k=%d (eff. MMU ≈ %d px): %d tiles", k, eff_mmu, len(k_tifs))
 
         # Temporära filer i /tmp/ — raderas direkt efter polygonisering
-        vrt_tmp = f"/tmp/_vect_modal_k{k_str}.vrt"
-        file_list_tmp = f"/tmp/_vect_modal_k{k_str}.txt"
+        vrt_tmp = f"/tmp/_vect_majority_k{k_str}.vrt"
+        file_list_tmp = f"/tmp/_vect_majority_k{k_str}.txt"
 
         # Skriv fillista, bygg VRT-mosaik och polygonisera
         with open(file_list_tmp, "w") as fh:
@@ -353,7 +353,7 @@ if __name__ == "__main__":
 
     # Rensa inaktuella gpkg-filer (metoder som tagits bort från config)
     import shutil
-    all_methods = {"conn4", "conn8", "modal", "semantic"}
+    all_methods = {"conn4", "conn8", "majority", "semantic"}
     for method in all_methods - GENERALIZATION_METHODS:
         for stale in OUT.glob(f"generalized_{method}_*.gpkg"):
             stale.unlink()
@@ -372,8 +372,8 @@ if __name__ == "__main__":
 
     # Rensa gpkg för inaktuella kernel-värden inom aktiv modal
     active_k_labels = {f"k{k:02d}" for k in KERNEL_SIZES}
-    if "modal" in GENERALIZATION_METHODS:
-        for gpkg in OUT.glob("generalized_modal_k*.gpkg"):
+    if "majority" in GENERALIZATION_METHODS:
+        for gpkg in OUT.glob("generalized_majority_k*.gpkg"):
             k_part = re.search(r'_k(\d+)', gpkg.stem)
             if k_part and f"k{int(k_part.group(1)):02d}" not in active_k_labels:
                 gpkg.unlink()
@@ -381,7 +381,7 @@ if __name__ == "__main__":
 
     # Vektorisera endast aktiverade metoder
     if MORPH_ONLY and MORPH_SMOOTH_METHOD != "none":
-        log.info("MORPH_ONLY=True — hoppar över bas-vektorisering (conn4/conn8/modal/semantic)")
+        log.info("MORPH_ONLY=True — hoppar över bas-vektorisering (conn4/conn8/majority/semantic)")
     else:
         if "conn4" in GENERALIZATION_METHODS:
             log.info("\nCONN4")
@@ -391,9 +391,9 @@ if __name__ == "__main__":
             log.info("\nCONN8")
             vectorize_sieve(8)
         
-        if "modal" in GENERALIZATION_METHODS:
-            log.info("\nModal filter")
-            vectorize_modal()
+        if "majority" in GENERALIZATION_METHODS:
+            log.info("\nMajority filter")
+            vectorize_majority()
         
         if "semantic" in GENERALIZATION_METHODS:
             log.info("\nSemantisk generalisering")

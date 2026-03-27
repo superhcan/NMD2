@@ -138,7 +138,7 @@ def build_qgis_project():
                   └─ Lagernamn
 
     Steg med specialhantering:
-      Steg 6 : Rastergrupper per metod (conn4/conn8/modal/semantic) x MMU/kernel
+      Steg 6 : Rastergrupper per metod (conn4/conn8/majority/semantic) x MMU/kernel
       Steg 7 : Vektorgrupperper metod x MMU/kernel
       Steg 8 : Vektorgrupper per metod x setting x tolerance (Mapshaper: p25 etc;
                GRASS: dp10, chaiken_t20 etc)
@@ -230,7 +230,7 @@ def build_qgis_project():
         
         # Speciell hantering för Steg 6 - skapa sub_groups för varje metod + setting
         if step_num == 6:
-            methods = ["conn4", "conn8", "modal", "semantic"]
+            methods = ["conn4", "conn8", "majority", "semantic"]
             
             for method in methods:
                 method_dir = step_dir / method
@@ -258,8 +258,8 @@ def build_qgis_project():
                             setting_label = f"MMU {setting}px"
                         else:
                             continue
-                    elif method == "modal":
-                        # Exempel: ...modal_k03.tif → "k03"
+                    elif method == "majority":
+                        # Exempel: ...majority_k03.tif → "k03"
                         if "_k" in layer_name:
                             setting = layer_name.split("_k")[-1][:2]  # "03", "05", etc
                             setting_label = f"Kernel radius k={setting}"
@@ -329,14 +329,14 @@ def build_qgis_project():
                 log.warning(f"{step_name:40s} - inga filer hittade")
                 continue
 
-            known_methods = ["conn4", "conn8", "modal", "semantic"]
+            known_methods = ["conn4", "conn8", "majority", "semantic"]
 
             def _parse_steg7(stem):
                 """Tolkar filnamnet från steg 7 till (metod, setting_label).
 
                 Exempel:
                   'generalized_conn4_mmu008' → ('conn4', 'MMU 008px')
-                  'generalized_modal_k15'    → ('modal', 'Kernel radius k=15')
+                  'generalized_majority_k15'    → ('majority', 'Kernel radius k=15')
 
                 Returnerar (None, None) om formatet inte känns igen.
                 """
@@ -402,7 +402,7 @@ def build_qgis_project():
                 log.warning(f"{step_name:40s} - inga filer hittade")
                 continue
 
-            known_methods = ["conn4", "conn8", "modal", "semantic"]
+            known_methods = ["conn4", "conn8", "majority", "semantic"]
 
             import re as _re8
 
@@ -510,7 +510,7 @@ def build_qgis_project():
                 log.warning(f"{step_name:40s} - inga filer hittade")
                 continue
 
-            known_methods = ["conn4", "conn8", "modal", "semantic"]
+            known_methods = ["conn4", "conn8", "majority", "semantic"]
 
             import re as _re9
 

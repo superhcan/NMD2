@@ -13,8 +13,11 @@ import numpy as np
 # PATHS
 # ══════════════════════════════════════════════════════════════════════════════
 
-SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.tif")
-QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
+#SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.tif")
+#QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
+SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/NMD2023bas_v2_1.tif")
+QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/NMD2023bas_v2_1.qml")
+
 # QML-fil för reklassificerade tiles (steg 1 och framåt).
 # Faller tillbaka på QML_SRC om filen saknas.
 _RECLASSIFY_QML = Path(__file__).parent / "qml" / "steg_1_reclassify.qml"
@@ -22,24 +25,24 @@ QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
 # TODO: Ta bort miljövariabeln och hårdkoda OUT_BASE när pipeline är stabil och klar för produktion
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_2048_5proc_v01"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_NMD_v2_1_4096_1tile_conn4_modal_sematic_v01"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-TILE_SIZE        = 2048          # Huvudtile-storlek (pixlar per sida)
-# Vid 2048 px: 36 kolumner × 36 rader = 1296 tiles totalt (71273×70880 px källraster)
-PARENT_TILES     = [(r, c) for r in range(8) for c in range(8)]  # 8×8 = 64 tiles ≈ 5 % av rastret (35×35 grid vid TILE_SIZE=2048)
-PARENT_TILE_SIZE = 2048          # Matchar TILE_SIZE i steg 1
-SUB_TILE_SIZE    = 2048          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
+TILE_SIZE        = 4096          # Huvudtile-storlek (pixlar per sida)
+# Vid 4096 px: 18 kolumner × 18 rader = 324 tiles totalt (71273×70880 px källraster)
+PARENT_TILES     = [(21, 8)]      # 1 tile: nordligaste raden, mitten (col 8 av 18)
+PARENT_TILE_SIZE = 4096          # Matchar TILE_SIZE i steg 1
+SUB_TILE_SIZE    = 4096          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
 HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CLASSIFICATION CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-GENERALIZE_PROTECTED = {51,61, 62}                     # Skyddade klasser i steg 6 (generalisering): maskeras vid sieve/modal, exkluderas från areafilter. (51 borttagen — löses upp i steg 3)
+GENERALIZE_PROTECTED = {51,61, 62}                     # Skyddade klasser i steg 6 (generalisering): maskeras vid sieve/majority, exkluderas från areafilter. (51 borttagen — löses upp i steg 3)
 SIMPLIFY_PROTECTED   = set()                       # Skyddade klasser i steg 8 (Mapshaper): förenklas aldrig (sp=1.0). (51 borttagen — löses upp i steg 3)
 EXTRACT_CLASSES  = {53, 61, 62}                # Klasser som extraheras separat i steg 2 (vektoriseras senare): Byggnad, Väg/järnväg, Vatten
 DISSOLVE_CLASSES = {53}                        # Klasser som löses upp i omgivande mark i steg 3: Byggnad + Väg/järnväg
@@ -154,7 +157,7 @@ ISLAND_FILL_SURROUNDS = {61, 62}
 #   MMU=64:  Mycket stark förenkling (bara större områden kvar)
 #   MMU=100: Extrem förenkling (bara mycket stora områden kvar)
 #
-# Filstorlek-päverkan (ca guide för steg 7 vectorizer output):
+# Filstorlek-päverkan (ca guide för vectorizer output):
 #   MMU=2:    ~100% (baseline)
 #   MMU=8:    ~90-95% (små minskning)
 #   MMU=16:   ~80-85%
@@ -178,6 +181,7 @@ ISLAND_FILL_SURROUNDS = {61, 62}
 #   - Fler steg = längre körtid men bättre för att jämföra resultat
 #
 MMU_STEPS    = [2, 4, 8, 16, 32, 50]
+
 
 # Kernel-storlekar för modal filter (Steg 6c)
 # ═════════════════════════════════════════════════════════════════════════════
@@ -374,9 +378,9 @@ ENABLE_STEPS = {
     4: False,   # Fylla små landöar < MMU_ISLAND px omringade av vatten
     5: True,    # Ta bort (filtrera) små sjöar < 0,5 ha
     6: True,    # Generalisering
-    7: True,    # Vektorisering
-    8: True,    # Simplifiering
-    9: True,    # Overlay byggnader från steg 2 på steg 8
+    7: False,    # Vektorisering
+    8: False,    # Simplifiering
+    9: False,    # Overlay byggnader från steg 2 på steg 8
     99: True,   # Bygga QGIS-projekt
 }
 
@@ -402,7 +406,7 @@ QGIS_INCLUDE_STEPS = {
 # ══════════════════════════════════════════════════════════════════════════════
 # GENERALIZATION METHODS — Vilka metoder i Steg 6 ska köras?
 # ══════════════════════════════════════════════════════════════════════════════
-# Möjliga metoder: "conn4", "conn8", "modal", "semantic"
+# Möjliga metoder: "conn4", "conn8", "majority", "semantic"
 # Steg 7 och 8 kör automatiskt samma metoder som här är aktiverade
 #
 # ─── conn4 och conn8 (sieve-baserade metoder) ────────────────────────────────
@@ -421,7 +425,7 @@ QGIS_INCLUDE_STEPS = {
 #
 #   Styrs av MMU_STEPS (se ovan). Samma lista gäller för conn4 och conn8.
 #
-# ─── modal (majoritetsfilter) ────────────────────────────────────────────────
+# ─── majority (majoritetsfilter) ─────────────────────────────────────────────
 # Ersätter varje pixel med den vanligaste klassen i ett k×k pixelfönster
 # (majority voting / moving window).
 #
@@ -436,29 +440,55 @@ QGIS_INCLUDE_STEPS = {
 # Slår ihop små patches med sin semantiskt *närmaste* grannpatch, baserat på
 # NMD:s marktäckehierarki — inte bara den geometriskt störst grann.
 #
-# Semantisk gruppering via nmd_group():
-#   v < 10    → grupp = v itself    (t.ex. 3 = Åkermark → grupp 3)
-#   v < 100   → grupp = v // 10     (t.ex. 23,43,51–54,61–62)
-#   v < 1000  → grupp = v // 100    (t.ex. 111–128, 200–228, 411)
-#   v >= 1000 → grupp = v // 1000   (t.ex. 4211–4233)
+# OBS: Semantic arbetar på de ommappade klasskoderna (efter CLASS_REMAP),
+# INTE på de ursprungliga NMD-koderna (111–128, 4211–4233, etc.).
+# CLASS_REMAP reducerar ~50 original-klasser till ~20 remap-klasser.
 #
-#   Faktiska grupper med verkliga NMD2023-klasser:
-#   Grupp 1 = Skog         (111–128: all skog på fastmark och våtmark)
-#   Grupp 2 = Våtmark      (200–228: öppen och trädklädd våtmark; 23: låg fjällskog på våtmark)
+# Semantisk gruppering via nmd_group() på ommappade klasser:
+#   v < 10    → grupp = v itself    (t.ex. 3 = Åkermark → grupp 3)
+#   v < 100   → grupp = v // 10     (t.ex. 21,22 → grupp 2; 41,51–54,61–62 → grupp 4/5/6)
+#   v < 1000  → grupp = v // 100    (t.ex. 101–108 → grupp 1; 200 → grupp 2; 421–423 → grupp 4)
+#   (v >= 1000 förekommer ej — inga 4-siffriga koder efter CLASS_REMAP)
+#
+#   Faktiska grupper med ommappade klasser (post-CLASS_REMAP):
+#   Grupp 1 = Skog         (101–108: tallskog, granskog, barrbland, lövbland, trivlöv, ädellöv,
+#                             trivlöv m. ädel, temporärt ej skog — fastmark och våtmark sammanförda)
+#   Grupp 2 = Våtmark      (21: öppen myr; 22: öppen våtmark ej myr; 200: öppen våtmark övrigt)
 #   Grupp 3 = Åkermark     (3: åkermark)
-#   Grupp 4 = Öppen mark   (411: öppen fastmark; 4211–4233: busk/ris/gräsmark; 43: låg fjällskog fastmark)
+#   Grupp 4 = Öppen mark   (41: öppen mark/glacier/snö; 421: buskmark; 422: risdominerad; 423: gräsdominerad)
 #   Grupp 5 = Bebyggd/infra (51: byggnad; 52: anlagd mark; 53: väg/järnväg; 54: torvtäkt)
 #   Grupp 6 = Vatten       (61: inlandsvatten; 62: hav)
 #
-#   Distanstabell (lägre = mer lika):
-#     Våtmark–Öppen mark:  1  (närmast — fuktiga och öppna marker likartade)
-#     Skog–Våtmark:        2  Åkermark–Våtmark:        2
-#     Skog–Åkermark:       3  Skog–Öppen mark:         3
-#     Våtmark–Bebyggd:     3  Öppen mark–Bebyggd:      3
-#     Skog–Bebyggd:        4  Åkermark–Bebyggd:        4
-#     Åkermark–Vatten:     4  Våtmark–Vatten:          4
-#     Öppen mark–Vatten:   4  Bebyggd–Vatten:          4
-#     Skog–Vatten:         5  (mest olika)
+#   Distanstabell (SEMANTIC_GROUP_DIST nedan), lägre = mer lika:
+#
+#          Skog  Våtmk  Åkerm  Öppnm  Byggd  Vatten
+#   Skog    —      2      3      3      4      5
+#   Våtmk   2      —      2      1      3      4
+#   Åkerm   3      2      —      3      4      3
+#   Öppnm   3      1      3      —      3      4
+#   Byggd   4      3      4      3      —      4
+#   Vatten  5      4      3      4      4      —
+#
+#   Motivering av utvalda distanser:
+#     Våtmark–Öppen mark = 1  Ekologiskt närmast: myr-kant och torr hed är
+#                             varandras normalgranne i nordsvenskt landskap.
+#     Skog–Våtmark = 2        Trädklädd myr är vanlig — naturlig övergång.
+#     Våtmark–Åkermark = 2    Fuktig odlingsmark gränsar naturligt mot myr.
+#     Åkermark–Vatten = 3     Åker vid vattendrag är vanligt (inte 4 som man
+#                             kanske tror) — kortare distans än t.ex. Skog–Bebyggd.
+#     Skog–Vatten = 5         Maxdistans — ett skogspaket ska aldrig
+#                             absorberas i ett vattenpaket.
+#
+# Grupp-ID:n matchar nmd_group()-logiken på post-CLASS_REMAP-koder:
+#   1=Skog  2=Våtmark  3=Åkermark  4=Öppen mark  5=Bebyggd/infra  6=Vatten
+#
+SEMANTIC_GROUP_DIST = {
+    (1, 2): 2, (1, 3): 3, (1, 4): 3, (1, 5): 4, (1, 6): 5,
+    (2, 3): 2, (2, 4): 1, (2, 5): 3, (2, 6): 4,
+    (3, 4): 3, (3, 5): 4, (3, 6): 3,
+    (4, 5): 3, (4, 6): 4,
+    (5, 6): 4,
+}
 #
 #   Algoritm (heapq-baserat greedy merge):
 #     1. Bygg upp alla 4-konnekterade patches och deras grannar
@@ -479,12 +509,12 @@ QGIS_INCLUDE_STEPS = {
 #   Styrs av MMU_STEPS (samma lista som för conn4/conn8).
 #
 # Exempel:
-#   GENERALIZATION_METHODS = {"conn4", "conn8", "modal"}  # Skippa semantic
+#   GENERALIZATION_METHODS = {"conn4", "conn8", "majority"}  # Skippa semantic
 #   eller
 #   GENERALIZATION_METHODS = {"conn4", "conn8"}            # Bara sieve-metoder
 #
 
-GENERALIZATION_METHODS = {"conn4"}
+GENERALIZATION_METHODS = {"conn4", "majority", "semantic"}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GDAL & RASTERIO SETTINGS

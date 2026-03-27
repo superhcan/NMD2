@@ -7,7 +7,7 @@ med topologibevarand (shared arcs istället för individ polygoner).
 Processas:
   - generalized_conn4_mmu008.gpkg
   - generalized_conn8_mmu008.gpkg
-  - generalized_modal_k15.gpkg
+  - generalized_majority_k15.gpkg
 
 Tolerances: [90, 75, 50, 25, 15]% of removable vertices to retain
 
@@ -102,7 +102,7 @@ def simplify_with_mapshaper(input_file, output_dir, variant_name, tolerances=[90
     Args:
         input_file: Path to input GeoPackage
         output_dir: Directory for output files
-        variant_name: Name of variant (e.g. 'conn4_mmu008', 'conn8_mmu008', 'modal_k15')
+        variant_name: Name of variant (e.g. 'conn4_mmu008', 'conn8_mmu008', 'majority_k15')
         tolerances: List of percentage values (% of removable vertices to retain)
                    90% = minimal simplification, 15% = very aggressive
         log: Logger instance
@@ -1038,7 +1038,7 @@ if __name__ == "__main__":
 
     # Rensa inaktuella gpkg-filer (metoder som tagits bort från config)
     from config import GENERALIZATION_METHODS
-    all_methods = {"conn4", "conn8", "modal", "semantic"}
+    all_methods = {"conn4", "conn8", "majority", "semantic"}
     if output_dir.exists():
         for method in all_methods - GENERALIZATION_METHODS:
             for stale in output_dir.glob(f"{method}_*_simplified_*.gpkg"):

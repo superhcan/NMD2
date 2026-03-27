@@ -1,6 +1,3 @@
-steg_78_grass.py — Steg 7+8 kombinerat: r.external → r.patch → r.to.vect →
-
-__version__ = "0.3"
 """
 steg_78_grass.py — Steg 7+8 kombinerat: r.external → r.patch → r.to.vect →
                     v.generalize → v.clean → v.out.ogr i en enda GRASS-session.
@@ -288,7 +285,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # ── Hitta alla varianter att processa ─────────────────────────────────
-    # MORPH_ONLY=True: bara *_morph_*-mappar. Annars också conn4, conn8, modal.
+    # MORPH_ONLY=True: bara *_morph_*-mappar. Annars också conn4, conn8, majority.
     subdirs = sorted(d for d in gen6_dir.iterdir() if d.is_dir())
     if MORPH_ONLY:
         subdirs = [d for d in subdirs if "_morph_" in d.name]

@@ -26,7 +26,7 @@ Generaliseringsmetoder (styrs av GENERALIZATION_METHODS i config.py)
                   angränsande patch som är tematiskt närmast (samma NMD-grupp
                   prioriteras framför stor area).
 
-Efter vald sieve/modal/semantic-metod körs ett valfritt morfologiskt utjämningssteg
+Efter vald sieve/majority/semantic-metod körs ett valfritt morfologiskt utjämningssteg
 (MORPH_SMOOTH_METHOD) som rundar ut pixeltrappor längs klassgränser. Körs här för att 
 snabba upp simplifieringen.
 
@@ -54,7 +54,7 @@ from rasterio.windows import Window
 from scipy import ndimage
 from scipy.ndimage import uniform_filter
 
-from config import OUT_BASE, SRC, QML_RECLASSIFY, GENERALIZE_PROTECTED as PROTECTED, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS, MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS
+from config import OUT_BASE, SRC, QML_RECLASSIFY, GENERALIZE_PROTECTED as PROTECTED, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS, MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS, SEMANTIC_GROUP_DIST
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Logging – två loggers + console
@@ -282,8 +282,8 @@ def run_sieve(data: np.ndarray, mmu: int, conn: int) -> np.ndarray:
         out_p.unlink(missing_ok=True)
 
 
-def modal_filter_once(data: np.ndarray, kernel: int) -> np.ndarray:
-    """Applicerar ett majoritetsfilter (modal filter) med kvadratisk kernel.
+def majority_filter_once(data: np.ndarray, kernel: int) -> np.ndarray:
+    """Applicerar ett majoritetsfilter (majority filter) med kvadratisk kernel.
 
     Varje pixel tilldelas den klass som förekommer flest gånger inom ett
     kernel×kernel-fönster. Implementeras som en tävling mellan klasser:
@@ -293,7 +293,7 @@ def modal_filter_once(data: np.ndarray, kernel: int) -> np.ndarray:
     uniform_filter är O(N) oavsett kernelstorlek, vilket gör metoden
     snabbare än en naiv histogramberäkning per pixel.
     """
-    log.debug("modal_filter_once: kernel=%d  data=%s", kernel, data.shape)
+    log.debug("majority_filter_once: kernel=%d  data=%s", kernel, data.shape)
     # Maskera skyddade klasser — de deltar inte i röstningen
     prot_mask  = np.isin(data, list(PROTECTED))
     vote_data  = data.copy()
@@ -320,7 +320,7 @@ def modal_filter_once(data: np.ndarray, kernel: int) -> np.ndarray:
     best_class[data == 0] = 0
     result = best_class.astype(data.dtype)
     changed = int(np.sum(result != data))
-    log.debug("modal_filter_once klar: %d px ändrade (%.1f%%)",
+    log.debug("majority_filter_once klar: %d px ändrade (%.1f%%)",
               changed, changed / data.size * 100)
     return result
 
@@ -428,7 +428,7 @@ def _morph_tile_worker(args):
 
 def morph_halo(base_method_dir: str, tile_paths: list):
     """Applicerar morfologisk utjämning på output från en generaliserings-
-    metod (t.ex. 'conn4' eller 'modal'). Output sparas i
+    metod (t.ex. 'conn4' eller 'majority'). Output sparas i
     steg_6_generalize/{base_method_dir}_{morph_label()}/
     """
     label = morph_label()
@@ -492,16 +492,12 @@ def nmd_group(v: int) -> int:
     if v < 1000: return v // 100
     return v // 1000
 
-# Hårdkodad semantisk distanstabell mellan NMD-grupper.
+# Semantisk distanstabell — läses från config.SEMANTIC_GROUP_DIST.
 # Lågt värde = hög likhet (lättare att slå ihop).
-# Grupp 1=skog, 2=öppen mark/jordbruk, 3=bebyggelse, 4=våtmark, 5=vatten, 6=hav
-_GDIST = {
-    (1, 2): 2, (1, 3): 3, (1, 4): 3, (1, 5): 4, (1, 6): 5,
-    (2, 3): 2, (2, 4): 1, (2, 5): 3, (2, 6): 4,
-    (3, 4): 3, (3, 5): 4, (3, 6): 3,
-    (4, 5): 3, (4, 6): 4,
-    (5, 6): 4,
-}
+# Grupper med post-CLASS_REMAP-koder:
+#   1=Skog (101–108)  2=Våtmark (21,22,200)  3=Åkermark (3)
+#   4=Öppen mark (41,421–423)  5=Bebyggd/infra (51–54)  6=Vatten (61,62)
+_GDIST = SEMANTIC_GROUP_DIST
 
 def sem_dist(a: int, b: int) -> int:
     """Returnerar semantisk distans mellan klass a och klass b.
@@ -725,8 +721,8 @@ def _sieve_tile_worker(args):
     return str(out_path), changed, orig.shape
 
 
-def _modal_tile_worker(args):
-    """Worker för ProcessPoolExecutor: kör ett modal-pass på en tile."""
+def _majority_tile_worker(args):
+    """Worker för ProcessPoolExecutor: kör ett majority-pass på en tile."""
     prev_vrt, tile, out_path = Path(args[0]), Path(args[1]), Path(args[2])
     k = args[3]
     if out_path.exists():
@@ -735,7 +731,7 @@ def _modal_tile_worker(args):
     tile_meta.update(compress=COMPRESS)
     with rasterio.open(tile) as _src:
         orig = _src.read(1)
-    result  = modal_filter_once(padded, k)[inner]
+    result  = majority_filter_once(padded, k)[inner]
     changed = int(np.sum(result != orig))
     with rasterio.open(out_path, "w", **tile_meta) as dst:
         dst.write(result, 1)
@@ -826,8 +822,8 @@ def sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int):
     info.info("Steg 6 Sieve-%s KLAR  %.1f min (%.0fs)", label, _elapsed / 60, _elapsed)
 
 
-def modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
-    """Kör majoritetsfiltrering (modal filter) med halo-överlapp över alla tiles.
+def majority_halo(tile_paths: list[Path], filled_paths: list[Path]):
+    """Kör majoritetsfiltrering (majority filter) med halo-överlapp över alla tiles.
 
     Itererar igenom KERNEL_SIZES i stigande ordning. Varje steg läser från ett
     gemensamt VRT-mosaik som uppdateras efter varje kernelstorlek — dvs. steg N+1
@@ -835,7 +831,7 @@ def modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
 
     Mellanresultat (lägre kernelstorlekar) raderas inte — alla kernelsteg sparas.
     """
-    out_dir  = OUT_BASE / "steg_6_generalize" / "modal"
+    out_dir  = OUT_BASE / "steg_6_generalize" / "majority"
     out_dir.mkdir(parents=True, exist_ok=True)
     t0_step = time.time()
 
@@ -847,7 +843,7 @@ def modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
-    info.info("Steg 6 Modal: %d kernelstorlekar x %d tiles (halo=%dpx)",
+    info.info("Steg 6 Majority: %d kernelstorlekar x %d tiles (halo=%dpx)",
               len(KERNEL_SIZES), len(tile_paths), HALO)
 
     # Iterera kernelstorlekar i konfigurerad ordning (normalt stigande).
@@ -857,20 +853,20 @@ def modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
         step_outputs  = []
         t0            = time.time()
         total_changed = 0
-        log.debug("modal k=%d: startar", k)
+        log.debug("majority k=%d: startar", k)
 
         # Bygg argument-tupler för varje tile.
         # Primitiva typer (str, int) krävs eftersom workers körs i separata
         # processer och argumenten serialiseras via pickle.
         task_args = [
             (str(prev_vrt), str(tile),
-             str(out_dir / f"{tile.stem}_modal_k{k:02d}.tif"),
+             str(out_dir / f"{tile.stem}_majority_k{k:02d}.tif"),
              k)
             for tile in tile_paths
         ]
         # Kör alla tiles för denna kernelstorlek parallellt
         with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
-            for out_path_str, changed in executor.map(_modal_tile_worker, task_args):
+            for out_path_str, changed in executor.map(_majority_tile_worker, task_args):
                 step_outputs.append(Path(out_path_str))
                 total_changed += changed
 
@@ -881,7 +877,7 @@ def modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
         build_vrt(step_outputs, step_vrt)
         prev_vrt = step_vrt
         elapsed  = time.time() - t0
-        info.info("  modal      k=%2d          totalt %9d px ändrade  %.1fs",
+        info.info("  majority   k=%2d          totalt %9d px ändrade  %.1fs",
                   k, total_changed, elapsed)
 
     # Rensa temporära VRT-filer (en per kernelsteg).
@@ -891,7 +887,7 @@ def modal_halo(tile_paths: list[Path], filled_paths: list[Path]):
         vrt.unlink()
 
     _elapsed = time.time() - t0_step
-    info.info("Steg 6 Modal KLAR  %.1f min (%.0fs)", _elapsed / 60, _elapsed)
+    info.info("Steg 6 Majority KLAR  %.1f min (%.0fs)", _elapsed / 60, _elapsed)
 
 
 def semantic_halo(tile_paths: list[Path], filled_paths: list[Path]):
@@ -973,14 +969,14 @@ if __name__ == "__main__":
     info.info("Halo      : %d px", HALO)
     info.info("Skyddade klasser: %s", sorted(PROTECTED))
     info.info("MMU-steg  : %s px", MMU_STEPS)
-    info.info("Kernelstorlekar (modal): %s", KERNEL_SIZES)
+    info.info("Kernelstorlekar (majority): %s", KERNEL_SIZES)
     info.info("Aktiva generaliseringsmetoder: %s", sorted(GENERALIZATION_METHODS))
     info.info("Morfologisk utjämning : metod=%s  radie=%d px", MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS)
     info.info("══════════════════════════════════════════════════════════")
 
     # Rensa inaktuella metod-mappar (metoder som tagits bort från config)
     import shutil
-    all_methods = {"conn4", "conn8", "modal", "semantic"}
+    all_methods = {"conn4", "conn8", "majority", "semantic"}
     for method in all_methods - GENERALIZATION_METHODS:
         stale_dir = OUT_BASE / "steg_6_generalize" / method
         if stale_dir.exists():
@@ -1002,9 +998,9 @@ if __name__ == "__main__":
 
     # Rensa inaktuella kernel-filer inom aktiv modal-mapp
     active_k_labels = {f"_k{k:02d}" for k in KERNEL_SIZES}
-    modal_dir = OUT_BASE / "steg_6_generalize" / "modal"
-    if modal_dir.exists():
-        for tif in modal_dir.glob("*.tif"):
+    majority_dir = OUT_BASE / "steg_6_generalize" / "majority"
+    if majority_dir.exists():
+        for tif in majority_dir.glob("*.tif"):
             if not any(lbl in tif.stem for lbl in active_k_labels):
                 tif.unlink()
                 info.info("  Raderat inaktuell kernel-fil: %s", tif.name)
@@ -1033,9 +1029,9 @@ if __name__ == "__main__":
         info.info("\nSteg 6: Sieve conn8 (med halo)")
         sieve_halo(tile_paths, landscape_paths, conn=8)
 
-    if "modal" in GENERALIZATION_METHODS:
-        info.info("\nSteg 6: Modal filter (med halo)")
-        modal_halo(tile_paths, landscape_paths)
+    if "majority" in GENERALIZATION_METHODS:
+        info.info("\nSteg 6: Majority filter (med halo)")
+        majority_halo(tile_paths, landscape_paths)
 
     if "semantic" in GENERALIZATION_METHODS:
         info.info("\nSteg 6: Semantisk eliminering (med halo)")
@@ -1050,8 +1046,8 @@ if __name__ == "__main__":
             _morph_sources.append("conn4")
         if "conn8" in GENERALIZATION_METHODS:
             _morph_sources.append("conn8")
-        if "modal" in GENERALIZATION_METHODS:
-            _morph_sources.append("modal")
+        if "majority" in GENERALIZATION_METHODS:
+            _morph_sources.append("majority")
         if "semantic" in GENERALIZATION_METHODS:
             _morph_sources.append("semantic")
         for src in _morph_sources:
