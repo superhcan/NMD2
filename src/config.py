@@ -25,17 +25,15 @@ QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
 # TODO: Ta bort miljövariabeln och hårdkoda OUT_BASE när pipeline är stabil och klar för produktion
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/test_NMD_v2_1_4096_1tile_conn4_modal_sematic_v01"))
+OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/hela_landet_v2_1_2048_conn4_v01"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-TILE_SIZE        = 4096          # Huvudtile-storlek (pixlar per sida)
-# Vid 4096 px: 18 kolumner × 18 rader = 324 tiles totalt (71273×70880 px källraster)
-PARENT_TILES     = [(21, 8)]      # 1 tile: nordligaste raden, mitten (col 8 av 18)
-PARENT_TILE_SIZE = 4096          # Matchar TILE_SIZE i steg 1
-SUB_TILE_SIZE    = 4096          # Sub-tile-storlek (samma som PARENT_TILE_SIZE nu)
+TILE_SIZE        = 2048          # Huvudtile-storlek (pixlar per sida)
+# Vid 2048 px: 35 kolumner × 78 rader = 2730 tiles totalt (71273×157991 px källraster v2.1)
+PARENT_TILES     = [(r, c) for r in range(78) for c in range(35)]  # Hela landet
 HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -376,10 +374,10 @@ ENABLE_STEPS = {
     2: True,    # Extrahera skyddade klasser
     3: True,    # Extrahera landskapsbild
     4: False,   # Fylla små landöar < MMU_ISLAND px omringade av vatten
-    5: True,    # Ta bort (filtrera) små sjöar < 0,5 ha
+    5: False,    # Ta bort (filtrera) små sjöar < 0,5 ha
     6: True,    # Generalisering
-    7: False,    # Vektorisering
-    8: False,    # Simplifiering
+    7: True,    # Vektorisering
+    8: True,    # Simplifiering
     9: False,    # Overlay byggnader från steg 2 på steg 8
     99: True,   # Bygga QGIS-projekt
 }
@@ -392,15 +390,15 @@ ENABLE_STEPS = {
 #
 QGIS_INCLUDE_STEPS = {
     0: True,   # Verifieringstiles (original, 980 rasterfiler)
-    1: True,   # Tiles med omklassificering (980 rasterfiler)
-    2: True,  # Extraherade skyddade klasser (980 rasterfiler)
-    3: True,   # Upplöst landskapsbild (980 rasterfiler)
+    1: False,   # Tiles med omklassificering (980 rasterfiler)
+    2: False,  # Extraherade skyddade klasser (980 rasterfiler)
+    3: False,   # Upplöst landskapsbild (980 rasterfiler)
     4: False,   # Fyllda sjöar (980 rasterfiler)
-    5: True,   # Fyllda öar (980 rasterfiler)
+    5: False,   # Fyllda öar (980 rasterfiler)
     6: True,    # Generaliserat raster (steg6_generalized_*/)
     7: False,    # Vektoriserade GeoPackage
     8: True,    # Förenklat (Mapshaper)
-    9: True,    # Med byggnader
+    9: False,    # Med byggnader
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -514,7 +512,7 @@ SEMANTIC_GROUP_DIST = {
 #   GENERALIZATION_METHODS = {"conn4", "conn8"}            # Bara sieve-metoder
 #
 
-GENERALIZATION_METHODS = {"conn4", "majority", "semantic"}
+GENERALIZATION_METHODS = {"conn4"}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GDAL & RASTERIO SETTINGS
