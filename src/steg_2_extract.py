@@ -16,6 +16,7 @@ Kör: python3 src/steg_2_extract.py
 import logging
 import os
 import shutil
+import subprocess
 import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -120,6 +121,17 @@ def extract_protected_classes(tile_paths: list[Path]) -> list[Path]:
     _elapsed = time.time() - t0_step
     info.info("Steg 2 klart: totalt %d px extracted  %.1f min (%.0fs)",
               total_px_extracted, _elapsed / 60, _elapsed)
+
+    # Bygg en mosaic-VRT så att steget kan öppnas i QGIS direkt
+    out_dir = OUT_BASE / "steg_2_extract"
+    tifs = sorted(out_dir.glob("*.tif"))
+    if tifs:
+        vrt_path = out_dir / "_mosaic.vrt"
+        subprocess.run(
+            ["gdalbuildvrt", str(vrt_path), *[str(t) for t in tifs]],
+            capture_output=True,
+        )
+        log.info("VRT: %s", vrt_path)
 
     return result_paths
 

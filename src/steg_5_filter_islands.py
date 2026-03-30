@@ -19,6 +19,7 @@ Kör: python3 src/steg_5_filter_islands.py
 
 import logging
 import shutil
+import subprocess
 import time
 from pathlib import Path
 
@@ -180,6 +181,16 @@ def fill_islands(tile_paths: list[Path]) -> list[Path]:
     _elapsed = time.time() - t0_step
     info.info("Steg 5 klart: totalt %d öar fyllda  %.1f min (%.0fs)",
               total_islands, _elapsed / 60, _elapsed)
+
+    # Bygg en mosaic-VRT så att steget kan öppnas i QGIS direkt
+    tifs = sorted(out_dir.glob("*.tif"))
+    if tifs:
+        vrt_path = out_dir / "_mosaic.vrt"
+        subprocess.run(
+            ["gdalbuildvrt", str(vrt_path), *[str(t) for t in tifs]],
+            capture_output=True,
+        )
+        log.info("VRT: %s", vrt_path)
 
     return result_paths
 

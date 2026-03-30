@@ -15,6 +15,7 @@ Kör: python3 src/steg_4_filter_lakes.py
 
 import logging
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -163,6 +164,16 @@ def fill_water_islands(tile_paths: list[Path]) -> list[Path]:
 
     info.info("Steg 4 klar: %d tiles behandlade  %.1fs",
               len(result_paths), time.time() - t0_step)
+
+    # Bygg en mosaic-VRT så att steget kan öppnas i QGIS direkt
+    tifs = sorted(out_dir.glob("*.tif"))
+    if tifs:
+        vrt_path = out_dir / "_mosaic.vrt"
+        subprocess.run(
+            ["gdalbuildvrt", str(vrt_path), *[str(t) for t in tifs]],
+            capture_output=True,
+        )
+        log.info("VRT: %s", vrt_path)
 
     return result_paths
 

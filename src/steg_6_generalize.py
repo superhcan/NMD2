@@ -54,7 +54,8 @@ from rasterio.windows import Window
 from scipy import ndimage
 from scipy.ndimage import uniform_filter
 
-from config import OUT_BASE, SRC, QML_RECLASSIFY, GENERALIZE_PROTECTED as PROTECTED, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS, MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS, SEMANTIC_GROUP_DIST
+from config import OUT_BASE, SRC, QML_RECLASSIFY, GENERALIZE_PROTECTED as PROTECTED, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS, MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS, SEMANTIC_GROUP_DIST, BUILD_OVERVIEWS, OVERVIEW_LEVELS
+from rasterio.enums import Resampling as _Resampling
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Logging – två loggers + console
@@ -409,6 +410,14 @@ def apply_morph_smooth(data: np.ndarray) -> np.ndarray:
     return result
 
 
+def _build_overviews(path: Path) -> None:
+    """Bygger pyramidnivåer för en TIF-fil om BUILD_OVERVIEWS är aktiverat."""
+    if BUILD_OVERVIEWS and OVERVIEW_LEVELS:
+        with rasterio.open(path, "r+") as ds:
+            ds.build_overviews(OVERVIEW_LEVELS, _Resampling.nearest)
+            ds.update_tags(ns="rio_overview", resampling="nearest")
+
+
 def _morph_tile_worker(args):
     """Worker för ProcessPoolExecutor: kör morfologisk utjämning på en tile."""
     prev_vrt, tile, out_path = Path(args[0]), Path(args[1]), Path(args[2])
@@ -423,6 +432,7 @@ def _morph_tile_worker(args):
     with rasterio.open(out_path, "w", **tile_meta) as dst:
         dst.write(result, 1)
     copy_qml(out_path)
+    _build_overviews(out_path)
     return str(out_path), changed
 
 
@@ -718,6 +728,7 @@ def _sieve_tile_worker(args):
     with rasterio.open(out_path, "w", **tile_meta) as dst:
         dst.write(result, 1)
     copy_qml(out_path)
+    _build_overviews(out_path)
     return str(out_path), changed, orig.shape
 
 
@@ -736,6 +747,7 @@ def _majority_tile_worker(args):
     with rasterio.open(out_path, "w", **tile_meta) as dst:
         dst.write(result, 1)
     copy_qml(out_path)
+    _build_overviews(out_path)
     return str(out_path), changed
 
 
@@ -754,6 +766,7 @@ def _semantic_tile_worker(args):
     with rasterio.open(out_path, "w", **tile_meta) as dst:
         dst.write(result, 1)
     copy_qml(out_path)
+    _build_overviews(out_path)
     return str(out_path), changed
 
 
@@ -1058,3 +1071,21 @@ if __name__ == "__main__":
     info.info("Steg 6 klart  totaltid: %.1f min (%.0fs)", elapsed / 60, elapsed)
     info.info("Utdata: %s", OUT_BASE)
     info.info("═══════════════════════════════════════════════════════════════")
+
+    # Bygg en _mosaic.vrt per metodkatalog så att resultaten kan öppnas i QGIS direkt
+    generalize_dir = OUT_BASE / "steg_6_generalize"
+    for method_dir in sorted(generalize_dir.iterdir()) if generalize_dir.exists() else []:
+        if not method_dir.is_dir():
+            continue
+        tifs = sorted(method_dir.glob("*.tif"))
+        if not tifs:
+            continue
+        vrt_path = method_dir / "_mosaic.vrt"
+        r = subprocess.run(
+            ["gdalbuildvrt", str(vrt_path), *[str(t) for t in tifs]],
+            capture_output=True,
+        )
+        if r.returncode == 0:
+            log.info("VRT: %s (%d tiles)", vrt_path, len(tifs))
+        else:
+            log.warning("gdalbuildvrt misslyckades för %s", method_dir.name)

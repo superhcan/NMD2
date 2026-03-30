@@ -25,7 +25,7 @@ QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
 # TODO: Ta bort miljövariabeln och hårdkoda OUT_BASE när pipeline är stabil och klar för produktion
-OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/hela_landet_v2_1_2048_conn4_v01"))
+OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/test_r04_r09_v01")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
@@ -33,7 +33,12 @@ OUT_BASE = Path(os.getenv("OUT_BASE", "/home/hcn/NMD_workspace/NMD2023_basskikt_
 
 TILE_SIZE        = 2048          # Huvudtile-storlek (pixlar per sida)
 # Vid 2048 px: 35 kolumner × 78 rader = 2730 tiles totalt (71273×157991 px källraster v2.1)
-PARENT_TILES     = [(r, c) for r in range(78) for c in range(35)]  # Hela landet
+PARENT_TILES     = [(r, c) for r in range(4, 10) for c in range(35)]  # rad 4–9 = 210 tiles
+# Hela landet: [(r, c) for r in range(78) for c in range(35)]
+# 50 %: [(r, c) for r in range(39) for c in range(35)]
+# 25 %: [(r, c) for r in range(20) for c in range(35)]
+# 5 %:  [(r, c) for r in range(4)  for c in range(35)]
+# 1 %:  [(r, c) for r in range(1)  for c in range(35)]
 HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -42,8 +47,8 @@ HALO             = 100           # px – kant på varje sida vid generalisering
 
 GENERALIZE_PROTECTED = {51,61, 62}                     # Skyddade klasser i steg 6 (generalisering): maskeras vid sieve/majority, exkluderas från areafilter. (51 borttagen — löses upp i steg 3)
 SIMPLIFY_PROTECTED   = set()                       # Skyddade klasser i steg 8 (Mapshaper): förenklas aldrig (sp=1.0). (51 borttagen — löses upp i steg 3)
-EXTRACT_CLASSES  = {53, 61, 62}                # Klasser som extraheras separat i steg 2 (vektoriseras senare): Byggnad, Väg/järnväg, Vatten
-DISSOLVE_CLASSES = {53}                        # Klasser som löses upp i omgivande mark i steg 3: Byggnad + Väg/järnväg
+EXTRACT_CLASSES  = {51, 53, 61, 62}                # Klasser som extraheras separat i steg 2 (vektoriseras senare): Byggnad, Väg/järnväg, Vatten
+DISSOLVE_CLASSES = {51, 53}                        # Klasser som löses upp i omgivande mark i steg 3: Byggnad + Väg/järnväg
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CLASS REMAPPING — Omklassificering från NMD till slutklasser (Steg 0)
@@ -378,7 +383,7 @@ ENABLE_STEPS = {
     6: True,    # Generalisering
     7: True,    # Vektorisering
     8: True,    # Simplifiering
-    9: False,    # Overlay byggnader från steg 2 på steg 8
+    9: True,    # Overlay byggnader från steg 2 på steg 8
     99: True,   # Bygga QGIS-projekt
 }
 
@@ -398,7 +403,7 @@ QGIS_INCLUDE_STEPS = {
     6: True,    # Generaliserat raster (steg6_generalized_*/)
     7: False,    # Vektoriserade GeoPackage
     8: True,    # Förenklat (Mapshaper)
-    9: False,    # Med byggnader
+    9: True,    # Med byggnader
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -520,6 +525,13 @@ GENERALIZATION_METHODS = {"conn4"}
 
 COMPRESS   = "lzw"          # GeoTIFF kompression
 NODATA_TMP = 65535          # Temporär nodata-värde för sieve-masking
+
+# Bygg pyramidnivåer (overviews) i steg 1 och steg 6 efter varje tile-skrivning.
+# Gör QGIS-navigering snabbare.
+# False = ingen overhead; True = något längre körtid men snabbare rendering.
+# Resampling: "nearest" — rätt för klassificeringsdata (kategoriska värden).
+BUILD_OVERVIEWS = True        # True: bygg overviews i steg 1 och steg 6
+OVERVIEW_LEVELS = [2, 4, 8, 16, 32, 64, 128, 256, 512]  # 9 nivåer, faktor 2 (samma som originalrastret)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STRUCTURAL ELEMENTS

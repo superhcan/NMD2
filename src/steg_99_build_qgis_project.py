@@ -53,6 +53,40 @@ def _apply_no_fill(layer):
             sl.setBrushStyle(Qt.NoBrush)
     layer.triggerRepaint()
 
+
+def _apply_qml(layer, tif_files: list):
+    """Applicerar QML-stil på ett rasterlager.
+
+    Letar efter en .qml-fil med samma stam som den första tile-filen i tif_files.
+    Om ingen hittas görs ingenting (lagret behåller QGIS-standardstil).
+    """
+    for tif in tif_files:
+        qml = tif.with_suffix(".qml")
+        if qml.exists():
+            layer.loadNamedStyle(str(qml))
+            layer.triggerRepaint()
+            return
+
+
+def _ensure_mosaic_vrt(tif_files: list, vrt_path: Path) -> bool:
+    """Skapar en VRT-mosaik av tif_files om den inte redan finns.
+
+    Returnerar True om VRT:n finns eller skapades, False vid fel.
+    """
+    import subprocess
+    if vrt_path.exists():
+        return True
+    if not tif_files:
+        return False
+    file_list = vrt_path.with_suffix(".filelist.txt")
+    file_list.write_text("\n".join(str(f) for f in tif_files))
+    r = subprocess.run(
+        ["gdalbuildvrt", "-input_file_list", str(file_list), str(vrt_path)],
+        capture_output=True, text=True,
+    )
+    file_list.unlink(missing_ok=True)
+    return r.returncode == 0 and vrt_path.exists()
+
 # ══════════════════════════════════════════════════════════════════════════════
 # LOGGING SETUP
 # ══════════════════════════════════════════════════════════════════════════════
@@ -293,34 +327,31 @@ def build_qgis_project():
                     return (2, label)
                 
                 for setting_label in sorted(settings_dict.keys(), key=sort_settings):
-                    # Skapa sub_group för setting
-                    setting_group = QgsLayerTreeGroup(setting_label)
-                    setting_group.setExpanded(False)
-                    method_group.addChildNode(setting_group)
-                    
-                    for layer_file in settings_dict[setting_label]:
-                        layer_name = layer_file.stem
-                        try:
-                            layer = QgsRasterLayer(str(layer_file), layer_name, "gdal")
-                            if not layer.isValid():
-                                log.debug(f" {layer_name:45s} (ej giltig)")
-                                continue
-                            
-                            project.addMapLayer(layer, addToLegend=False)
-                            tree_layer = QgsLayerTreeLayer(layer)
-                            tree_layer.setExpanded(False)
-                            setting_group.addChildNode(tree_layer)
-                            
-                            log.info(f" {layer_name:45s}")
-                            total_layers += 1
-                            
-                        except Exception as e:
-                            log.warning(f" {layer_name:45s} ({e})")
+                    tif_files = settings_dict[setting_label]
+                    # Skapa VRT-mosaik per setting — ett lager för alla tiles
+                    safe_label = setting_label.replace(" ", "_").replace("=", "")
+                    vrt_path = method_dir / f"_mosaic_{safe_label}.vrt"
+                    if not _ensure_mosaic_vrt(tif_files, vrt_path):
+                        log.warning(f"  ✗ {method} {setting_label} — kunde inte skapa VRT")
+                        continue
+                    layer_name = f"{method}_{safe_label}"
+                    try:
+                        layer = QgsRasterLayer(str(vrt_path), layer_name, "gdal")
+                        if not layer.isValid():
+                            log.warning(f"  ✗ {layer_name} (ej giltig)")
                             continue
-                    
-                    log.info(f"  {setting_label:45s} ({len(settings_dict[setting_label])} lager)")
-                
-                log.info(f"  {step_name:45s} {method.upper():6s} ({len(layer_files)} lager totalt)\n")
+                        _apply_qml(layer, tif_files)
+                        project.addMapLayer(layer, addToLegend=False)
+                        tree_layer = QgsLayerTreeLayer(layer)
+                        tree_layer.setExpanded(False)
+                        method_group.addChildNode(tree_layer)
+                        log.info(f"  ✓ {layer_name} ({len(tif_files)} tiles → 1 VRT)")
+                        total_layers += 1
+                    except Exception as e:
+                        log.warning(f"  ✗ {layer_name} ({e})")
+                        continue
+
+                log.info(f"  {step_name:45s} {method.upper():6s} ({len(layer_files)} tiles totalt)\n")
         
         # Speciell hantering för Steg 7 - metod → MMU/kernel → lager
         elif step_num == 7:
@@ -612,56 +643,60 @@ def build_qgis_project():
                 log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
 
         else:
-            # Standard-hantering för steg 0-5: alla filer i katalogen listas platt
-            # under steggruppen utan ytterligare undergruppering.
-            # Steg 0-6 = raster (.tif); steg 7+ = vektor (.gpkg/.shp)
-            if step_num <= 6:
-                # Raster-filer
-                layer_files = sorted(step_dir.glob("*.tif"))
+            # Standard-hantering för steg 0-5: bygg en VRT-mosaik av alla tiles
+            # och lägg till den som ett enda lager under steggruppen.
+            if step_num <= 5:
+                tif_files = sorted(step_dir.glob("*.tif"))
+                if not tif_files:
+                    log.warning(f"{step_name:40s} - inga TIF-filer hittade")
+                    continue
+                vrt_path = step_dir / "_mosaic.vrt"
+                if not _ensure_mosaic_vrt(tif_files, vrt_path):
+                    log.warning(f"{step_name:40s} - kunde inte skapa VRT-mosaik")
+                    continue
+                layer_name = f"steg_{step_num}_mosaic"
+                try:
+                    layer = QgsRasterLayer(str(vrt_path), layer_name, "gdal")
+                    if not layer.isValid():
+                        log.warning(f"  ✗ {layer_name} (ej giltig)")
+                        continue
+                    _apply_qml(layer, tif_files)
+                    project.addMapLayer(layer, addToLegend=False)
+                    tree_layer = QgsLayerTreeLayer(layer)
+                    tree_layer.setExpanded(True)
+                    group.addChildNode(tree_layer)
+                    log.info(f"  ✓ {layer_name} ({len(tif_files)} tiles → 1 VRT)")
+                    total_layers += 1
+                except Exception as e:
+                    log.warning(f"  ✗ {layer_name} ({e})")
+                    continue
             else:
-                # Vektor-filer
+                # Vektor-filer (steg >6 som inte matchats ovan)
                 layer_files = (sorted(step_dir.glob("*.gpkg")) +
                               sorted(step_dir.glob("*.shp")))
-            
-            if not layer_files:
-                log.warning(f"{step_name:40s} - inga filer hittade")
-                continue
-            
-            # Lägg till lager
-            layers_added = 0
-            for layer_file in layer_files:
-                layer_name = layer_file.stem
-                
-                try:
-                    if layer_file.suffix == ".tif":
-                        # Raster-lager
-                        layer = QgsRasterLayer(str(layer_file), layer_name, "gdal")
-                        if not layer.isValid():
-                            log.warning(f"  ✗ {layer_name:45s} (ej giltig)")
-                            continue
-                    else:
-                        # Vektor-lager
+                if not layer_files:
+                    log.warning(f"{step_name:40s} - inga filer hittade")
+                    continue
+                layers_added = 0
+                for layer_file in layer_files:
+                    layer_name = layer_file.stem
+                    try:
                         layer = QgsVectorLayer(str(layer_file), layer_name, "ogr")
                         if not layer.isValid():
                             log.warning(f"  ✗ {layer_name:45s} (ej giltig)")
                             continue
                         _apply_no_fill(layer)
-                    
-                    # Lägg till i projekt
-                    project.addMapLayer(layer, addToLegend=False)
-                    tree_layer = QgsLayerTreeLayer(layer)
-                    tree_layer.setExpanded(True)  # Expandera lagret i träd
-                    group.addChildNode(tree_layer)
-                    
-                    log.info(f" {layer_name:45s}")
-                    layers_added += 1
-                    total_layers += 1
-                    
-                except Exception as e:
-                    log.warning(f" {layer_name:45s} ({e})")
-                    continue
-            
-            log.info(f"  {step_name:45s} → {layers_added} lager\n")
+                        project.addMapLayer(layer, addToLegend=False)
+                        tree_layer = QgsLayerTreeLayer(layer)
+                        tree_layer.setExpanded(True)
+                        group.addChildNode(tree_layer)
+                        log.info(f" {layer_name:45s}")
+                        layers_added += 1
+                        total_layers += 1
+                    except Exception as e:
+                        log.warning(f" {layer_name:45s} ({e})")
+                        continue
+                log.info(f"  {step_name:45s} → {layers_added} lager\n")
     
     # Spara projekt
     log.info(f"Sparar projekt...")

@@ -1,6 +1,6 @@
 """
 steg_78_grass.py — Steg 7+8 kombinerat: r.external → r.patch → r.to.vect →
-                    v.generalize → v.clean → v.out.ogr i en enda GRASS-session.
+                    v.generalize → v.out.ogr i en enda GRASS-session.
 
 Ersätter steg_7_vectorize.py + steg_8_simplify.py när GRASS används som backend.
 Ingen mellanlanding i GPKG — polygoniseringen sker direkt i GRASS-topologin.
@@ -10,7 +10,7 @@ Fördelar vs separat steg 7 + steg 8:
   - Slipper skriva/läsa 1.8 GB GPKG i steg 7
   - Enklare kod
 
-Kräver: GRASS 8.x med r.external, r.patch, r.to.vect, v.generalize, v.clean, v.out.ogr
+Kräver: GRASS 8.x med r.external, r.patch, r.to.vect, v.generalize, v.out.ogr
 """
 
 import logging
@@ -95,7 +95,7 @@ def _run_grass_78(
     log,
 ):
     """
-    Kör r.external x N → r.patch → r.to.vect → v.generalize → v.clean → v.out.ogr
+    Kör r.external x N → r.patch → r.to.vect → v.generalize → v.out.ogr
     i en enda GRASS --tmp-project-session.
 
     tif_files      : sorterad lista med Path till steg_6-tile-TIFFar
@@ -107,7 +107,7 @@ def _run_grass_78(
         return False
 
     log.info(f"[{variant_name}] {len(tif_files)} tiles — "
-             f"r.external → r.patch → r.to.vect → v.generalize({method}) → v.clean → v.out.ogr")
+             f"r.external → r.patch → r.to.vect → v.generalize({method}) → v.out.ogr")
 
     # ── Bygg GRASS-skript ──────────────────────────────────────────────────
     lines = [_GRASS_HEADER]
@@ -175,18 +175,15 @@ def _run_grass_78(
         log.error(f"Okänd GRASS_SIMPLIFY_METHOD: '{method}'")
         return False
 
-    # 6) v.clean: snap → bpol → rmdupl.
-    # Ordning är kritisk: bpol bryter korsande gränser INNAN rmdupl tar bort
-    # dubbletter som uppstår vid uppbrytningen.
-    lines.append(
-        'run(["v.clean", "input=simplified", "output=cleaned", '
-        '"tool=snap,bpol,rmdupl", "threshold=0.01,0,0", '
-        '"--overwrite", "--verbose"], "v.clean")'
-    )
+    # 6) v.clean borttagen: data från r.to.vect är redan topologiskt ren
+    # (kommen från raster). v.clean fann inget att korrigera (Snapped vertices: 0,
+    # Breaks: 0, Removed duplicates: 0) men kraschade med spatial index-fel
+    # vid 25M+ primitiver. v.out.ogr läser direkt från simplified istället.
 
-    # 7) v.out.ogr
+    # 7) v.out.ogr — output_layer sätter internt lagernamn i GPKG till variantnamnet
     lines.append(
-        f'run(["v.out.ogr", "input=cleaned", "output={output_gpkg}", '
+        f'run(["v.out.ogr", "input=simplified", "output={output_gpkg}", '
+        f'"output_layer={variant_name}", '
         f'"format=GPKG", "--overwrite", "--verbose"], "v.out.ogr")'
     )
 
@@ -274,7 +271,7 @@ if __name__ == "__main__":
         sfx = f"dp{dp}_chaiken_t{ch}"
 
     log.info("══════════════════════════════════════════════════════════")
-    log.info("Steg 7+8 (GRASS): r.external→r.patch→r.to.vect→v.generalize→v.clean→v.out.ogr")
+    log.info("Steg 7+8 (GRASS): r.external→r.patch→r.to.vect→v.generalize→v.out.ogr")
     log.info("Källmapp : %s", gen6_dir)
     log.info("Utmapp   : %s", output_dir)
     log.info("Metod    : %s  (tröskel dp=%.1f m)", method, GRASS_DOUGLAS_THRESHOLD)

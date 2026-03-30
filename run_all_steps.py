@@ -107,7 +107,7 @@ STEPS = {
         "name": "GRASS 7+8 (r.external→v.generalize)" if GRASS_USE_COMBINED_78 else "Mapshaper-förenkling",
         "script": "steg_78_grass.py" if GRASS_USE_COMBINED_78 else "steg_8_simplify.py",
         "description": (
-            "r.external→r.patch→r.to.vect→v.generalize→v.clean→v.out.ogr i en GRASS-session"
+            "r.external→r.patch→r.to.vect→v.generalize→v.out.ogr i en GRASS-session"
             if GRASS_USE_COMBINED_78
             else "Förenklar vektorer med topologi-bevarad Mapshaper"
         ),

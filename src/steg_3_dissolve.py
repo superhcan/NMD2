@@ -13,6 +13,7 @@ Kör: python3 src/steg_3_dissolve.py
 import logging
 import os
 import shutil
+import subprocess
 import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -139,6 +140,17 @@ def extract_landscape(tile_paths: list[Path]) -> list[Path]:
     _elapsed = time.time() - t0_step
     info.info("Steg 3 klar: totalt %d px vägar/byggnader ersätta  %.1f min (%.0fs)",
               total_px_replaced, _elapsed / 60, _elapsed)
+
+    # Bygg en mosaic-VRT så att steget kan öppnas i QGIS direkt
+    out_dir = OUT_BASE / "steg_3_dissolve"
+    tifs = sorted(out_dir.glob("*.tif"))
+    if tifs:
+        vrt_path = out_dir / "_mosaic.vrt"
+        subprocess.run(
+            ["gdalbuildvrt", str(vrt_path), *[str(t) for t in tifs]],
+            capture_output=True,
+        )
+        log.info("VRT: %s", vrt_path)
 
     return result_paths
 

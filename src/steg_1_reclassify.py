@@ -16,6 +16,7 @@ Kör: python3 steg_1_reclassify.py
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
@@ -24,7 +25,8 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-from config import QML_SRC, OUT_BASE, COMPRESS, CLASS_REMAP
+from config import QML_SRC, OUT_BASE, COMPRESS, CLASS_REMAP, BUILD_OVERVIEWS, OVERVIEW_LEVELS
+from rasterio.enums import Resampling
 
 # QML-fil som stämmer med de reklassificerade koderna.
 # Genereras av generate_reclassify_qml.py; faller tillbaka på original-QML om den saknas.
@@ -94,6 +96,12 @@ def _remap_worker(args):
     if QML_RECLASSIFY.exists():
         shutil.copy2(QML_RECLASSIFY, out.with_suffix(".qml"))
 
+    # Bygg pyramidnivåer om aktiverat i config (snabbare QGIS-rendering)
+    if BUILD_OVERVIEWS and OVERVIEW_LEVELS:
+        with rasterio.open(out, "r+") as ds:
+            ds.build_overviews(OVERVIEW_LEVELS, Resampling.nearest)
+            ds.update_tags(ns="rio_overview", resampling="nearest")
+
     return out_str, time.time() - t0
 
 
@@ -146,6 +154,17 @@ def process_tiles():
     total_elapsed = time.time() - t_start
     print(f"\nKlart! ({total_elapsed:.1f}s)")
     print(f"Tiles sparade i: {OUT_DIR}")
+
+    # Bygg en mosaic-VRT så att steget kan öppnas i QGIS direkt
+    tifs = sorted(OUT_DIR.glob("*.tif"))
+    if tifs:
+        vrt_path = OUT_DIR / "_mosaic.vrt"
+        subprocess.run(
+            ["gdalbuildvrt", str(vrt_path), *[str(t) for t in tifs]],
+            capture_output=True,
+        )
+        print(f"VRT: {vrt_path}")
+
     return total_elapsed
 
 
