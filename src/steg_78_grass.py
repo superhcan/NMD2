@@ -102,51 +102,77 @@ def _run_grass_78(
     tif_files      : sorterad lista med Path till steg_6-tile-TIFFar
     variant_name   : t.ex. 'conn4_morph_disk_r02'  (används som rasternamn i GRASS)
     output_gpkg    : sökväg till slutlig GPKG
+
+    Checkpoint: raw_vect sparas som GPKG direkt efter r.to.vect. Om checkpointen
+    finns vid nästa körning hoppas r.external+r.patch+r.to.vect över och
+    GRASS börjar direkt med v.in.ogr → v.generalize.
     """
     if not tif_files:
         log.error(f"[{variant_name}] inga TIF-filer hittades")
         return False
 
-    log.info(f"[{variant_name}] {len(tif_files)} tiles — "
-             f"r.external → r.patch → r.to.vect → v.generalize({method}) → v.out.ogr")
+    # Checkpoint: raw polygon GPKG sparas bredvid output_gpkg
+    raw_vect_gpkg = output_gpkg.with_name(f"{variant_name}_raw_vect.gpkg")
+    have_checkpoint = raw_vect_gpkg.exists()
+
+    if have_checkpoint:
+        log.info(f"[{variant_name}] Checkpoint finns — hoppar r.external+r.patch+r.to.vect")
+    else:
+        log.info(f"[{variant_name}] {len(tif_files)} tiles — "
+                 f"r.external → r.patch → r.to.vect → checkpoint → v.generalize({method}) → v.out.ogr")
 
     # ── Bygg GRASS-skript ──────────────────────────────────────────────────
     lines = [_GRASS_HEADER]
 
-    # 1) r.external: registrera alla tiles utan att kopiera data
-    rmap_names = []
-    for i, tif in enumerate(tif_files):
-        rname = f"tile_{i:05d}"
-        rmap_names.append(rname)
+    if have_checkpoint:
+        # Starta från sparad raw_vect
         lines.append(
-            f'run(["r.external", "input={tif}", "output={rname}", '
-            f'"--overwrite", "--quiet"], "{rname}")'
-        )
-
-    # 2) g.region: sätt extent + resolution efter alla tiles
-    maps_csv = ",".join(rmap_names)
-    lines.append(
-        f'run(["g.region", "raster={maps_csv}", "--verbose"], "g.region")'
-    )
-
-    # 3) r.patch: mosaic — skriver en ny raster i GRASS.
-    # r.patch kräver ≥2 inrastrar; vid enstaka tile används g.rename istället.
-    if len(rmap_names) == 1:
-        lines.append(
-            f'run(["g.rename", "raster={rmap_names[0]},mosaic", '
-            f'"--overwrite"], "r.patch (rename single tile)")'
+            f'run(["v.in.ogr", "input={raw_vect_gpkg}", "output=raw_vect", '
+            f'"--overwrite", "--quiet"], "v.in.ogr checkpoint")'
         )
     else:
+        # 1) r.external: registrera alla tiles utan att kopiera data
+        rmap_names = []
+        for i, tif in enumerate(tif_files):
+            rname = f"tile_{i:05d}"
+            rmap_names.append(rname)
+            lines.append(
+                f'run(["r.external", "input={tif}", "output={rname}", '
+                f'"--overwrite", "--quiet"], "{rname}")'
+            )
+
+        # 2) g.region: sätt extent + resolution efter alla tiles
+        maps_csv = ",".join(rmap_names)
         lines.append(
-            f'run(["r.patch", "input={maps_csv}", "output=mosaic", '
-            f'"--overwrite", "--verbose"], "r.patch")'
+            f'run(["g.region", "raster={maps_csv}", "--verbose"], "g.region")'
         )
 
-    # 4) r.to.vect: polygonisering inom GRASS-topologi (conn-4 är default)
-    lines.append(
-        'run(["r.to.vect", "input=mosaic", "output=raw_vect", '
-        '"type=area", "column=DN", "--overwrite", "--verbose"], "r.to.vect")'
-    )
+        # 3) r.patch
+        if len(rmap_names) == 1:
+            lines.append(
+                f'run(["g.rename", "raster={rmap_names[0]},mosaic", '
+                f'"--overwrite"], "r.patch (rename single tile)")'
+            )
+        else:
+            lines.append(
+                f'run(["r.patch", "input={maps_csv}", "output=mosaic", '
+                f'"--overwrite", "--verbose"], "r.patch")'
+            )
+
+        # 4) r.to.vect
+        lines.append(
+            'run(["r.to.vect", "input=mosaic", "output=raw_vect", '
+            '"type=area", "column=DN", "--overwrite", "--verbose"], "r.to.vect")'
+        )
+
+        # 4b) Spara checkpoint — om v.generalize kraschar kan nästa körning
+        #     hoppa direkt hit
+        lines.append(
+            f'run(["v.out.ogr", "input=raw_vect", "output={raw_vect_gpkg}", '
+            f'"output_layer=raw_vect", "format=GPKG", "--overwrite", "--quiet"], '
+            f'"checkpoint raw_vect")'
+        )
+
 
     # 5) v.generalize
     if method == "douglas":
@@ -348,6 +374,12 @@ if __name__ == "__main__":
 
         log.info("")
         log.info("%s", variant_name.upper())
+
+        if out_gpkg.exists():
+            log.info("  Hoppar över %s — GPKG finns redan", out_gpkg.name)
+            ok_count += 1
+            continue
+
         success = _run_grass_78(
             tif_files=tifs,
             variant_name=variant_name,
