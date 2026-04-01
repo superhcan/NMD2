@@ -25,6 +25,7 @@ from pathlib import Path
 
 import numpy as np
 import rasterio
+from rasterio.windows import Window
 from scipy import ndimage
 
 # QML_RECLASSIFY        — reklassificerad stilfil (samma som steg 1–4 använder)
@@ -33,7 +34,7 @@ from scipy import ndimage
 # ISLAND_FILL_SURROUNDS — set med vattenkoder som definierar "omgivande vatten", t.ex. {61, 62}
 # STRUCT_4              — 3×3 strukturelement för 4-connectivity (kors-form, inga diagonaler)
 # COMPRESS              — GeoTIFF-komprimering, t.ex. "deflate"
-from config import QML_RECLASSIFY, OUT_BASE, MMU_ISLAND, ISLAND_FILL_SURROUNDS, STRUCT_4, COMPRESS
+from config import QML_RECLASSIFY, OUT_BASE, MMU_ISLAND, ISLAND_FILL_SURROUNDS, STRUCT_4, COMPRESS, HALO
 
 log  = logging.getLogger("pipeline.debug")
 info = logging.getLogger("pipeline.summary")
@@ -134,6 +135,10 @@ def fill_small_islands(data: np.ndarray, water_classes: set, mmu: int) -> tuple[
 def fill_islands(tile_paths: list[Path]) -> list[Path]:
     """Fyller öar < MMU_ISLAND px omringade av vatten i alla tiles.
 
+    Ett VRT byggs av alla input-tiles, och varje tile läses med 1 px
+    halo från angränsande tiles. Det eliminerar edge-artefakter vid
+    tilekanter (öar som sträcker sig över gränsen detekteras korrekt).
+
     Returnerar lista med sökvägar till output-tiles i samma ordning som tile_paths.
     """
     t0_step = time.time()
@@ -145,6 +150,17 @@ def fill_islands(tile_paths: list[Path]) -> list[Path]:
     info.info("Steg 5: Fyller små öar < %d px (%.2f ha) omringade av %s ...",
               MMU_ISLAND, MMU_ISLAND * 100 / 10000, sorted(ISLAND_FILL_SURROUNDS))
 
+    # Bygg ett VRT av alla input-tiles så att halo-läsning kan spänna
+    # över tilekanter (öar längs kanterna detekteras korrekt).
+    # HALO (från config) är >= MMU_ISLAND — garanterar att en ö som sträcker
+    # sig över tilekanten syns i sin fulla storlek innan storlekskontroll.
+    vrt_in = out_dir / "_input_mosaic.vrt"
+    subprocess.run(
+        ["gdalbuildvrt", str(vrt_in), *[str(p) for p in tile_paths]],
+        capture_output=True, check=True,
+    )
+    log.debug("Input VRT: %s", vrt_in)
+
     for tile in tile_paths:
         out_path = out_dir / tile.name
 
@@ -152,20 +168,48 @@ def fill_islands(tile_paths: list[Path]) -> list[Path]:
         if not out_path.exists():
             t0 = time.time()
 
-            with rasterio.open(tile) as src:
-                data = src.read(1)      # band 1, uint16 pixelkoder
-                profile = src.profile
+            # Läs tile + HALO px kant från VRT
+            with rasterio.open(vrt_in) as vrt, rasterio.open(tile) as src:
+                vt = vrt.transform
+                tt = src.transform
+                px = vt.a
+                py = vt.e
 
-            log.debug("fill_islands: bearbetar %s", tile.name)
-            filled_data, n_islands = fill_small_islands(data, ISLAND_FILL_SURROUNDS, MMU_ISLAND)
+                tile_col = round((tt.c - vt.c) / px)
+                tile_row = round((tt.f - vt.f) / py)
+                tile_w   = src.width
+                tile_h   = src.height
+                profile  = src.meta.copy()
+
+                x0 = max(0, tile_col - HALO)
+                y0 = max(0, tile_row - HALO)
+                x1 = min(vrt.width,  tile_col + tile_w + HALO)
+                y1 = min(vrt.height, tile_row + tile_h + HALO)
+
+                padded = vrt.read(1, window=Window(x0, y0, x1 - x0, y1 - y0))
+
+            inner_row = tile_row - y0
+            inner_col = tile_col - x0
+            inner = (
+                slice(inner_row, inner_row + tile_h),
+                slice(inner_col, inner_col + tile_w),
+            )
+
+            log.debug("fill_islands: bearbetar %s (padded %s, inner %s)",
+                      tile.name, padded.shape, (tile_h, tile_w))
+            filled_padded, n_islands = fill_small_islands(
+                padded, ISLAND_FILL_SURROUNDS, MMU_ISLAND)
+
+            # Kärnan ur det fyllda padded-lagret
+            filled_data = filled_padded[inner]
+            data_orig   = padded[inner]  # original kärna för px_changed
 
             profile.update(compress=COMPRESS)
             with rasterio.open(out_path, 'w', **profile) as dst:
                 dst.write(filled_data, 1)
             copy_qml(out_path)
 
-            # px_changed räknas efter skrivning som oberoende kontroll av fill-resultatet.
-            px_changed = int(np.sum(filled_data != data))
+            px_changed = int(np.sum(filled_data != data_orig))
             elapsed = time.time() - t0
             total_islands += n_islands
 

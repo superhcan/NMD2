@@ -29,6 +29,7 @@ from config import (
     MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS, MORPH_ONLY,
     GRASS_SIMPLIFY_METHOD,
     GRASS_CHAIKEN_THRESHOLD, GRASS_DOUGLAS_THRESHOLD,
+    GRASS_SLIDING_ITERATIONS, GRASS_SLIDING_THRESHOLD, GRASS_SLIDING_SLIDE,
     GRASS_VECTOR_MEMORY, GRASS_OMP_THREADS,
 )
 
@@ -171,6 +172,36 @@ def _run_grass_78(
             f'"method=chaiken", "threshold={chaiken_threshold:.2f}", '
             f'"--overwrite", "--verbose"], "v.generalize (chaiken)")'
         )
+    elif method == "chaiken+douglas":
+        lines.append(
+            f'run(["v.generalize", "input=raw_vect", "output=after_chaiken", '
+            f'"method=chaiken", "threshold={chaiken_threshold:.2f}", '
+            f'"--overwrite", "--verbose"], "v.generalize (chaiken)")'
+        )
+        lines.append(
+            f'run(["v.generalize", "input=after_chaiken", "output=simplified", '
+            f'"method=douglas", "threshold={douglas_threshold:.2f}", '
+            f'"--overwrite", "--verbose"], "v.generalize (douglas)")'
+        )
+    elif method == "sliding_avg":
+        lines.append(
+            f'run(["v.generalize", "input=raw_vect", "output=simplified", '
+            f'"method=sliding_averaging", "threshold={GRASS_SLIDING_THRESHOLD:.2f}", '
+            f'"iterations={GRASS_SLIDING_ITERATIONS}", "slide={GRASS_SLIDING_SLIDE:.2f}", '
+            f'"--overwrite", "--verbose"], "v.generalize (sliding_averaging)")'
+        )
+    elif method == "douglas+sliding_avg":
+        lines.append(
+            f'run(["v.generalize", "input=raw_vect", "output=after_dp", '
+            f'"method=douglas", "threshold={douglas_threshold:.2f}", '
+            f'"--overwrite", "--verbose"], "v.generalize (douglas)")'
+        )
+        lines.append(
+            f'run(["v.generalize", "input=after_dp", "output=simplified", '
+            f'"method=sliding_averaging", "threshold={GRASS_SLIDING_THRESHOLD:.2f}", '
+            f'"iterations={GRASS_SLIDING_ITERATIONS}", "slide={GRASS_SLIDING_SLIDE:.2f}", '
+            f'"--overwrite", "--verbose"], "v.generalize (sliding_averaging)")'
+        )
     else:
         log.error(f"Okänd GRASS_SIMPLIFY_METHOD: '{method}'")
         return False
@@ -254,7 +285,15 @@ if __name__ == "__main__":
     t_start = time.time()
     log = _setup_logging(OUT_BASE)
 
-    gen6_dir  = OUT_BASE / "steg_6_generalize"
+    # Om steg 6b körts (steg_6b_expand_water/ finns och innehåller kataloger)
+    # används den som källa, annars faller vi tillbaka på steg_6_generalize/.
+    _gen6b = OUT_BASE / "steg_6b_expand_water"
+    if _gen6b.exists() and any(d.is_dir() for d in _gen6b.iterdir()):
+        gen6_dir = _gen6b
+        log.info("Källa: steg_6b_expand_water/ (expand-water kördes)")
+    else:
+        gen6_dir = OUT_BASE / "steg_6_generalize"
+        log.info("Källa: steg_6_generalize/ (steg 6b saknas)")
     output_dir = OUT_BASE / "steg_8_simplify"   # skriver direkt till steg_8 (steg_7 hoppas över)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -265,6 +304,11 @@ if __name__ == "__main__":
     elif method == "chaiken":
         ch  = int(round(GRASS_CHAIKEN_THRESHOLD))
         sfx = f"chaiken_t{ch}"
+    elif method == "sliding_avg":
+        sfx = f"sliding_i{GRASS_SLIDING_ITERATIONS}_s{int(GRASS_SLIDING_SLIDE*10)}"
+    elif method == "douglas+sliding_avg":
+        dp  = int(round(GRASS_DOUGLAS_THRESHOLD))
+        sfx = f"dp{dp}_sliding_i{GRASS_SLIDING_ITERATIONS}_s{int(GRASS_SLIDING_SLIDE*10)}"
     else:
         dp  = int(round(GRASS_DOUGLAS_THRESHOLD))
         ch  = int(round(GRASS_CHAIKEN_THRESHOLD))
@@ -278,13 +322,14 @@ if __name__ == "__main__":
     log.info("══════════════════════════════════════════════════════════")
 
     if not gen6_dir.exists():
-        log.error("steg_6_generalize saknas — kör steg 6 först")
+        log.error("Källkatalog saknas (%s) — kör steg 6 (och ev. 6b) först", gen6_dir.name)
         sys.exit(1)
 
     # ── Hitta alla varianter att processa ─────────────────────────────────
     # MORPH_ONLY=True: bara *_morph_*-mappar. Annars också conn4, conn8, majority.
+    # Om MORPH_SMOOTH_METHOD="none" finns inga morph-mappar — kör alla varianter.
     subdirs = sorted(d for d in gen6_dir.iterdir() if d.is_dir())
-    if MORPH_ONLY:
+    if MORPH_ONLY and MORPH_SMOOTH_METHOD != "none":
         subdirs = [d for d in subdirs if "_morph_" in d.name]
 
     if not subdirs:

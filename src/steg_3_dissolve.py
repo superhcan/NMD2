@@ -29,7 +29,7 @@ from scipy import ndimage
 # STRUCT_4       — 4-sammanhängande strukturelement (används ej direkt här men
 #                  importeras av run_all_steps för att verifiera config).
 # COMPRESS       — komprimeringsmetod för output-TIF (t.ex. "deflate").
-from config import QML_RECLASSIFY, OUT_BASE, DISSOLVE_CLASSES, STRUCT_4, COMPRESS
+from config import QML_RECLASSIFY, OUT_BASE, DISSOLVE_CLASSES, DISSOLVE_EMPTY_CLASSES, DISSOLVE_MAX_DIST, STRUCT_4, COMPRESS
 
 # Reservera två kärnor för OS och QGIS/interaktivt arbete.
 N_WORKERS = max(1, (os.cpu_count() or 1) - 2)
@@ -53,55 +53,58 @@ def _dissolve_tile_worker(args):
     Måste vara en top-level-funktion (inte lambda eller nästlad) för att
     kunna serialiseras med pickle mellan processer.
     """
-    tile_str, out_path_str, dissolve_classes_frozen = args
+    tile_str, out_path_str, dissolve_classes_frozen, empty_classes_frozen = args
     tile = Path(tile_str)
     out_path = Path(out_path_str)
 
     # Hoppa över om output redan finns — möjliggör restart utan omräkning.
     if out_path.exists():
-        return out_path_str, 0, 0.0
+        return out_path_str, 0, 0, 0.0
 
     t0 = time.time()
-    # Konvertera til numpy-array för att kunna använda np.isin().
     dissolve_set = np.array(list(dissolve_classes_frozen), dtype=np.uint16)
+    empty_set    = np.array(list(empty_classes_frozen),   dtype=np.uint16)
 
     with rasterio.open(tile) as src:
         meta = src.meta.copy()
         data = src.read(1)          # band 1, uint16 pixelkoder
-    # Ärv all georeferens-metadata från källtilen, men byt komprimering.
     meta.update(compress=COMPRESS)
 
-    # Boolesk mask: True = pixel tillhör en klass som ska lösas upp.
-    roads_mask = np.isin(data, dissolve_set)
-    px_replaced = int(roads_mask.sum())
+    # replace_mask: pixlar som ska ersättas med närmaste omgivande klass
+    # empty_mask:   pixlar som ska nollställas (lämnas tomma)
+    replace_mask = np.isin(data, dissolve_set) if dissolve_set.size else np.zeros(data.shape, dtype=bool)
+    empty_mask   = np.isin(data, empty_set)   if empty_set.size   else np.zeros(data.shape, dtype=bool)
+    all_dissolve_mask = replace_mask | empty_mask
 
-    if px_replaced > 0:
-        # Nearest-neighbour fill med distance transform:
-        #
-        # distance_transform_edt(roads_mask, return_indices=True) returnerar
-        # för varje pixel koordinaterna (rad, kol) till närmaste pixel där
-        # roads_mask == False (dvs. icke-väg/bygg-pixel).
-        #
-        # Tidskomplexitet: O(N) — linjär i antal pixlar, tack vare att EDT
-        # sweepas i separerade band. Jämfört med en naiv loop O(N²) är detta
-        # avgörande för 1024×1024-tiles.
-        _, indices = ndimage.distance_transform_edt(roads_mask, return_indices=True)
-        landscape_data = data.copy()
-        # Ersätt varje "lös"-pixel med värdet från dess närmaste granne.
-        landscape_data[roads_mask] = data[indices[0][roads_mask], indices[1][roads_mask]]
-    else:
-        # Inga pixlar att ersätta — skicka data oförändrat (inga allokering).
-        landscape_data = data
+    px_replaced = int(replace_mask.sum())
+    px_emptied  = int(empty_mask.sum())
+
+    landscape_data = data.copy()
+
+    if replace_mask.any():
+        # Distance transform: hitta närmaste källpixel som VARKEN är replace ELLER empty.
+        # På så vis "flödar" inte tomma klasser in i replace-klassernas fill.
+        distances, indices = ndimage.distance_transform_edt(all_dissolve_mask, return_indices=True)
+
+        if DISSOLVE_MAX_DIST > 0:
+            fill_mask = replace_mask & (distances <= DISSOLVE_MAX_DIST)
+        else:
+            fill_mask = replace_mask
+
+        landscape_data[fill_mask] = data[indices[0][fill_mask], indices[1][fill_mask]]
+
+    # Nollställ empty-klasser efter replace-fill (override ev. fill-rester).
+    if empty_mask.any():
+        landscape_data[empty_mask] = 0
 
     with rasterio.open(out_path, "w", **meta) as dst:
         dst.write(landscape_data, 1)
 
-    # Kopiera QML-stilfil direkt i workern för att undvika extra IPC-round-trip.
     if QML_RECLASSIFY.exists():
         shutil.copy2(QML_RECLASSIFY, out_path.with_suffix(".qml"))
 
     elapsed = time.time() - t0
-    return out_path_str, px_replaced, elapsed
+    return out_path_str, px_replaced, px_emptied, elapsed
 
 
 def extract_landscape(tile_paths: list[Path]) -> list[Path]:
@@ -113,33 +116,33 @@ def extract_landscape(tile_paths: list[Path]) -> list[Path]:
     out_dir = OUT_BASE / "steg_3_dissolve"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    info.info("Steg 3: Löser upp klasser %s i omgivande mark (%d workers) ...",
-              DISSOLVE_CLASSES, N_WORKERS)
+    info.info("Steg 3: Ersätter klasser %s med omgivande mark, tömmer klasser %s (%d workers) ...",
+              DISSOLVE_CLASSES, DISSOLVE_EMPTY_CLASSES, N_WORKERS)
 
-    # Frys DISSOLVE_CLASSES till en sorterad tuple — hashbar och picklingbar,
-    # men bevarar de exakta koderna utan risk för mutationsfel.
+    # Frys båda klasslistorna till sorterade tupler — hashbara och picklingbara.
     dissolve_frozen = tuple(sorted(DISSOLVE_CLASSES))
+    empty_frozen    = tuple(sorted(DISSOLVE_EMPTY_CLASSES))
     task_args = [
-        (str(tile), str(out_dir / tile.name), dissolve_frozen)
+        (str(tile), str(out_dir / tile.name), dissolve_frozen, empty_frozen)
         for tile in tile_paths
     ]
 
     total_px_replaced = 0
+    total_px_emptied  = 0
     result_paths = []
 
     with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
-        # executor.map returnerar resultat i inmatningsordning (inte completion-ordning).
-        for out_path_str, px_replaced, elapsed in executor.map(_dissolve_tile_worker, task_args):
+        for out_path_str, px_replaced, px_emptied, elapsed in executor.map(_dissolve_tile_worker, task_args):
             result_paths.append(Path(out_path_str))
             total_px_replaced += px_replaced
+            total_px_emptied  += px_emptied
             if elapsed > 0:
-                # elapsed == 0.0 indikerar cache-träff — logga inte dessa.
-                log.debug("dissolve: %s → %d px ersatta  %.1fs",
-                          Path(out_path_str).name, px_replaced, elapsed)
+                log.debug("dissolve: %s → %d px ersatta, %d px tömda  %.1fs",
+                          Path(out_path_str).name, px_replaced, px_emptied, elapsed)
 
     _elapsed = time.time() - t0_step
-    info.info("Steg 3 klar: totalt %d px vägar/byggnader ersätta  %.1f min (%.0fs)",
-              total_px_replaced, _elapsed / 60, _elapsed)
+    info.info("Steg 3 klar: %d px ersatta av omgivning, %d px tömda  %.1f min (%.0fs)",
+              total_px_replaced, total_px_emptied, _elapsed / 60, _elapsed)
 
     # Bygg en mosaic-VRT så att steget kan öppnas i QGIS direkt
     out_dir = OUT_BASE / "steg_3_dissolve"

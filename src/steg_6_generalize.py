@@ -54,7 +54,7 @@ from rasterio.windows import Window
 from scipy import ndimage
 from scipy.ndimage import uniform_filter
 
-from config import OUT_BASE, SRC, QML_RECLASSIFY, GENERALIZE_PROTECTED as PROTECTED, COMPRESS, HALO, MMU_STEPS, KERNEL_SIZES, GENERALIZATION_METHODS, MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS, SEMANTIC_GROUP_DIST, BUILD_OVERVIEWS, OVERVIEW_LEVELS
+from config import OUT_BASE, SRC, QML_RECLASSIFY, GENERALIZE_PROTECTED as PROTECTED, COMPRESS, HALO, MMU_STEPS, MMU_CLASS_MAX, KERNEL_SIZES, GENERALIZATION_METHODS, MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS, MORPH_POST_SIEVE_MMU, SEMANTIC_GROUP_DIST, BUILD_OVERVIEWS, OVERVIEW_LEVELS
 from rasterio.enums import Resampling as _Resampling
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -220,15 +220,18 @@ def read_with_halo(vrt_path: Path, tile_path: Path):
     return data, tile_meta, inner_slice
 
 
-def run_sieve(data: np.ndarray, mmu: int, conn: int) -> np.ndarray:
+def run_sieve(data: np.ndarray, mmu: int, conn: int, extra_protected: frozenset = frozenset()) -> np.ndarray:
     """Kör gdal_sieve på en numpy-array och returnerar det silade resultatet.
 
     Sieve-filtret eliminerar sammanhängande pixelgrupper (patches) som är
     mindre än mmu pixlar. Varje sådan patch ersätts med värdet hos den
     störst angränsande patchen — dvs. en ytbaserad region-merging.
 
-    Skyddade klasser (PROTECTED) maskeras till NODATA_TMP inför sieve
+    Skyddade klasser (PROTECTED + extra_protected) maskeras till NODATA_TMP inför sieve
     så att de aldrig berörs, och återställs sedan från originaldatan.
+
+    extra_protected — klasser från MMU_CLASS_MAX vars max_mmu understiger aktuellt mmu-steg;
+                       dessa läggs till som tilfälligt skyddade för detta steg.
 
     Flöde:
       1. Maskera skyddade klasser → skriv temp-TIF
@@ -236,7 +239,7 @@ def run_sieve(data: np.ndarray, mmu: int, conn: int) -> np.ndarray:
       3. Läs resultatet → återställ skyddade pixlar
       4. Rensa temp-filer
     """
-    log.debug("run_sieve: mmu=%d conn=%d  data=%s", mmu, conn, data.shape)
+    log.debug("run_sieve: mmu=%d conn=%d  data=%s  extra_prot=%s", mmu, conn, data.shape, extra_protected)
     # Bygg en minimal meta för temp-filen (transform spelar ingen roll för sieve;
     # gdal_sieve arbetar enbart med pixelvärden och grannskap, inte geografi)
     from rasterio.transform import from_bounds
@@ -248,8 +251,9 @@ def run_sieve(data: np.ndarray, mmu: int, conn: int) -> np.ndarray:
         "crs": "EPSG:3006", "transform": dummy_transform,
         "compress": None, "nodata": NODATA_TMP,
     }
-    # Bygg boolesk mask för skyddade klasser; dessa ska aldrig ändras av sieve
-    prot_mask = np.isin(data, list(PROTECTED))
+    # Kombinera permanenta och stegspecifika skyddade klasser
+    all_protected = list(PROTECTED | extra_protected)
+    prot_mask = np.isin(data, all_protected)
     masked    = data.copy()
     masked[prot_mask] = NODATA_TMP   # Dölj skyddade klasser som NoData
 
@@ -425,10 +429,16 @@ def _morph_tile_worker(args):
         return str(out_path), 0
     padded, tile_meta, inner = read_with_halo(prev_vrt, tile)
     tile_meta.update(compress=COMPRESS)
-    with rasterio.open(tile) as _src:
-        orig = _src.read(1)
-    result = apply_morph_smooth(padded)[inner]
-    changed = int(np.sum(result != orig))
+    smoothed = apply_morph_smooth(padded)
+    if MORPH_POST_SIEVE_MMU > 0:
+        # Ta bort nya småfläckar < MMU som morph skapade längs gränser.
+        # OBS: Ingen restoration av stora patcher behövs — morph radius=2 px
+        # kan aldrig eliminera en patch ≥ MORPH_POST_SIEVE_MMU px (den ändrar
+        # max 2 px in från kanten). Post-sieve hanterar eventuella kantartefakter.
+        smoothed = run_sieve(smoothed, MORPH_POST_SIEVE_MMU, 4)
+    result = smoothed[inner]
+    mmu_data = padded[inner]
+    changed = int(np.sum(result != mmu_data))
     with rasterio.open(out_path, "w", **tile_meta) as dst:
         dst.write(result, 1)
     copy_qml(out_path)
@@ -711,6 +721,7 @@ def _sieve_tile_worker(args):
     """
     prev_vrt, tile, out_path = Path(args[0]), Path(args[1]), Path(args[2])
     mmu, conn = args[3], args[4]
+    extra_protected: frozenset = args[5]
     # Återupptagen körning: utfil finns redan → returnera direkt utan bearbetning
     if out_path.exists():
         with rasterio.open(tile) as _src:
@@ -722,7 +733,7 @@ def _sieve_tile_worker(args):
     with rasterio.open(tile) as _src:
         orig = _src.read(1)
     # Kör sieve på hela det utvidgade fönstret; [inner] klipper bort halon innan skrivning
-    result  = run_sieve(padded, mmu, conn)[inner]
+    result  = run_sieve(padded, mmu, conn, extra_protected)[inner]
     changed = int(np.sum(result != orig))
     tile_meta.update(compress=COMPRESS)
     with rasterio.open(out_path, "w", **tile_meta) as dst:
@@ -795,16 +806,18 @@ def sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int):
               label, len(MMU_STEPS), len(tile_paths), HALO)
 
     for mmu in MMU_STEPS:
+        # Klasser vars max_mmu är ljägre än aktuellt steg skyddas temporärt detta steg.
+        extra_protected = frozenset(cls for cls, max_mmu in MMU_CLASS_MAX.items() if mmu > max_mmu)
         step_outputs  = []
         t0            = time.time()
         total_changed = 0
-        log.debug("%s mmu=%d: startar", label, mmu)
+        log.debug("%s mmu=%d: startar  extra_prot=%s", label, mmu, extra_protected)
 
         # Bygg argument-tupler; argument måste vara primitiva typer för pickle (multiprocessing)
         task_args = [
             (str(prev_vrt), str(tile),
              str(out_dir / f"{tile.stem}_{label}_mmu{mmu:03d}.tif"),
-             mmu, conn)
+             mmu, conn, extra_protected)
             for tile in tile_paths
         ]
         with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
@@ -817,8 +830,9 @@ def sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int):
         build_vrt(step_outputs, step_vrt)
         prev_vrt = step_vrt
         elapsed  = time.time() - t0
-        info.info("  %-10s mmu=%3dpx  totalt %9d px ändrade  %.1fs",
-                  label, mmu, total_changed, elapsed)
+        extra_str = f"  (skyddar {sorted(extra_protected)})" if extra_protected else ""
+        info.info("  %-10s mmu=%3dpx  totalt %9d px ändrade  %.1fs%s",
+                  label, mmu, total_changed, elapsed, extra_str)
 
     # Rensa intermediära TIF-filer (lägre MMU-steg) — behåll bara det slutliga steget.
     # VRT-filerna som pekade på mellanresultaten raderas också.

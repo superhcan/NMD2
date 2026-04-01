@@ -25,7 +25,7 @@ QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
 # TODO: Ta bort miljövariabeln och hårdkoda OUT_BASE när pipeline är stabil och klar för produktion
-OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/test_r04_r09_v01")
+OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/test_r43_r44_c16_c17_douglas_chaiken_v13")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
@@ -33,7 +33,7 @@ OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/test_r04_r09_v01"
 
 TILE_SIZE        = 2048          # Huvudtile-storlek (pixlar per sida)
 # Vid 2048 px: 35 kolumner × 78 rader = 2730 tiles totalt (71273×157991 px källraster v2.1)
-PARENT_TILES     = [(r, c) for r in range(4, 10) for c in range(35)]  # rad 4–9 = 210 tiles
+PARENT_TILES     = [(r, c) for r in range(43, 45) for c in range(16, 18)]  # rad 43–44 × kol 16–17 = 4 tiles
 # Hela landet: [(r, c) for r in range(78) for c in range(35)]
 # 50 %: [(r, c) for r in range(39) for c in range(35)]
 # 25 %: [(r, c) for r in range(20) for c in range(35)]
@@ -45,10 +45,12 @@ HALO             = 100           # px – kant på varje sida vid generalisering
 # CLASSIFICATION CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-GENERALIZE_PROTECTED = {51,61, 62}                     # Skyddade klasser i steg 6 (generalisering): maskeras vid sieve/majority, exkluderas från areafilter. (51 borttagen — löses upp i steg 3)
+GENERALIZE_PROTECTED = {61, 62}                     # Skyddade klasser i steg 6 (generalisering): maskeras vid sieve/majority, exkluderas från areafilter.
 SIMPLIFY_PROTECTED   = set()                       # Skyddade klasser i steg 8 (Mapshaper): förenklas aldrig (sp=1.0). (51 borttagen — löses upp i steg 3)
 EXTRACT_CLASSES  = {51, 53, 61, 62}                # Klasser som extraheras separat i steg 2 (vektoriseras senare): Byggnad, Väg/järnväg, Vatten
-DISSOLVE_CLASSES = {51, 53}                        # Klasser som löses upp i omgivande mark i steg 3: Byggnad + Väg/järnväg
+DISSOLVE_CLASSES      = {53}        # Klasser som ersätts med närmaste omgivande klass i steg 3 (distance-transform fill)
+DISSOLVE_EMPTY_CLASSES = {}  # Klasser som lämnas tomma (sätts till 0) i steg 3 — ersätts EJ av omgivande mark
+DISSOLVE_MAX_DIST = 0              # px — 0 = obegränsad fill (klassiskt beteende)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CLASS REMAPPING — Omklassificering från NMD till slutklasser (Steg 0)
@@ -136,7 +138,7 @@ CLASS_REMAP = {
 # GENERALIZATION PARAMETERS
 # ══════════════════════════════════════════════════════════════════════════════
 
-MMU_ISLAND   = 50               # Minsta storlek på öar innan fyllnad (px) — 0,5 ha vid 10 m upplösning
+MMU_ISLAND   = 25               # Minsta storlek på öar innan fyllnad (px) — 0,25 ha vid 10 m upplösning
 
 # Klasser som räknas som "omgivande yta" när små landöar ska fyllas (Steg 5)
 # En ö fylls bara om ALLA dess grannar tillhör dessa klasser.
@@ -152,28 +154,12 @@ ISLAND_FILL_SURROUNDS = {61, 62}
 #   - Större MMU = mer generalisering = färre små detaljer
 #   - Mindre MMU = mindre generalisering = mer original detalj
 #
-# Effekt på output:
-#   MMU=2:   Nästan original, mycket liten förenkling (detaljer bevarade)
-#   MMU=8:   Liten-medium förenkling (några små bitar försvinner)
-#   MMU=16:  Medium-stark förenkling (märkbar förenkling visas)
-#   MMU=32:  Stark förenkling (många små detaljer försvinner)
-#   MMU=64:  Mycket stark förenkling (bara större områden kvar)
-#   MMU=100: Extrem förenkling (bara mycket stora områden kvar)
-#
-# Filstorlek-päverkan (ca guide för vectorizer output):
-#   MMU=2:    ~100% (baseline)
-#   MMU=8:    ~90-95% (små minskning)
-#   MMU=16:   ~80-85%
-#   MMU=32:   ~60-70%
-#   MMU=64:   ~40-50%
-#   MMU=100:  ~20-30%
-#
 # Praktiska val:
 #   Snabb test (3 steg, ~40% snabbare):
 #     MMU_STEPS = [2, 8, 32]
 #
-#   Standard (7 steg, rekommenderat):
-#     MMU_STEPS = [2, 4, 8, 16, 32, 64, 100]
+#   Standard (6 steg, rekommenderat):
+#     MMU_STEPS = [2, 4, 6, 12, 25, 50]
 #
 #   Detaljerad analys (9 steg, långsamt men många värdepunkter):
 #     MMU_STEPS = [1, 2, 4, 8, 16, 32, 64, 100, 128]
@@ -183,7 +169,22 @@ ISLAND_FILL_SURROUNDS = {61, 62}
 #   - Sista värdet bör förenligt med `HALO` för att undvika edge-artefakter
 #   - Fler steg = längre körtid men bättre för att jämföra resultat
 #
-MMU_STEPS    = [2, 4, 8, 16, 32, 50]
+MMU_STEPS    = [2, 4, 6, 12, 25, 50]
+
+# Klassspecifika MMU-maxgränser — dessa klasser skyddas när MMU-steget ÖVERSKRIDER angiven gräns.
+# Format: {klass_kod: max_mmu_px}
+# Klasser som inte listas här följer normal sieve utan extra skydd.
+#
+# Exempel: {21: 25} innebär att klass 21 sievas bort t.o.m. 25 px, men behålls (skyddas) i större MMU-steg.
+#
+MMU_CLASS_MAX = {
+    21:  25,   # Öppen våtmark på myr
+    22:  25,   # Öppen våtmark ej myr
+    200: 25,   # Öppen våtmark övrigt
+    421: 25,   # Buskdominerad mark
+    422: 25,   # Risdominerad mark
+    423: 25,   # Gräsdominerad mark
+}
 
 
 # Kernel-storlekar för modal filter (Steg 6c)
@@ -276,12 +277,18 @@ SIMPLIFY_BACKEND = "grass"
 # ══════════════════════════════════════════════════════════════════════════════
 #
 # GRASS_SIMPLIFY_METHOD — Vilken algoritm som används:
-#   "douglas"        — Douglas-Peucker. Tar bort vertexer. Dålig på raster-
-#                      trappsteg (blockeras av topologikonstraints).
-#   "chaiken"        — Chaikin corner-cutting. Mjukar ut rätvinkliga pixelkanter
-#                      till rundade kurvor. Rätt verktyg för rasteriserade polygoner.
-#   "douglas+chaiken"— Två pass: Douglas tar bort kolineära punkter först,
-#                      sedan Chaikin rundar hörnen. Kombinerad effekt.
+#   "douglas"            — Douglas-Peucker. Tar bort vertexar.
+#   "chaiken"            — Chaikin corner-cutting. Rundar pixeltrappor, lägger till punkter.
+#   "douglas+chaiken"    — Douglas städar bort kolineära punkter → Chaikin rundar hörnen.
+#   "chaiken+douglas"    — Chaikin rundar → Douglas trimmar. Ger rundade kurvor med färre punkter.
+#   "sliding_avg"        — Glider befintliga vertexar till medelposition (ITERATIONS pass).
+#                          Inga nya punkter tillkommer → filen blir inte större.
+#   "douglas+sliding_avg"— Douglas tar bort kolineära punkter → sliding_avg jämnar ut.
+#                          Bäst kombination för liten fil + jämna kanter.
+#
+# GRASS_SLIDING_ITERATIONS — Antal upprepningar av sliding_averaging.
+#   Fler iterationer = mjukare kurvor men punkterna rör sig mer från originalet.
+#   Rekommenderat: 3–10.
 #
 # GRASS_CHAIKEN_THRESHOLD — Minsta avstånd (meter) mellan punkter i Chaikin-output.
 #   Lägre värde → fler punkter, slätare kurvor, större fil.
@@ -300,9 +307,12 @@ SIMPLIFY_BACKEND = "grass"
 #   GRASS_DOUGLAS_THRESHOLD = 2.0     # städa bort kolineära punkter
 #   GRASS_CHAIKEN_THRESHOLD = 5.0     # runda sedan hörnen
 #
-GRASS_SIMPLIFY_METHOD    = "douglas"           # "douglas", "chaiken", "douglas+chaiken"
+GRASS_SIMPLIFY_METHOD    = "douglas+chaiken"     # "douglas", "chaiken", "douglas+chaiken", "chaiken+douglas", "sliding_avg", "douglas+sliding_avg"
 GRASS_CHAIKEN_THRESHOLD  = 10.0       # meter — Chaikin min-avstånd mellan punkter
-GRASS_DOUGLAS_THRESHOLD  = 10.0       # meter — Douglas förpass (douglas+chaiken)
+GRASS_DOUGLAS_THRESHOLD  = 5.0        # meter — Douglas tröskel
+GRASS_SLIDING_ITERATIONS = 1          # antal pass för sliding_averaging (färre = närmare original)
+GRASS_SLIDING_THRESHOLD  = 5.0        # meter — max förflyttning per vertex per iteration
+GRASS_SLIDING_SLIDE      = 0.1        # 0.0–1.0 — rörelse per pass (lägre = mjukare, närmare original)
 GRASS_SIMPLIFY_THRESHOLD = 10.0       # meter — bakåtkompatibelt (douglas-only tolerance-loop)
 
 # GRASS_VECTOR_MEMORY — RAM som GRASS får använda för topologinätet (MB).
@@ -361,13 +371,59 @@ GRASS_SNAP_TOLERANCE   = 0.5   # meter — ST_Buffer(+δ) på varje polygon för
 #   closing    r2 → undermapp: {method}_morph_close_r02
 #   Lagernamn i GPKG: markslag_morph_disk_r02 / markslag_morph_close_r02
 #
-MORPH_SMOOTH_METHOD = "disk_modal"  # "none", "disk_modal", "closing"
+MORPH_SMOOTH_METHOD = "none"  # "none", "disk_modal", "closing"
 MORPH_SMOOTH_RADIUS = 2        # pixlar — 1 px = 10 m
+
+# MORPH_POST_SIEVE_MMU — Kör en extra sieve-pass (conn4) efter morph-utjämningen
+# för att ta bort småfläckar som morph kan skapa längs klassgränser.
+# Värdet är tröskeln i pixlar (0 = inaktiverat).
+# 50 px = 0,5 ha vid 10 m upplösning (samma som MMU_ISLAND).
+MORPH_POST_SIEVE_MMU = 0       # px — 0 = inaktiverat
 
 # MORPH_ONLY — Om True: vektorisera/förenkla BARA morph-katalogerna i steg 7/8.
 # Bas-metoderna (conn4 etc.) körs fortfarande i steg 6 (morph bygger på dem),
 # men ingen GPKG skapas för originalet. Sparar tid och diskutrymme.
-MORPH_ONLY = True
+MORPH_ONLY = False
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEG 6b — Utvidga mark i vattenkanter (expand water)
+# ══════════════════════════════════════════════════════════════════════════════
+# EXPAND_WATER        — Aktiverar steg 6b (expand water halo).
+# EXPAND_WATER_CLASSES — Klasser som tas bort från kanten (f.d. vattenkanter).
+#   Pixlar inom EXPAND_WATER_PX avstånd från icke-vattenpixel ersätts med
+#   närmaste omgivande klass. Inre pixlar (djupare än EXPAND_WATER_PX) behåller
+#   sin originalklass (61/62) och vektoriseras som vatten.
+# EXPAND_WATER_PX     — Max antal pixlar från strandlinjen som mark får växa in.
+#                       0 = ingen fill alls — hela vattenytan (EXPAND_WATER_CLASSES) nollställs.
+#   2 px = 20 m vid 10 m upplösning.
+# Utmapp: steg_6_generalize/{metod}_expand{N}px/  (ett TIF per tile, baserat på mmu050)
+EXPAND_WATER         = True         # True/False
+EXPAND_WATER_CLASSES = {61, 62}     # klasser som "skalar bort" från kanten
+EXPAND_WATER_PX      = 2            # pixlar — mark växer in så många px i vattenytorna
+# ══════════════════════════════════════════════════════════════════════════════
+# OVERLAY_EXTERNAL_PATH  — Absolut sökväg till den externa GPKG/SHP-filen.
+# OVERLAY_EXTERNAL_LAYER — Lagernamn inuti GPKG:n att läsa (None = första lagret).
+# OVERLAY_EXTERNAL_CLASS — Heltal som skrivs i 'markslag'-kolumnen för alla
+#   externa polygoner. Sätt till None för att läsa kolumnen från filen själv.
+OVERLAY_EXTERNAL_PATH  = "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/LM/hydrografi_3006_merged_polygons_all.gpkg"
+OVERLAY_EXTERNAL_LAYER = None  # None = första lagret, str eller lista med lagernamn ["Layer1", "Layer2"]".
+OVERLAY_EXTERNAL_CLASS = 61               # None = läs 'markslag' från extern fil
+# OVERLAY_EXTERNAL_SNAP  — Buffrar externa polygoner med detta antal meter INNAN difference.
+# Löser floating-point-sömmar: klippt landskap överlappas å lite med externa polygonens
+# ursprungliga kant, vilket hindrar gaps längs gränsen.
+# 0.05 m = 5 cm är osynligt vid kartskala men eliminerar precisionsgap.
+OVERLAY_EXTERNAL_SNAP  = 0.5             # meter — snap-tolerans längs difference-söm (stänger floating-point-gap)
+
+# VECTOR_MIN_AREA_M2 — Minimiarea (m²) för polygoner i steg 10-output.
+# Polygoner under denna gräns slås ihop med den granne som har längst delad kant.
+# 300 m² = 0.03 ha ≈ 3 px vid 10 m upplösning.
+# 0 = inaktiverat.
+VECTOR_MIN_AREA_M2 = 300  # m²
+
+# VECTOR_FILL_HOLE_M2 — Hål (interior rings) i externa vattenpolygoner under denna area
+# fylls igen före overlay (öar < tröskeln absorberas i vattnet).
+# 2500 m² = 0.25 ha.  0 = inaktiverat.
+VECTOR_FILL_HOLE_M2 = 2500  # m²
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PIPELINE CONFIGURATION — Vilka steg ska köras?
@@ -379,11 +435,13 @@ ENABLE_STEPS = {
     2: True,    # Extrahera skyddade klasser
     3: True,    # Extrahera landskapsbild
     4: False,   # Fylla små landöar < MMU_ISLAND px omringade av vatten
-    5: False,    # Ta bort (filtrera) små sjöar < 0,5 ha
+    5: True,   # Ta bort (filtrera) små sjöar < 0,25 ha
     6: True,    # Generalisering
+    "6b": True, # Expand water: mark flödar EXPAND_WATER_PX px in i vattenytor
     7: True,    # Vektorisering
     8: True,    # Simplifiering
-    9: True,    # Overlay byggnader från steg 2 på steg 8
+    9: False,   # Overlay byggnader från steg 2 på steg 8
+    10: True,   # Overlay extern vektorfil (OVERLAY_EXTERNAL_PATH) på steg 9/8
     99: True,   # Bygga QGIS-projekt
 }
 
@@ -395,15 +453,17 @@ ENABLE_STEPS = {
 #
 QGIS_INCLUDE_STEPS = {
     0: True,   # Verifieringstiles (original, 980 rasterfiler)
-    1: False,   # Tiles med omklassificering (980 rasterfiler)
-    2: False,  # Extraherade skyddade klasser (980 rasterfiler)
-    3: False,   # Upplöst landskapsbild (980 rasterfiler)
+    1: True,   # Tiles med omklassificering (980 rasterfiler)
+    2: True,  # Extraherade skyddade klasser (980 rasterfiler)
+    3: True,   # Upplöst landskapsbild (980 rasterfiler)
     4: False,   # Fyllda sjöar (980 rasterfiler)
-    5: False,   # Fyllda öar (980 rasterfiler)
+    5: True,   # Fyllda öar (980 rasterfiler)
     6: True,    # Generaliserat raster (steg6_generalized_*/)
-    7: False,    # Vektoriserade GeoPackage
+    "6b": True, # Expand water (steg_6b_expand_water/)
+    7: False,   # Vektoriserade GeoPackage
     8: True,    # Förenklat (Mapshaper)
-    9: True,    # Med byggnader
+    9: False,    # Med byggnader
+    10: True,   # Med extern overlay
 }
 
 # ══════════════════════════════════════════════════════════════════════════════

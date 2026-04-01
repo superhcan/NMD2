@@ -227,9 +227,11 @@ def build_qgis_project():
     # step_dir=None för steg 99 (detta steg producerar inga datalager).
     steps = [
         (99, "Step 99 - QGIS project", None),
+        (10, "Step 10 - Overlaid external", OUT_BASE / "steg_10_overlay_external"),
         (9, "Step 9 - Overlaid buildings", OUT_BASE / "steg_9_overlay_buildings"),
         (8, "Step 8 - Simplified", OUT_BASE / "steg_8_simplify"),
         (7, "Step 7 - Vectorized", OUT_BASE / "steg_7_vectorize"),
+        ("6b", "Step 6b - Expand water", OUT_BASE / "steg_6b_expand_water"),
         (6, "Step 6 - Generalized", OUT_BASE / "steg_6_generalize"),
         (5, "Step 5 - Filtered islands", OUT_BASE / "steg_5_filter_islands"),
         (4, "Step 4 - Filtered lakes", OUT_BASE / "steg_4_filter_lakes"),
@@ -353,6 +355,38 @@ def build_qgis_project():
 
                 log.info(f"  {step_name:45s} {method.upper():6s} ({len(layer_files)} tiles totalt)\n")
         
+        # Speciell hantering för Steg 6b — en VRT per metodkatalog
+        elif step_num == "6b":
+            for method_dir in sorted(step_dir.iterdir()):
+                if not method_dir.is_dir():
+                    continue
+                tif_files = sorted(method_dir.glob("*.tif"))
+                if not tif_files:
+                    continue
+                method_group = QgsLayerTreeGroup(f"Expand water ({method_dir.name})")
+                method_group.setExpanded(False)
+                group.addChildNode(method_group)
+
+                vrt_path = method_dir / "_mosaic.vrt"
+                if not _ensure_mosaic_vrt(tif_files, vrt_path):
+                    log.warning(f"  ✗ {method_dir.name} — kunde inte skapa VRT")
+                    continue
+                layer_name = f"6b_{method_dir.name}"
+                try:
+                    layer = QgsRasterLayer(str(vrt_path), layer_name, "gdal")
+                    if not layer.isValid():
+                        log.warning(f"  ✗ {layer_name} (ej giltig)")
+                        continue
+                    _apply_qml(layer, tif_files)
+                    project.addMapLayer(layer, addToLegend=False)
+                    tree_layer = QgsLayerTreeLayer(layer)
+                    tree_layer.setExpanded(False)
+                    method_group.addChildNode(tree_layer)
+                    log.info(f"  ✓ {layer_name} ({len(tif_files)} tiles → 1 VRT)")
+                    total_layers += 1
+                except Exception as e:
+                    log.warning(f"  ✗ {layer_name} ({e})")
+
         # Speciell hantering för Steg 7 - metod → MMU/kernel → lager
         elif step_num == 7:
             layer_files = sorted(step_dir.glob("*.gpkg"))
@@ -454,12 +488,14 @@ def build_qgis_project():
                                     return m, f"MMU {rest[3:]}px", tolerance
                                 elif rest.startswith("k"):
                                     return m, f"Kernel radius k={rest[1:]}", tolerance
-                # GRASS-format: suffix = dp{N} | chaiken_t{N} | dp{N}_chaiken_t{N}
-                sfx_m = _re8.search(r'_(dp\d+(?:_chaiken_t\d+)?|chaiken_t\d+)$', stem)
+                # GRASS-format: suffix = dp{N} | chaiken_t{N} | dp{N}_chaiken_t{N} | sliding_i{N}_s{N} | dp{N}_sliding_i{N}_s{N}
+                sfx_m = _re8.search(r'_(dp\d+(?:_chaiken_t\d+|_sliding_i\d+(?:_s\d+)?)?|chaiken_t\d+|sliding_i\d+(?:_s\d+)?)$', stem)
                 if sfx_m:
                     sfx = sfx_m.group(1)
                     before = stem[:sfx_m.start()]
                     for m in known_methods:
+                        if before == m:
+                            return m, "(no morph)", sfx
                         if before.startswith(m + "_"):
                             return m, before[len(m) + 1:], sfx
                 return None, None, None
@@ -569,11 +605,13 @@ def build_qgis_project():
                                 elif rest.startswith("k"):
                                     return m, f"Kernel radius k={rest[1:]}", tolerance
                 # GRASS-format
-                sfx_m = _re9.search(r'_(dp\d+(?:_chaiken_t\d+)?|chaiken_t\d+)$', stem)
+                sfx_m = _re9.search(r'_(dp\d+(?:_chaiken_t\d+|_sliding_i\d+(?:_s\d+)?)?|chaiken_t\d+|sliding_i\d+(?:_s\d+)?)$', stem)
                 if sfx_m:
                     sfx = sfx_m.group(1)
                     before = stem[:sfx_m.start()]
                     for m in known_methods:
+                        if before == m:
+                            return m, "(no morph)", sfx
                         if before.startswith(m + "_"):
                             return m, before[len(m) + 1:], sfx
                 return None, None, None
@@ -618,6 +656,100 @@ def build_qgis_project():
                     tols = settings[setting_label]
                     # Mapshaper: fast ordning från minst till mest förenklad;
                     # GRASS: övriga nyckel läggs till sorterade sist.
+                    ordered = [t for t in mapshaper_tol_order if t in tols] + \
+                              sorted(t for t in tols if t not in mapshaper_tol_order)
+                    for tolerance in ordered:
+                        tol_group = QgsLayerTreeGroup(tolerance)
+                        tol_group.setExpanded(False)
+                        setting_group.addChildNode(tol_group)
+                        for lf in tols[tolerance]:
+                            try:
+                                layer = QgsVectorLayer(str(lf), lf.stem, "ogr")
+                                if not layer.isValid():
+                                    log.debug(f" {lf.stem:45s} (ej giltig)")
+                                    continue
+                                _apply_no_fill(layer)
+                                project.addMapLayer(layer, addToLegend=False)
+                                tree_layer = QgsLayerTreeLayer(layer)
+                                tree_layer.setExpanded(False)
+                                tol_group.addChildNode(tree_layer)
+                                log.info(f" {lf.stem:45s}")
+                                total_layers += 1
+                            except Exception as e:
+                                log.warning(f" {lf.stem:45s} ({e})")
+
+                log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
+
+        # Step 10 - Overlaid external: samma namnformat som steg 8/9
+        elif step_num == 10:
+            layer_files = sorted(step_dir.glob("*.gpkg"))
+            if not layer_files:
+                log.warning(f"{step_name:40s} - inga filer hittade")
+                continue
+
+            known_methods = ["conn4", "conn8", "majority", "semantic"]
+            import re as _re10
+
+            def _parse_steg10(stem):
+                if "_simplified_" in stem:
+                    parts = stem.split("_simplified_")
+                    if len(parts) == 2:
+                        variant, tolerance = parts[0], parts[1]
+                        for m in known_methods:
+                            if variant.startswith(m + "_"):
+                                rest = variant[len(m) + 1:]
+                                if rest.startswith("mmu"):
+                                    return m, f"MMU {rest[3:]}px", tolerance
+                                elif rest.startswith("k"):
+                                    return m, f"Kernel radius k={rest[1:]}", tolerance
+                sfx_m = _re10.search(r'_(dp\d+(?:_chaiken_t\d+|_sliding_i\d+(?:_s\d+)?)?|chaiken_t\d+|sliding_i\d+(?:_s\d+)?)$', stem)
+                if sfx_m:
+                    sfx = sfx_m.group(1)
+                    before = stem[:sfx_m.start()]
+                    for m in known_methods:
+                        if before == m:
+                            return m, "(no morph)", sfx
+                        if before.startswith(m + "_"):
+                            return m, before[len(m) + 1:], sfx
+                return None, None, None
+
+            allowed_tolerances = {f"p{t}" for t in SIMPLIFICATION_TOLERANCES}
+            methods_dict = {}
+            for lf in layer_files:
+                method, setting_label, tolerance = _parse_steg10(lf.stem)
+                if method is None:
+                    log.debug(f"Hoppar {lf.name} - okänt namnformat")
+                    continue
+                is_grass_sfx = bool(_re10.match(r'dp\d+|chaiken_t\d+', tolerance))
+                if not is_grass_sfx and tolerance not in allowed_tolerances:
+                    continue
+                methods_dict \
+                    .setdefault(method, {}) \
+                    .setdefault(setting_label, {}) \
+                    .setdefault(tolerance, []) \
+                    .append(lf)
+
+            for method in [m for m in known_methods if m in methods_dict]:
+                method_group = QgsLayerTreeGroup(f"With external ({method.upper()})")
+                method_group.setExpanded(False)
+                group.addChildNode(method_group)
+
+                settings = methods_dict[method]
+                def _sort_setting10(lbl):
+                    if "MMU" in lbl:
+                        return (0, -int(lbl.split()[1].replace("px", "")))
+                    if "k=" in lbl:
+                        return (1, -int(lbl.split("k=")[-1]))
+                    return (2, lbl)
+
+                mapshaper_tol_order = ["p90", "p75", "p50", "p25", "p15"]
+
+                for setting_label in sorted(settings.keys(), key=_sort_setting10):
+                    setting_group = QgsLayerTreeGroup(setting_label)
+                    setting_group.setExpanded(False)
+                    method_group.addChildNode(setting_group)
+
+                    tols = settings[setting_label]
                     ordered = [t for t in mapshaper_tol_order if t in tols] + \
                               sorted(t for t in tols if t not in mapshaper_tol_order)
                     for tolerance in ordered:

@@ -10,14 +10,16 @@ Kör alla steg i rätt ordning:
   Steg 4: Ta bort små sjöar < 0,5 ha (steg_4_filter_lakes.py)
   Steg 5: Fylla små öar omringade av vatten (steg_5_filter_islands.py)
   Steg 6: Generalisering (steg_6_generalize.py)
+  Steg 6b: Expand water — mark flödar 2px in i vattenytor (steg_6b_expand_water.py)
   Steg 7: Vektorisering (steg_7_vectorize.py)
   Steg 8: Mapshaper-förenkling (steg_8_simplify.py)
   Steg 9: Overlay buildings (steg_9_overlay_buildings.py)
+  Steg 10: Overlay extern vektorfil (steg_10_overlay_external.py)
   Steg 99: Bygga QGIS-projekt (steg_99_build_qgis_project.py)
 
 Användning:
-  python3 run_all_steps.py              # Kör alla steg
-  python3 run_all_steps.py --step 6 9  # Kör endast steg 6-9
+  python3 run_all_steps.py                  # Kör alla steg
+  python3 run_all_steps.py --step 6 6b 8   # Kör steg 6, 6b och 8
 
 Kräver:
   - QGIS (för steg 9)
@@ -96,6 +98,12 @@ STEPS = {
         "description": "Generaliserar landskapsbild med sieve, modal, semantic och halo-teknik",
         "requires_dir": None  # Kan läsa från steg_4_filter_lakes eller steg_5_filter_islands
     },
+    "6b": {
+        "name": "Expand water",
+        "script": "steg_6b_expand_water.py",
+        "description": "Mark flödar EXPAND_WATER_PX px in i vattenytor; inre vatten sätts till 0",
+        "requires_dir": "steg_6_generalize"
+    },
     7: {
         "name": "Vektorisering",
         # När GRASS_USE_COMBINED_78=True hoppas steg 7 över — steg 8 gör allt.
@@ -119,18 +127,27 @@ STEPS = {
         "description": "Vektoriserar byggnader från steg 2 och lägger till i steg 8-lager",
         "requires_dir": "steg_8_simplify"
     },
+    10: {
+        "name": "Overlay extern vektorfil",
+        "script": "steg_10_overlay_external.py",
+        "description": "Lägger extern vektorfil (OVERLAY_EXTERNAL_PATH) ovanpå steg 9 (eller 8)",
+        "requires_dir": "steg_8_simplify"
+    },
     99: {
         "name": "Bygga QGIS-projekt",
         "script": "steg_99_build_qgis_project.py",
         "description": "Bygger QGIS-projekt med alla steg organiserade i grupper",
         # Minst ett av dessa steg måste ha körts; steg 99 hanterar själv saknade kataloger
-        "requires_any_dir": ["steg_9_overlay_buildings", "steg_8_simplify",
-                             "steg_7_vectorize", "steg_6_generalize",
+        "requires_any_dir": ["steg_10_overlay_external", "steg_9_overlay_buildings", "steg_8_simplify",
+                             "steg_7_vectorize", "steg_6b_expand_water", "steg_6_generalize",
                              "steg_5_filter_islands", "steg_4_filter_lakes",
                              "steg_3_dissolve", "steg_2_extract",
                              "steg_1_reclassify", "steg_0_verify_tiles"]
     }
 }
+
+# Explicit körordning — hanterar att "6b" är en sträng
+STEP_ORDER = [0, 1, 2, 3, 4, 5, 6, "6b", 7, 8, 9, 10, 99]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FUNKTIONER
@@ -268,18 +285,18 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Exempel:
-  python3 run_all_steps.py              # Kör alla steg
-  python3 run_all_steps.py --step 5 7  # Kör endast steg 5-7
-  python3 run_all_steps.py --list      # Lista alla steg
+  python3 run_all_steps.py                  # Kör alla steg
+  python3 run_all_steps.py --step 6 6b 8   # Kör steg 6, 6b och 8
+  python3 run_all_steps.py --step 8 9 10   # Kör steg 8, 9 och 10
+  python3 run_all_steps.py --list          # Lista alla steg
         """
     )
     
     parser.add_argument(
         "--step",
-        type=int,
-        nargs=2,
-        metavar=("START", "END"),
-        help="Kör endast steg START till END (inklusive)"
+        nargs="+",
+        metavar="STEG",
+        help="Kör specifika steg, t.ex. --step 6 6b 8  (ange ett eller flera steg)"
     )
     parser.add_argument(
         "--list",
@@ -293,11 +310,21 @@ Exempel:
 def list_steps():
     """Visa alla tillgängliga steg."""
     print("\nTillgängliga steg:\n")
-    for step_key in sorted(STEPS.keys(), key=lambda x: (isinstance(x, str), x)):
+    for step_key in STEP_ORDER:
         step = STEPS[step_key]
         print(f"  Steg {step_key}: {step['name']}")
         print(f"         {step['description']}")
     print()
+
+
+def _parse_step_key(s: str):
+    """Konverterar strängen '6b' → '6b', '8' → 8, etc."""
+    if s == "6b":
+        return "6b"
+    try:
+        return int(s)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Okänt steg: {s!r}")
 
 
 def main():
@@ -322,11 +349,10 @@ def main():
     
     # Bestäm vilka steg som ska köras
     if args.step:
-        start_step, end_step = args.step
-        step_keys = [k for k in sorted(STEPS.keys())
-                     if start_step <= k <= end_step]
+        requested = {_parse_step_key(s) for s in args.step}
+        step_keys = [k for k in STEP_ORDER if k in requested]
     else:
-        step_keys = sorted(STEPS.keys())
+        step_keys = list(STEP_ORDER)
     
     # Filtrera enligt ENABLE_STEPS i config
     enabled_steps = [k for k in step_keys if ENABLE_STEPS.get(k, True)]
@@ -358,7 +384,7 @@ def main():
     success_count = sum(1 for v in results.values() if v)
     total_count = len(results)
     
-    for step_key in sorted(results.keys(), key=lambda x: (isinstance(x, str), x)):
+    for step_key in [k for k in STEP_ORDER if k in results]:
         status = "OK" if results[step_key] else "MISSLYCKAD"
         log.info(f"  Steg {step_key}: {status}")
     

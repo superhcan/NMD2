@@ -28,3 +28,22 @@ Kolla om vi kan anmäla LM:s sjöar
 
 
 I Dissolve-steget ska byggnader inte kunna ersätta tex borttagna vägar
+
+
+
+20026-04-01
+Byggnader ska betraktas som vanlig klass, dvs tas bort om de är under 0.5 ha
+
+myrar   
+    Öppna våtmarker, (21, 22, 200) 0.25 ha
+    Gräsmark (421, 422, 423) 0.25 ha
+
+Öar
+    under 0,25 ha tas bort ut ur LM:s vattenytor (steg 4)
+ 
+Håkan:
+Kolla om det finns flera ytor som har markklass=0
+6750516.9, 540858.6, 
+
+Öar som delas pga utebliven halo
+6769934, 538222
