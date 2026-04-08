@@ -31,7 +31,7 @@ I Dissolve-steget ska byggnader inte kunna ersätta tex borttagna vägar
 
 
 
-20026-04-01
+2026-04-01
 Byggnader ska betraktas som vanlig klass, dvs tas bort om de är under 0.5 ha
 
 myrar   
@@ -47,3 +47,22 @@ Kolla om det finns flera ytor som har markklass=0
 
 Öar som delas pga utebliven halo
 6769934, 538222
+
+2026-04-02
+Tomma vägar blir expoaterad mark
+(Lägga på LM;s vagar,, ev senare)
+Kolla om man kan 
+
+Kolla att köra färre steg steg i generaliseringen 6770285, 560495
+
+2018 ytor som ett enskilt lager. Gör en körning idag. Ta bort vägar, byggnarer vatten och lägga tillbaka LM vatten
+
+Kraftledningator i pixelformat plus 1 px 10 px. Finns i mappen Tilläggsskikt.
+
+Plugin generalize polygon (Generalize Polygons) kör med 0 så fixar den till anti-clockvise
+
+Prio 1 nuvarnade karta under påsk.  
+Prio 2 testa en annan medtod för generaliseringa. 
+Prio 3 Kraftledningator.
+Prio 4 2018.
+Prio 5 vägar, senare.

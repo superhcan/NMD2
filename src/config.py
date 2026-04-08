@@ -25,7 +25,10 @@ QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
 # TODO: Ta bort miljövariabeln och hårdkoda OUT_BASE när pipeline är stabil och klar för produktion
-OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/test_r43_r44_c16_c17_douglas_chaiken_v13")
+#OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/test_r43_r44_c16_c17_douglas_chaiken_v13")
+#OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_test_10proc_v01")
+OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_test_100proc_steps_v01")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TILE CONFIGURATION
@@ -33,7 +36,10 @@ OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/test_r43_r44_c16_
 
 TILE_SIZE        = 2048          # Huvudtile-storlek (pixlar per sida)
 # Vid 2048 px: 35 kolumner × 78 rader = 2730 tiles totalt (71273×157991 px källraster v2.1)
-PARENT_TILES     = [(r, c) for r in range(43, 45) for c in range(16, 18)]  # rad 43–44 × kol 16–17 = 4 tiles
+#PARENT_TILES     = [(r, c) for r in range(39) for c in range(35)]  # rad 43–44 × kol 16–17 = 4 tiles
+PARENT_TILES     = [(r, c) for r in range(78) for c in range(35)]  # 100% av landet
+#PARENT_TILES     = [(r, c) for r in range(43,50) for c in range(35)]  # 30 rader × 35 kol = 1050 tiles (3 chunks à 13+13+4)
+
 # Hela landet: [(r, c) for r in range(78) for c in range(35)]
 # 50 %: [(r, c) for r in range(39) for c in range(35)]
 # 25 %: [(r, c) for r in range(20) for c in range(35)]
@@ -169,7 +175,16 @@ ISLAND_FILL_SURROUNDS = {61, 62}
 #   - Sista värdet bör förenligt med `HALO` för att undvika edge-artefakter
 #   - Fler steg = längre körtid men bättre för att jämföra resultat
 #
-MMU_STEPS    = [2, 4, 6, 12, 25, 50]
+MMU_STEPS    = [6, 10, 12, 25, 50]
+
+# MMU_POWERLINE_PATH — Sökväg till GPKG med kraftledningsgator (polygoner).
+# MMU_POWERLINE_MAX  — Max MMU (px) för pixlar som ligger under en kraftledningsgata.
+#   Pixlar under kraftledning skyddas temporärt när MMU-steget ÖVERSKRIDER detta värde,
+#   precis som MMU_CLASS_MAX — men per pixel istället för per klass.
+#   10 px = 0.1 ha vid 10 m upplösning.
+#   None = inaktiverat.
+MMU_POWERLINE_PATH = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/Kraftledningar/NMD2023_Kraftledning_v1_0.gpkg")
+MMU_POWERLINE_MAX  = 10  # px — None = inaktiverat
 
 # Klassspecifika MMU-maxgränser — dessa klasser skyddas när MMU-steget ÖVERSKRIDER angiven gräns.
 # Format: {klass_kod: max_mmu_px}
@@ -325,31 +340,29 @@ GRASS_VECTOR_MEMORY = 48000  # MB (48 GB av 56 GB)
 # Sätts som OMP_NUM_THREADS i steg 8. Om modul saknar OpenMP ignoreras värdet.
 GRASS_OMP_THREADS = 22
 
-# GRASS_PARALLEL_GPKG — Max antal parallella GRASS-jobb (ett jobb per GPKG).
-# Dela ALDRIG en GPKG — ett jobb måste alltid processera hela filen.
-GRASS_PARALLEL_GPKG = 8  # begränsas automatiskt av antalet GPKGs
+# GRASS_SNAP_TOLERANCE — Snap-tolerans (meter) i v.clean-steget.
+GRASS_SNAP_TOLERANCE   = 0.5   # meter
 
-# GRASS_USE_TILED — Tilebaserad parallelism i steg 8.
-# Delar input-GPKG:n i horisontella bands (hela tile-rader) med överlapp och kör
-# GRASS parallellt på varje band. Klipps sedan tillbaka och sätts ihop.
-# GRASS_TILE_ROWS        — Antal tile-rader per GRASS-chunk (1 = max parallelism).
-# GRASS_TILE_ROW_OVERLAP — Extra buffert-rader ovanför/nedanför varje chunk.
-GRASS_USE_TILED        = True  # True: tilebaserad parallelism; False: ett jobb per GPKG
-# GRASS_USE_COMBINED_78 — Kör steg 7+8 som en enda GRASS-session (steg_78_grass.py).
-# r.external → r.patch → r.to.vect → v.generalize → v.clean → v.out.ogr.
-# Eliminerar topologiska sömsglapp i grunden. Steg 7 hoppas över i run_all_steps.py.
-GRASS_USE_COMBINED_78  = True   # True: använd steg_78_grass.py; False: gamla steg 7+8
-GRASS_TILE_ROWS        = 1     # Tile-rader per chunk
-GRASS_TILE_ROW_OVERLAP = 1     # Buffert-rader (hela tile-rader) som överlapp per sida
-# GRASS_MERGE_BEFORE_GENERALIZE — Ny approach: centroid-baserad extraktion i chunks (parallellt),
-# sedan enskild GRASS-session med v.in.ogr × N → v.patch → v.generalize → v.clean → v.out.ogr.
-# Löser topologiska glapp längs chunkgränser (generaliseringen sker på hela datasetet).
-GRASS_MERGE_BEFORE_GENERALIZE = True   # True: merge-first; False: gammal per-chunk-approach
-# GRASS_SNAP_TOLERANCE — Snap-tolerans (meter) i v.clean-steget efter chunk-merge.
-# Används för att läka topologiska glapp längs chunkgränser som uppstår när samma
-# polygon-kant generaliserats oberoende i två olika GRASS-körningar.
-# Bör sättas till minst lika stort som GRASS_DOUGLAS_THRESHOLD.
-GRASS_SNAP_TOLERANCE   = 0.5   # meter — ST_Buffer(+δ) på varje polygon för att stänga glapp längs chunkgränser
+# ══════════════════════════════════════════════════════════════════════════════
+# STRIP-KONFIGURATION — gemensam för steg 8, 9, 10 och 11
+# ══════════════════════════════════════════════════════════════════════════════
+# Y-axeln delas i STRIP_N horisontella band med STRIP_OVERLAP_M meters överlapp
+# per sida. Varje band körs som en oberoende GRASS-session → hanterar hela
+# Sverige utan OOM-krascher. Steg 8–10 kör STRIP_WORKERS band parallellt.
+# Steg 11 slår ihop alla band till en enda slutlig GPKG per variant.
+#
+# RAM per jobb ≈ GRASS_VECTOR_MEMORY // STRIP_WORKERS (48000 // 8 = 6 000 MB).
+# OMP-trådar per jobb ≈ GRASS_OMP_THREADS // STRIP_WORKERS (22 // 8 ≈ 2).
+#
+STRIP_N         = 22     # Y-band (Sverige ~1580 km → ~72 km/band)
+STRIP_OVERLAP_M = 80000  # överlapp i meter per sida — 80 km täcker de största polygonerna (Vänern ~78 km)
+STRIP_WORKERS   = 8      # parallella GRASS-jobb (54 GB / 8 ≈ 6 GB/jobb)
+STRIP_ONLY      = [8, 9, 10]  # kör bara dessa band (tom lista = alla)
+
+# FULLSWEDEN_RAW_GPKG — Valfri genväg: om en färdig hel-Sverige-GPKG finns och
+# steg 6-katalogen saknas hoppar steg 8 över r.to.vect och läser direkt från filen.
+# Sätt till None för att alltid köra från raster-tiles.
+FULLSWEDEN_RAW_GPKG = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/conn4_raw_vect.gpkg")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MORFOLOGISK UTJÄMNING — Rasterbaserad kantutjämning (Steg 6, sista pass)
@@ -398,7 +411,7 @@ MORPH_ONLY = False
 #   2 px = 20 m vid 10 m upplösning.
 # Utmapp: steg_6_generalize/{metod}_expand{N}px/  (ett TIF per tile, baserat på mmu050)
 EXPAND_WATER         = True         # True/False
-EXPAND_WATER_CLASSES = {61, 62}     # klasser som "skalar bort" från kanten
+EXPAND_WATER_CLASSES = {61}         # klasser som "skalar bort" från kanten
 EXPAND_WATER_PX      = 2            # pixlar — mark växer in så många px i vattenytorna
 # ══════════════════════════════════════════════════════════════════════════════
 # OVERLAY_EXTERNAL_PATH  — Absolut sökväg till den externa GPKG/SHP-filen.
@@ -435,13 +448,14 @@ ENABLE_STEPS = {
     2: True,    # Extrahera skyddade klasser
     3: True,    # Extrahera landskapsbild
     4: False,   # Fylla små landöar < MMU_ISLAND px omringade av vatten
-    5: True,   # Ta bort (filtrera) små sjöar < 0,25 ha
+    5: True,    # Ta bort (filtrera) små sjöar < 0,25 ha
     6: True,    # Generalisering
     "6b": True, # Expand water: mark flödar EXPAND_WATER_PX px in i vattenytor
-    7: True,    # Vektorisering
-    8: True,    # Simplifiering
+    7: False,   # Vektorisering (hoppas över — steg 8 kör r.to.vect)
+    8: True,    # Simplifiering (per strip: r.to.vect + v.generalize parallellt)
     9: False,   # Overlay byggnader från steg 2 på steg 8
     10: True,   # Overlay extern vektorfil (OVERLAY_EXTERNAL_PATH) på steg 9/8
+    11: True,   # Slå ihop strip-GPKGs från steg 10 till slutlig GPKG per variant
     99: True,   # Bygga QGIS-projekt
 }
 

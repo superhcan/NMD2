@@ -35,7 +35,8 @@ from shapely.geometry import box as shapely_box, Polygon, MultiPolygon
 
 from config import (OUT_BASE, OVERLAY_EXTERNAL_PATH, OVERLAY_EXTERNAL_CLASS,
                     OVERLAY_EXTERNAL_LAYER, GRASS_VECTOR_MEMORY, GRASS_OMP_THREADS,
-                    VECTOR_MIN_AREA_M2, VECTOR_FILL_HOLE_M2)
+                    VECTOR_MIN_AREA_M2, VECTOR_FILL_HOLE_M2,
+                    STRIP_WORKERS)
 
 LN = "markslag"
 
@@ -144,7 +145,8 @@ def load_external(path: Path, target_crs, log) -> gpd.GeoDataFrame:
 
 
 def _run_grass_overlay(land_gpkg: Path, water_gpkg: Path, land_cut_gpkg: Path,
-                       variant_name: str, min_area_m2: float, log) -> bool:
+                       variant_name: str, min_area_m2: float, log,
+                       mem_mb: int = None, omp_threads: int = None) -> bool:
     """Kör GRASS v.overlay op=not + v.clean rmarea för topologiskt korrekt klippning
     och eliminering av små polygoner.
 
@@ -192,8 +194,8 @@ run(["v.overlay", "ainput=land_vect", "binput=water_vect",
         script_path.write_text(script)
         genv = {
             **os.environ,
-            "GRASS_VECTOR_MEMORY": str(GRASS_VECTOR_MEMORY),
-            "OMP_NUM_THREADS":     str(GRASS_OMP_THREADS),
+            "GRASS_VECTOR_MEMORY": str(mem_mb if mem_mb is not None else GRASS_VECTOR_MEMORY),
+            "OMP_NUM_THREADS":     str(omp_threads if omp_threads is not None else GRASS_OMP_THREADS),
         }
         proc = subprocess.Popen(
             ["grass", "--tmp-project", "EPSG:3006", "--exec", "python3", str(script_path)],
@@ -255,8 +257,13 @@ def _fill_small_holes(gdf: gpd.GeoDataFrame, min_area_m2: float, log) -> gpd.Geo
 
 
 def integrate_external(
-        ext_path: Path, src_dir: Path, out_dir: Path, log):
+        ext_path: Path, src_dir: Path, out_dir: Path, log,
+        n_workers: int = 1, mem_mb: int = None, omp_threads: int = None):
     """Integrerar externa vattenpolygoner i varje GPKG i src_dir via GRASS v.overlay.
+
+    n_workers   -- antal parallella GRASS-jobb (skalas GRASS_VECTOR_MEMORY över n_workers)
+    mem_mb      -- GRASS_VECTOR_MEMORY per jobb (None = GRASS_VECTOR_MEMORY / n_workers)
+    omp_threads -- OMP_NUM_THREADS per jobb (None = GRASS_OMP_THREADS / n_workers)
 
     För varje GPKG:
       1. Läs landskapspolygoner och klipp extern fil till extent.
@@ -267,22 +274,39 @@ def integrate_external(
 
     Returnerar antal producerade filer.
     """
+    if mem_mb is None:
+        mem_mb = max(4000, GRASS_VECTOR_MEMORY // max(1, n_workers))
+    if omp_threads is None:
+        omp_threads = max(1, GRASS_OMP_THREADS // max(1, n_workers))
     gpkgs = sorted(src_dir.glob("*.gpkg"))
     if not gpkgs:
         log.warning("  Inga GPKG-filer i %s", src_dir)
         return 0
 
-    count = 0
-    for gpkg in gpkgs:
+    def _process_one(gpkg: Path) -> bool:
         variant = gpkg.stem
         log.info("  Läser %s...", gpkg.name)
         landscape = gpd.read_file(str(gpkg))
         log.info("    %d landskapspolygoner (CRS: %s)", len(landscape), landscape.crs)
 
+        if landscape.empty:
+            log.info("    Tomt lager — kopierar %s oförändrad", gpkg.name)
+            import shutil as _sh
+            _sh.copy2(str(gpkg), str(out_dir / gpkg.name))
+            return True
+
+        import numpy as _np
+        bounds = landscape.total_bounds
+        if _np.any(_np.isnan(bounds)):
+            log.info("    Ogiltiga bounds (NaN) — kopierar %s oförändrad", gpkg.name)
+            import shutil as _sh
+            _sh.copy2(str(gpkg), str(out_dir / gpkg.name))
+            return True
+
         ext_gdf = load_external(ext_path, landscape.crs, log)
 
         # Klipp externa polygoner till GPKG-lagrets extent
-        landscape_bbox = shapely_box(*landscape.total_bounds)
+        landscape_bbox = shapely_box(*bounds)
         n_before = len(ext_gdf)
         ext_gdf = gpd.clip(ext_gdf, landscape_bbox)
         log.info("    %d externa polygoner inom extent (var %d totalt)", len(ext_gdf), n_before)
@@ -293,8 +317,7 @@ def integrate_external(
             import shutil as _sh
             out_gpkg = out_dir / gpkg.name
             _sh.copy2(str(gpkg), str(out_gpkg))
-            count += 1
-            continue
+            return True
 
         # Spara temporära indatafiler för GRASS
         tmpdir = Path(tempfile.mkdtemp(prefix=f"steg10_{variant}_"))
@@ -313,22 +336,20 @@ def integrate_external(
 
             t_g = time.time()
             log.info("    Kör GRASS v.overlay op=not + v.clean rmarea (%.0f m²)...", VECTOR_MIN_AREA_M2)
-            ok = _run_grass_overlay(land_tmp, water_tmp, cut_tmp, variant, VECTOR_MIN_AREA_M2, log)
+            ok = _run_grass_overlay(land_tmp, water_tmp, cut_tmp, variant, VECTOR_MIN_AREA_M2, log,
+                                    mem_mb=mem_mb, omp_threads=omp_threads)
             if not ok:
                 log.error("    GRASS misslyckades — hoppar över %s", gpkg.name)
-                continue
+                return False
             log.info("    v.overlay klar  (%.1fs)", time.time() - t_g)
 
             # Läs GRASS-output och städa kolumnnamn
-            # v.overlay op=not prefixar A-lagrets attribut med 'a_' och B med 'b_'
             land_cut = gpd.read_file(str(cut_tmp))
-            # Byt a_markslag → markslag, ta bort a_cat, b_cat
             rename_map = {c: c[2:] for c in land_cut.columns if c.startswith("a_")}
             land_cut = land_cut.rename(columns=rename_map)
             drop_cols = [c for c in land_cut.columns
                          if c.startswith("b_") or c in ("cat", "cat_", "label", "DN")]
             land_cut = land_cut.drop(columns=drop_cols, errors="ignore")
-            # Säkerställ att LN-kolumnen finns
             if LN not in land_cut.columns:
                 log.warning("    Kolumnen '%s' saknas efter v.overlay — fyller med 0", LN)
                 land_cut[LN] = 0
@@ -368,7 +389,16 @@ def integrate_external(
 
         sz = out_gpkg.stat().st_size / 1e6
         log.info("  ✓ %s — %d polygoner  %.1f MB", out_gpkg.name, len(result), sz)
-        count += 1
+        return True
+
+    # Kör alla GPKG parallellt (n_workers stycken)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    count = 0
+    with ThreadPoolExecutor(max_workers=max(1, n_workers)) as ex:
+        futs = {ex.submit(_process_one, gpkg): gpkg for gpkg in gpkgs}
+        for fut in as_completed(futs):
+            if fut.result():
+                count += 1
 
     return count
 
@@ -389,40 +419,60 @@ if __name__ == "__main__":
         log.error("Extern fil saknas: %s", ext_path)
         raise SystemExit(1)
 
-    # Välj källkatalog: steg 9 om det körts, annars steg 8
+    # Välj källrot: steg 9 om det körts, annars steg 8.
+    # Med strip-struktur har varje källa variant-underkataloger.
     src_steg9 = OUT_BASE / "steg_9_overlay_buildings"
     src_steg8 = OUT_BASE / "steg_8_simplify"
-    if src_steg9.exists() and any(src_steg9.glob("*.gpkg")):
-        src_dir = src_steg9
+    if src_steg9.exists() and any(src_steg9.iterdir()):
+        src_root  = src_steg9
         src_label = "steg_9_overlay_buildings"
-    elif src_steg8.exists() and any(src_steg8.glob("*.gpkg")):
-        src_dir = src_steg8
+    elif src_steg8.exists() and any(src_steg8.iterdir()):
+        src_root  = src_steg8
         src_label = "steg_8_simplify"
     else:
-        log.error("Varken steg_9_overlay_buildings/ eller steg_8_simplify/ finns med GPKG-filer")
+        log.error("Varken steg_9_overlay_buildings/ eller steg_8_simplify/ finns")
         raise SystemExit(1)
 
-    out_dir = OUT_BASE / "steg_10_overlay_external"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_root = OUT_BASE / "steg_10_overlay_external"
+    out_root.mkdir(parents=True, exist_ok=True)
 
     log.info("Extern fil   : %s", ext_path)
     layers_label = OVERLAY_EXTERNAL_LAYER or "(första lagret)"
     if isinstance(layers_label, list):
         layers_label = ", ".join(layers_label)
     log.info("Lager        : %s", layers_label)
-    log.info("Källkatalog  : %s", src_dir)
-    log.info("Utmapp       : %s", out_dir)
+    log.info("Källrot      : %s", src_root)
+    log.info("Utmapp       : %s", out_root)
     if OVERLAY_EXTERNAL_CLASS is not None:
         log.info("Klass        : %d (OVERLAY_EXTERNAL_CLASS)", OVERLAY_EXTERNAL_CLASS)
     else:
-        log.info("Klass        : läses från extern fils 'markslag'-kolumn (OVERLAY_EXTERNAL_CLASS=None)")
-    log.info("══════════════════════════════════════════════════════════")
+        log.info("Klass        : läses från extern fils 'markslag'-kolumn")
+    log.info("═" * 58)
 
-    n = integrate_external(ext_path, src_dir, out_dir, log)
+    # Iterera variant-underkataloger; kör strips parallellt per variant
+    mem_per_job = max(4000, GRASS_VECTOR_MEMORY // max(1, STRIP_WORKERS))
+    omp_per_job = max(1, GRASS_OMP_THREADS // max(1, STRIP_WORKERS))
+    log.info("GRASS per jobb: %d MB, %d OMP-trådar (%d jobb parallellt)",
+             mem_per_job, omp_per_job, STRIP_WORKERS)
+
+    variant_dirs = sorted(d for d in src_root.iterdir() if d.is_dir())
+    if not variant_dirs:
+        log.warning("Inga variant-kataloger i %s", src_root)
+
+    total = 0
+    for variant_dir in variant_dirs:
+        out_dir = out_root / variant_dir.name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        log.info("")
+        log.info("Variant: %s", variant_dir.name)
+        n = integrate_external(ext_path, variant_dir, out_dir, log,
+                               n_workers=STRIP_WORKERS,
+                               mem_mb=mem_per_job, omp_threads=omp_per_job)
+        total += n
 
     elapsed = time.time() - t0
     log.info("")
-    log.info("══════════════════════════════════════════════════════════")
+    log.info("═" * 58)
     log.info("Steg 10 klart — %d filer skapade från %s  %.1f min (%.0fs)",
-             n, src_label, elapsed / 60, elapsed)
-    log.info("══════════════════════════════════════════════════════════")
+             total, src_label, elapsed / 60, elapsed)
+    log.info("═" * 58)

@@ -12,9 +12,11 @@ Kör alla steg i rätt ordning:
   Steg 6: Generalisering (steg_6_generalize.py)
   Steg 6b: Expand water — mark flödar 2px in i vattenytor (steg_6b_expand_water.py)
   Steg 7: Vektorisering (steg_7_vectorize.py)
-  Steg 8: Mapshaper-förenkling (steg_8_simplify.py)
+  Steg 8: GRASS-polygonisering + förenkling per Y-band (steg_8_simplify.py)
   Steg 9: Overlay buildings (steg_9_overlay_buildings.py)
-  Steg 10: Overlay extern vektorfil (steg_10_overlay_external.py)
+  Steg 10: Sammanfoga strip-GPKGs (steg_10_merge.py)
+  Steg 11: Overlay extern vektorfil på merged lager (steg_11_overlay_external.py)
+  Steg 12: Klipp till rastrets footprint (steg_12_clip_to_footprint.py)
   Steg 99: Bygga QGIS-projekt (steg_99_build_qgis_project.py)
 
 Användning:
@@ -37,7 +39,7 @@ import argparse
 
 # Import pipeline configuration
 sys.path.insert(0, str(Path(__file__).parent / "src"))
-from config import ENABLE_STEPS, OUT_BASE, GENERALIZATION_METHODS, GRASS_USE_COMBINED_78
+from config import ENABLE_STEPS, OUT_BASE, GENERALIZATION_METHODS
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SETUP
@@ -106,20 +108,15 @@ STEPS = {
     },
     7: {
         "name": "Vektorisering",
-        # När GRASS_USE_COMBINED_78=True hoppas steg 7 över — steg 8 gör allt.
-        "script": None if GRASS_USE_COMBINED_78 else "steg_7_vectorize.py",
-        "description": "Konverterar generaliserade raster till GeoPackage-vektorer",
+        "script": None,  # steg 8 hanterar r.to.vect direkt via GRASS
+        "description": "Hoppas över — steg 8 (steg_8_simplify.py) sköter polygonisering",
         "requires_dir": "steg_6_generalize"
     },
     8: {
-        "name": "GRASS 7+8 (r.external→v.generalize)" if GRASS_USE_COMBINED_78 else "Mapshaper-förenkling",
-        "script": "steg_78_grass.py" if GRASS_USE_COMBINED_78 else "steg_8_simplify.py",
-        "description": (
-            "r.external→r.patch→r.to.vect→v.generalize→v.out.ogr i en GRASS-session"
-            if GRASS_USE_COMBINED_78
-            else "Förenklar vektorer med topologi-bevarad Mapshaper"
-        ),
-        "requires_dir": "steg_6_generalize" if GRASS_USE_COMBINED_78 else "steg_7_vectorize"
+        "name": "GRASS-polygonisering + förenkling (Y-band)",
+        "script": "steg_8_simplify.py",
+        "description": "r.external→r.patch→r.to.vect→v.generalize per Y-band i parallell",
+        "requires_dir": "steg_6_generalize"
     },
     9: {
         "name": "Overlay buildings",
@@ -128,17 +125,29 @@ STEPS = {
         "requires_dir": "steg_8_simplify"
     },
     10: {
-        "name": "Overlay extern vektorfil",
-        "script": "steg_10_overlay_external.py",
-        "description": "Lägger extern vektorfil (OVERLAY_EXTERNAL_PATH) ovanpå steg 9 (eller 8)",
+        "name": "Sammanfoga strip-GPKGs",
+        "script": "steg_10_merge.py",
+        "description": "Slår ihop strip_NNN.gpkg från steg 9 (eller 8) till en GPKG per variant",
         "requires_dir": "steg_8_simplify"
+    },
+    11: {
+        "name": "Overlay extern vektorfil",
+        "script": "steg_11_overlay_external.py",
+        "description": "Lägger extern vektorfil (OVERLAY_EXTERNAL_PATH) ovanpå det merged lagret (steg 10)",
+        "requires_dir": "steg_10_merge"
+    },
+    12: {
+        "name": "Klipp till rastrets footprint",
+        "script": "steg_12_clip_to_footprint.py",
+        "description": "Klipper vektorlagret till rastrets täckningsyta (LM_Saccess_mosaiker)",
+        "requires_dir": "steg_11_overlay_external"
     },
     99: {
         "name": "Bygga QGIS-projekt",
         "script": "steg_99_build_qgis_project.py",
         "description": "Bygger QGIS-projekt med alla steg organiserade i grupper",
         # Minst ett av dessa steg måste ha körts; steg 99 hanterar själv saknade kataloger
-        "requires_any_dir": ["steg_10_overlay_external", "steg_9_overlay_buildings", "steg_8_simplify",
+        "requires_any_dir": ["steg_12_clip_to_footprint", "steg_11_overlay_external", "steg_10_merge", "steg_9_overlay_buildings", "steg_8_simplify",
                              "steg_7_vectorize", "steg_6b_expand_water", "steg_6_generalize",
                              "steg_5_filter_islands", "steg_4_filter_lakes",
                              "steg_3_dissolve", "steg_2_extract",
@@ -147,7 +156,7 @@ STEPS = {
 }
 
 # Explicit körordning — hanterar att "6b" är en sträng
-STEP_ORDER = [0, 1, 2, 3, 4, 5, 6, "6b", 7, 8, 9, 10, 99]
+STEP_ORDER = [0, 1, 2, 3, 4, 5, 6, "6b", 7, 8, 9, 10, 11, 12, 99]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FUNKTIONER
@@ -319,8 +328,8 @@ def list_steps():
 
 def _parse_step_key(s: str):
     """Konverterar strängen '6b' → '6b', '8' → 8, etc."""
-    if s == "6b":
-        return "6b"
+    if s in ("6b",):
+        return s
     try:
         return int(s)
     except ValueError:

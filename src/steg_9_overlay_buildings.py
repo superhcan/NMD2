@@ -329,25 +329,23 @@ def integrate_buildings(buildings_gpkg, steg8_dir, out_dir, log):
 
 
 if __name__ == "__main__":
+    import shutil
     log = setup_logging(OUT_BASE)
     t0 = time.time()
 
-    # Katalogstruktur: steg 2 levererar byggnadsrasters, steg 8 landskapsvektorer.
-    steg2_dir = OUT_BASE / "steg_2_extract"
-    steg8_dir = OUT_BASE / "steg_8_simplify"
-    out_dir   = OUT_BASE / "steg_9_overlay_buildings"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    steg2_dir    = OUT_BASE / "steg_2_extract"
+    steg8_dir    = OUT_BASE / "steg_8_simplify"
+    out_base_dir = OUT_BASE / "steg_9_overlay_buildings"
+    out_base_dir.mkdir(parents=True, exist_ok=True)
 
-    log.info("══════════════════════════════════════════════════════════")
-    log.info("Step 9: Overlay buildings from steg 2 onto steg 8")
+    log.info("═" * 58)
+    log.info("Steg 9: Overlay buildings from steg 2 onto steg 8")
     log.info("Source steg2 : %s", steg2_dir)
     log.info("Source steg8 : %s", steg8_dir)
-    log.info("Output       : %s", out_dir)
-    log.info("══════════════════════════════════════════════════════════")
+    log.info("Output       : %s", out_base_dir)
+    log.info("═" * 58)
 
-    # Placera tmp i out_dir (inte /tmp) — 4 900 maskade tiles ≈ 5 GB.
-    # finally-blocket rensar tmp_dir oavsett om pipelinen lyckas eller ej.
-    tmp_dir = out_dir / "_tmp_steg9"
+    tmp_dir = out_base_dir / "_tmp_steg9"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     try:
         log.info("Steg 1: Vektorisera byggnader (klass 51) från steg 2...")
@@ -356,15 +354,26 @@ if __name__ == "__main__":
             log.error("Vectorization failed — aborting")
             raise SystemExit(1)
 
-        log.info("Steg 2: Integrera byggnader i steg 8 (difference + concat)...")
-        n = integrate_buildings(buildings_gpkg, steg8_dir, out_dir, log)
+        # Hitta variant-underkataloger i steg_8_simplify/
+        # (steg 8 skapar steg_8_simplify/{variant}/strip_NNN.gpkg)
+        variant_dirs = sorted(d for d in steg8_dir.iterdir() if d.is_dir())
+        if not variant_dirs:
+            log.warning("Inga variant-kataloger i %s", steg8_dir)
+
+        total = 0
+        for variant_dir in variant_dirs:
+            out_dir = out_base_dir / variant_dir.name
+            out_dir.mkdir(parents=True, exist_ok=True)
+            log.info("")
+            log.info("Steg 2: Variant '%s' ...", variant_dir.name)
+            n = integrate_buildings(buildings_gpkg, variant_dir, out_dir, log)
+            total += n
 
         elapsed = time.time() - t0
         log.info("")
-        log.info("══════════════════════════════════════════════════════════")
-        log.info("Step 9 klart — %d filer skapade  %.1f min (%.0fs)", n, elapsed / 60, elapsed)
-        log.info("══════════════════════════════════════════════════════════")
+        log.info("═" * 58)
+        log.info("Steg 9 klart — %d filer skapade  %.1f min (%.0fs)", total, elapsed / 60, elapsed)
+        log.info("═" * 58)
 
     finally:
-        import shutil
         shutil.rmtree(tmp_dir)

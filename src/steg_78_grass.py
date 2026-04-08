@@ -25,12 +25,14 @@ from datetime import datetime
 from pathlib import Path
 
 from config import (
-    OUT_BASE,
+    OUT_BASE, SRC, TILE_SIZE,
     MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS, MORPH_ONLY,
+    SIMPLIFY_BACKEND,
     GRASS_SIMPLIFY_METHOD,
     GRASS_CHAIKEN_THRESHOLD, GRASS_DOUGLAS_THRESHOLD,
     GRASS_SLIDING_ITERATIONS, GRASS_SLIDING_THRESHOLD, GRASS_SLIDING_SLIDE,
     GRASS_VECTOR_MEMORY, GRASS_OMP_THREADS,
+    GRASS_CHUNK_TILE_ROWS, GRASS_CHUNK_OVERLAP,
 )
 
 
@@ -94,6 +96,7 @@ def _run_grass_78(
     douglas_threshold: float,
     chaiken_threshold: float,
     log,
+    checkpoint_prefix: str = None,
 ):
     """
     Kör r.external x N → r.patch → r.to.vect → v.generalize → v.out.ogr
@@ -111,8 +114,11 @@ def _run_grass_78(
         log.error(f"[{variant_name}] inga TIF-filer hittades")
         return False
 
-    # Checkpoint: raw polygon GPKG sparas bredvid output_gpkg
-    raw_vect_gpkg = output_gpkg.with_name(f"{variant_name}_raw_vect.gpkg")
+    # Checkpoint: raw polygon GPKG sparas bredvid output_gpkg.
+    # checkpoint_prefix styr filnamnet — i chunked mode ges ett unikt prefix per
+    # chunk så att varje session har sin egen checkpoint.
+    _cp_prefix = checkpoint_prefix if checkpoint_prefix else variant_name
+    raw_vect_gpkg = output_gpkg.with_name(f"{_cp_prefix}_raw_vect.gpkg")
     have_checkpoint = raw_vect_gpkg.exists()
 
     if have_checkpoint:
@@ -380,19 +386,178 @@ if __name__ == "__main__":
             ok_count += 1
             continue
 
-        success = _run_grass_78(
-            tif_files=tifs,
-            variant_name=variant_name,
-            output_gpkg=out_gpkg,
-            method=method,
-            douglas_threshold=GRASS_DOUGLAS_THRESHOLD,
-            chaiken_threshold=GRASS_CHAIKEN_THRESHOLD,
-            log=log,
-        )
-        if success:
+        # ── Chunked GRASS-körning med halo (som steg 6) ───────────────────
+        # Om GRASS_CHUNK_TILE_ROWS > 0:
+        #   1. Dela tile-raderna i chunks om GRASS_CHUNK_TILE_ROWS rader.
+        #   2. Ge varje chunk GRASS_CHUNK_OVERLAP extra halo-rader ovanför/nedanför.
+        #   3. Kör GRASS på chunk+halo → chunk_raw.gpkg.
+        #   4. Klipp med ogr2ogr -clipsrc till de ägda radernas exakta bbox
+        #      → chunk_clip.gpkg. Polygoner vid sömmen ser full kontext → inga
+        #      topologiska artefakter längs chunksömmen.
+        #   5. Slå ihop alla klippta chunks till slutfilen.
+        # Om GRASS_CHUNK_TILE_ROWS == 0: kör alla TIF:er i en enda session.
+        if GRASS_CHUNK_TILE_ROWS > 0:
+            import re as _re
+            import json as _json
+
+            # Geotransform från källrastret för exakta Y-koordinater
+            _gi = subprocess.run(
+                ["gdalinfo", "-json", str(SRC)],
+                capture_output=True, text=True
+            )
+            _gt = _json.loads(_gi.stdout)["geoTransform"]
+            _y_origin = _gt[3]
+            _px_h     = abs(_gt[5])
+            _tile_h   = TILE_SIZE * _px_h   # m per tile-rad
+
+            # Extrahera rad- och kolumnnummer ur filnamn (tile_r043_c016_...)
+            def _row_of(p):
+                m = _re.search(r'_r(\d+)_', p.name)
+                return int(m.group(1)) if m else 0
+
+            def _col_of(p):
+                m = _re.search(r'_c(\d+)[_.]', p.name)
+                return int(m.group(1)) if m else 0
+
+            all_tile_rows = sorted(set(_row_of(t) for t in tifs))
+            all_tile_cols = sorted(set(_col_of(t) for t in tifs))
+            n_rows = len(all_tile_rows)
+
+            # X-extent täcker alla kolumner (klippning sker bara i Y)
+            _px_w = _gt[1]
+            _tile_w = TILE_SIZE * _px_w
+            x_min = _gt[0] + all_tile_cols[0]  * _tile_w
+            x_max = _gt[0] + (all_tile_cols[-1] + 1) * _tile_w
+
+            # Bygg chunks med överlapp
+            chunk_owned = [
+                all_tile_rows[i : i + GRASS_CHUNK_TILE_ROWS]
+                for i in range(0, n_rows, GRASS_CHUNK_TILE_ROWS)
+            ]
+            log.info("  Chunked GRASS m. halo: %d tile-rader → %d chunk(s) "
+                     "à max %d rader, halo ±%d rader",
+                     n_rows, len(chunk_owned), GRASS_CHUNK_TILE_ROWS, GRASS_CHUNK_OVERLAP)
+
+            chunk_clip_gpkgs = []
+            all_ok = True
+            for ci, owned_rows in enumerate(chunk_owned):
+                chunk_label = f"{variant_name}_chunk{ci:03d}"
+                chunk_raw_gpkg  = output_dir / f"{chunk_label}_{sfx}_raw.gpkg"
+                chunk_clip_gpkg = output_dir / f"{chunk_label}_{sfx}.gpkg"
+
+                if chunk_clip_gpkg.exists():
+                    log.info("  Chunk %d/%d: hoppar över — klippt GPKG finns",
+                             ci + 1, len(chunk_owned))
+                    chunk_clip_gpkgs.append(chunk_clip_gpkg)
+                    continue
+
+                # Bygg halo: owned_rows ± GRASS_CHUNK_OVERLAP rader
+                first_idx = all_tile_rows.index(owned_rows[0])
+                last_idx  = all_tile_rows.index(owned_rows[-1])
+                ov_start  = max(0, first_idx - GRASS_CHUNK_OVERLAP)
+                ov_end    = min(n_rows - 1, last_idx + GRASS_CHUNK_OVERLAP)
+                halo_row_set = set(all_tile_rows[ov_start : ov_end + 1])
+                chunk_tifs   = [t for t in tifs if _row_of(t) in halo_row_set]
+
+                log.info("  Chunk %d/%d: ägda rader %d–%d, halo %d–%d (%d TIF:er)",
+                         ci + 1, len(chunk_owned),
+                         owned_rows[0], owned_rows[-1],
+                         all_tile_rows[ov_start], all_tile_rows[ov_end],
+                         len(chunk_tifs))
+
+                # Kör GRASS på chunk+halo
+                if not chunk_raw_gpkg.exists():
+                    ok = _run_grass_78(
+                        tif_files=chunk_tifs,
+                        variant_name=variant_name,
+                        output_gpkg=chunk_raw_gpkg,
+                        method=method,
+                        douglas_threshold=GRASS_DOUGLAS_THRESHOLD,
+                        chaiken_threshold=GRASS_CHAIKEN_THRESHOLD,
+                        log=log,
+                        checkpoint_prefix=chunk_label,
+                    )
+                    if not ok:
+                        log.error("  Chunk %d/%d GRASS misslyckades", ci + 1, len(chunk_owned))
+                        all_ok = False
+                        break
+
+                # Klipp tillbaka till ägda raders exakta Y-bbox
+                owned_y_max = _y_origin - owned_rows[0]       * _tile_h
+                owned_y_min = _y_origin - (owned_rows[-1] + 1) * _tile_h
+                clip_wkt = (
+                    f"POLYGON(({x_min} {owned_y_min},"
+                    f"{x_max} {owned_y_min},"
+                    f"{x_max} {owned_y_max},"
+                    f"{x_min} {owned_y_max},"
+                    f"{x_min} {owned_y_min}))"
+                )
+                r_clip = subprocess.run([
+                    "ogr2ogr", "-f", "GPKG",
+                    "-clipsrc", clip_wkt,
+                    "-nln", variant_name,
+                    str(chunk_clip_gpkg), str(chunk_raw_gpkg)
+                ], capture_output=True, text=True)
+
+                chunk_raw_gpkg.unlink(missing_ok=True)  # råfilen behövs inte mer
+
+                if r_clip.returncode != 0 or not chunk_clip_gpkg.exists():
+                    log.error("  Chunk %d/%d: klippning misslyckades: %s",
+                              ci + 1, len(chunk_owned), r_clip.stderr[:200])
+                    all_ok = False
+                    break
+
+                chunk_clip_gpkgs.append(chunk_clip_gpkg)
+
+            if not all_ok or not chunk_clip_gpkgs:
+                log.error("Misslyckades (chunked+halo) för variant: %s", variant_name)
+                continue
+
+            # Slå ihop alla klippta chunks till slutfilen
+            log.info("  Slår ihop %d klippta chunk(s) → %s ...",
+                     len(chunk_clip_gpkgs), out_gpkg.name)
+            merge_ok = True
+            for i, cgpkg in enumerate(chunk_clip_gpkgs):
+                cmd = ["ogr2ogr", "-f", "GPKG",
+                       "-nln", variant_name,
+                       str(out_gpkg), str(cgpkg)]
+                if i > 0:
+                    cmd.insert(3, "-append")
+                r = subprocess.run(cmd, capture_output=True, text=True)
+                if r.returncode != 0:
+                    log.error("  Merge chunk %d misslyckades: %s", i, r.stderr[:200])
+                    merge_ok = False
+                    break
+
+            if not merge_ok:
+                out_gpkg.unlink(missing_ok=True)
+                log.error("Misslyckades (merge) för variant: %s", variant_name)
+                continue
+
+            # Städa bort temporära klippta chunks
+            for cgpkg in chunk_clip_gpkgs:
+                cgpkg.unlink(missing_ok=True)
+
+            sz = out_gpkg.stat().st_size / 1024**2
+            log.info("  ✓ %s (%.1f MB, %d chunks)",
+                     out_gpkg.name, sz, len(chunk_clip_gpkgs))
             ok_count += 1
+
         else:
-            log.error("Misslyckades för variant: %s", variant_name)
+            # ── En enda GRASS-session (originalbet.ende) ───────────────────
+            success = _run_grass_78(
+                tif_files=tifs,
+                variant_name=variant_name,
+                output_gpkg=out_gpkg,
+                method=method,
+                douglas_threshold=GRASS_DOUGLAS_THRESHOLD,
+                chaiken_threshold=GRASS_CHAIKEN_THRESHOLD,
+                log=log,
+            )
+            if success:
+                ok_count += 1
+            else:
+                log.error("Misslyckades för variant: %s", variant_name)
 
     elapsed_total = time.time() - t_start
     log.info("")

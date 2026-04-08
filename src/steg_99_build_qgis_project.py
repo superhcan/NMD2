@@ -227,7 +227,9 @@ def build_qgis_project():
     # step_dir=None för steg 99 (detta steg producerar inga datalager).
     steps = [
         (99, "Step 99 - QGIS project", None),
-        (10, "Step 10 - Overlaid external", OUT_BASE / "steg_10_overlay_external"),
+        (12, "Step 12 - Clipped to footprint", OUT_BASE / "steg_12_clip_to_footprint"),
+        (11, "Step 11 - Overlaid external", OUT_BASE / "steg_11_overlay_external"),
+        (10, "Step 10 - Merged", OUT_BASE / "steg_10_merge"),
         (9, "Step 9 - Overlaid buildings", OUT_BASE / "steg_9_overlay_buildings"),
         (8, "Step 8 - Simplified", OUT_BASE / "steg_8_simplify"),
         (7, "Step 7 - Vectorized", OUT_BASE / "steg_7_vectorize"),
@@ -458,116 +460,57 @@ def build_qgis_project():
 
                 log.info(f"  {method.upper():45s} ({sum(len(v) for v in settings.values())} lager)\n")
 
-        # Speciell hantering för Steg 8 - metod → variant → tolerance → lager
-        # Hanterar både Mapshaper-format (conn4_mmu008_simplified_p25)
-        # och GRASS-format     (conn4_morph_disk_r02_dp10)
-        elif step_num == 8:
+        # Steg 11 - Overlaid external: ett GPKG per variant direkt i katalogen
+        elif step_num == 11:
             layer_files = sorted(step_dir.glob("*.gpkg"))
             if not layer_files:
                 log.warning(f"{step_name:40s} - inga filer hittade")
                 continue
-
-            known_methods = ["conn4", "conn8", "majority", "semantic"]
-
-            import re as _re8
-
-            def _parse_steg8(stem):
-                """
-                Mapshaper: conn4_mmu008_simplified_p25 → (method, setting_label, tolerance)
-                GRASS:     conn4_morph_disk_r02_dp10   → (method, setting_label, tolerance)
-                """
-                # Mapshaper-format: innehåller '_simplified_'
-                if "_simplified_" in stem:
-                    parts = stem.split("_simplified_")
-                    if len(parts) == 2:
-                        variant, tolerance = parts[0], parts[1]
-                        for m in known_methods:
-                            if variant.startswith(m + "_"):
-                                rest = variant[len(m) + 1:]
-                                if rest.startswith("mmu"):
-                                    return m, f"MMU {rest[3:]}px", tolerance
-                                elif rest.startswith("k"):
-                                    return m, f"Kernel radius k={rest[1:]}", tolerance
-                # GRASS-format: suffix = dp{N} | chaiken_t{N} | dp{N}_chaiken_t{N} | sliding_i{N}_s{N} | dp{N}_sliding_i{N}_s{N}
-                sfx_m = _re8.search(r'_(dp\d+(?:_chaiken_t\d+|_sliding_i\d+(?:_s\d+)?)?|chaiken_t\d+|sliding_i\d+(?:_s\d+)?)$', stem)
-                if sfx_m:
-                    sfx = sfx_m.group(1)
-                    before = stem[:sfx_m.start()]
-                    for m in known_methods:
-                        if before == m:
-                            return m, "(no morph)", sfx
-                        if before.startswith(m + "_"):
-                            return m, before[len(m) + 1:], sfx
-                return None, None, None
-
-            # Tillåtna Mapshaper-toleranser; GRASS-suffix (dp*, chaiken_t*) alltid tillåtna
-            allowed_tolerances = {f"p{t}" for t in SIMPLIFICATION_TOLERANCES}
-
-            # Bygg metod → setting_label → tolerance → [filer]
-            methods_dict = {}
             for lf in layer_files:
-                method, setting_label, tolerance = _parse_steg8(lf.stem)
-                if method is None:
-                    log.debug(f"Hoppar {lf.name} - okänt namnformat")
+                try:
+                    layer = QgsVectorLayer(str(lf), lf.stem, "ogr")
+                    if not layer.isValid():
+                        log.warning(f"  ✗ {lf.stem} (ej giltig)")
+                        continue
+                    _apply_no_fill(layer)
+                    project.addMapLayer(layer, addToLegend=False)
+                    tree_layer = QgsLayerTreeLayer(layer)
+                    tree_layer.setExpanded(False)
+                    group.addChildNode(tree_layer)
+                    log.info(f"  ✓ {lf.stem}  ({lf.stat().st_size/1024**2:.0f} MB)")
+                    total_layers += 1
+                except Exception as e:
+                    log.warning(f"  ✗ {lf.stem} ({e})")
+
+        # Steg 8 - Simplified: variant-subkataloger med strip_NNN.gpkg
+        elif step_num == 8:
+            variant_dirs = sorted(d for d in step_dir.iterdir() if d.is_dir())
+            if not variant_dirs:
+                log.warning(f"{step_name:40s} - inga variantkataloger")
+                continue
+            for vd in variant_dirs:
+                strips = sorted(vd.glob("strip_???.gpkg"))
+                if not strips:
                     continue
-                is_grass_sfx = bool(_re8.match(r'dp\d+|chaiken_t\d+', tolerance))
-                if not is_grass_sfx and tolerance not in allowed_tolerances:
-                    log.debug(f"Hoppar {lf.name} - tolerans {tolerance} ej i SIMPLIFICATION_TOLERANCES")
-                    continue
-                methods_dict \
-                    .setdefault(method, {}) \
-                    .setdefault(setting_label, {}) \
-                    .setdefault(tolerance, []) \
-                    .append(lf)
-
-            for method in [m for m in known_methods if m in methods_dict]:
-                method_group = QgsLayerTreeGroup(f"Simplified ({method.upper()})")
-                method_group.setExpanded(False)
-                group.addChildNode(method_group)
-
-                settings = methods_dict[method]
-                def _sort_setting8(lbl):
-                    """Sorteringsnyckel för steg 8-settings: MMU fallande, sedan kernel fallande,
-                    sedan övriga (GRASS morph-varianter) alfabetiskt.
-                    """
-                    if "MMU" in lbl:
-                        return (0, -int(lbl.split()[1].replace("px", "")))
-                    if "k=" in lbl:
-                        return (1, -int(lbl.split("k=")[-1]))
-                    return (2, lbl)
-
-                mapshaper_tol_order = ["p90", "p75", "p50", "p25", "p15"]
-
-                for setting_label in sorted(settings.keys(), key=_sort_setting8):
-                    setting_group = QgsLayerTreeGroup(setting_label)
-                    setting_group.setExpanded(False)
-                    method_group.addChildNode(setting_group)
-
-                    tols = settings[setting_label]
-                    # Mapshaper: fast ordning; GRASS: alla nyckel i sorterad ordning
-                    ordered = [t for t in mapshaper_tol_order if t in tols] + \
-                              sorted(t for t in tols if t not in mapshaper_tol_order)
-                    for tolerance in ordered:
-                        tol_group = QgsLayerTreeGroup(tolerance)
-                        tol_group.setExpanded(False)
-                        setting_group.addChildNode(tol_group)
-                        for lf in tols[tolerance]:
-                            try:
-                                layer = QgsVectorLayer(str(lf), lf.stem, "ogr")
-                                if not layer.isValid():
-                                    log.debug(f" {lf.stem:45s} (ej giltig)")
-                                    continue
-                                _apply_no_fill(layer)
-                                project.addMapLayer(layer, addToLegend=False)
-                                tree_layer = QgsLayerTreeLayer(layer)
-                                tree_layer.setExpanded(False)
-                                tol_group.addChildNode(tree_layer)
-                                log.info(f" {lf.stem:45s}")
-                                total_layers += 1
-                            except Exception as e:
-                                log.warning(f" {lf.stem:45s} ({e})")
-
-                log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
+                variant_group = QgsLayerTreeGroup(f"Simplified ({vd.name.upper()})")
+                variant_group.setExpanded(False)
+                group.addChildNode(variant_group)
+                for lf in strips:
+                    try:
+                        layer = QgsVectorLayer(str(lf), lf.stem, "ogr")
+                        if not layer.isValid():
+                            log.debug(f"  ✗ {lf.stem} (ej giltig)")
+                            continue
+                        _apply_no_fill(layer)
+                        project.addMapLayer(layer, addToLegend=False)
+                        tree_layer = QgsLayerTreeLayer(layer)
+                        tree_layer.setExpanded(False)
+                        variant_group.addChildNode(tree_layer)
+                        log.info(f"  ✓ {vd.name}/{lf.name}")
+                        total_layers += 1
+                    except Exception as e:
+                        log.warning(f"  ✗ {lf.stem} ({e})")
+                log.info(f"  {step_name} {vd.name}: {len(strips)} strips\n")
 
         # Step 9 - With buildings: samma namnformat som steg 8
         # Hanterar Mapshaper (conn4_mmu008_simplified_p25) och GRASS (conn4_morph_disk_r02_dp10)
@@ -680,99 +623,27 @@ def build_qgis_project():
 
                 log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
 
-        # Step 10 - Overlaid external: samma namnformat som steg 8/9
+        # Steg 10 - Merged: ett GPKG per variant direkt i katalogen
         elif step_num == 10:
             layer_files = sorted(step_dir.glob("*.gpkg"))
             if not layer_files:
                 log.warning(f"{step_name:40s} - inga filer hittade")
                 continue
-
-            known_methods = ["conn4", "conn8", "majority", "semantic"]
-            import re as _re10
-
-            def _parse_steg10(stem):
-                if "_simplified_" in stem:
-                    parts = stem.split("_simplified_")
-                    if len(parts) == 2:
-                        variant, tolerance = parts[0], parts[1]
-                        for m in known_methods:
-                            if variant.startswith(m + "_"):
-                                rest = variant[len(m) + 1:]
-                                if rest.startswith("mmu"):
-                                    return m, f"MMU {rest[3:]}px", tolerance
-                                elif rest.startswith("k"):
-                                    return m, f"Kernel radius k={rest[1:]}", tolerance
-                sfx_m = _re10.search(r'_(dp\d+(?:_chaiken_t\d+|_sliding_i\d+(?:_s\d+)?)?|chaiken_t\d+|sliding_i\d+(?:_s\d+)?)$', stem)
-                if sfx_m:
-                    sfx = sfx_m.group(1)
-                    before = stem[:sfx_m.start()]
-                    for m in known_methods:
-                        if before == m:
-                            return m, "(no morph)", sfx
-                        if before.startswith(m + "_"):
-                            return m, before[len(m) + 1:], sfx
-                return None, None, None
-
-            allowed_tolerances = {f"p{t}" for t in SIMPLIFICATION_TOLERANCES}
-            methods_dict = {}
             for lf in layer_files:
-                method, setting_label, tolerance = _parse_steg10(lf.stem)
-                if method is None:
-                    log.debug(f"Hoppar {lf.name} - okänt namnformat")
-                    continue
-                is_grass_sfx = bool(_re10.match(r'dp\d+|chaiken_t\d+', tolerance))
-                if not is_grass_sfx and tolerance not in allowed_tolerances:
-                    continue
-                methods_dict \
-                    .setdefault(method, {}) \
-                    .setdefault(setting_label, {}) \
-                    .setdefault(tolerance, []) \
-                    .append(lf)
-
-            for method in [m for m in known_methods if m in methods_dict]:
-                method_group = QgsLayerTreeGroup(f"With external ({method.upper()})")
-                method_group.setExpanded(False)
-                group.addChildNode(method_group)
-
-                settings = methods_dict[method]
-                def _sort_setting10(lbl):
-                    if "MMU" in lbl:
-                        return (0, -int(lbl.split()[1].replace("px", "")))
-                    if "k=" in lbl:
-                        return (1, -int(lbl.split("k=")[-1]))
-                    return (2, lbl)
-
-                mapshaper_tol_order = ["p90", "p75", "p50", "p25", "p15"]
-
-                for setting_label in sorted(settings.keys(), key=_sort_setting10):
-                    setting_group = QgsLayerTreeGroup(setting_label)
-                    setting_group.setExpanded(False)
-                    method_group.addChildNode(setting_group)
-
-                    tols = settings[setting_label]
-                    ordered = [t for t in mapshaper_tol_order if t in tols] + \
-                              sorted(t for t in tols if t not in mapshaper_tol_order)
-                    for tolerance in ordered:
-                        tol_group = QgsLayerTreeGroup(tolerance)
-                        tol_group.setExpanded(False)
-                        setting_group.addChildNode(tol_group)
-                        for lf in tols[tolerance]:
-                            try:
-                                layer = QgsVectorLayer(str(lf), lf.stem, "ogr")
-                                if not layer.isValid():
-                                    log.debug(f" {lf.stem:45s} (ej giltig)")
-                                    continue
-                                _apply_no_fill(layer)
-                                project.addMapLayer(layer, addToLegend=False)
-                                tree_layer = QgsLayerTreeLayer(layer)
-                                tree_layer.setExpanded(False)
-                                tol_group.addChildNode(tree_layer)
-                                log.info(f" {lf.stem:45s}")
-                                total_layers += 1
-                            except Exception as e:
-                                log.warning(f" {lf.stem:45s} ({e})")
-
-                log.info(f"  {method.upper():45s} ({sum(len(v) for vv in settings.values() for v in vv.values())} lager)\n")
+                try:
+                    layer = QgsVectorLayer(str(lf), lf.stem, "ogr")
+                    if not layer.isValid():
+                        log.warning(f"  ✗ {lf.stem} (ej giltig)")
+                        continue
+                    _apply_no_fill(layer)
+                    project.addMapLayer(layer, addToLegend=False)
+                    tree_layer = QgsLayerTreeLayer(layer)
+                    tree_layer.setExpanded(False)
+                    group.addChildNode(tree_layer)
+                    log.info(f"  ✓ {lf.stem}  ({lf.stat().st_size/1024**2:.0f} MB)")
+                    total_layers += 1
+                except Exception as e:
+                    log.warning(f"  ✗ {lf.stem} ({e})")
 
         else:
             # Standard-hantering för steg 0-5: bygg en VRT-mosaik av alla tiles
