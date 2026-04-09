@@ -45,7 +45,10 @@ from config import (OUT_BASE, OVERLAY_EXTERNAL_PATH, OVERLAY_EXTERNAL_CLASS,
 
 LN = "markslag"
 # Buffer på markpolygoner inför difference: tätar generaliseringsluckor mot vattengränser
-_LAND_BUFFER_M = 0.5
+# OBS: Steg 6b (expand_water) hanterar redan mikrogapen med EXPAND_WATER_PX px inåt i vatten,
+# och GRASS_SNAP_TOLERANCE=0.5m snappar topologin. En positiv buffer här expanderar marken
+# även MOT grannlandpolygoner → 0.5m överlapp → dubbla konturer längs mark-mark-gränser.
+_LAND_BUFFER_M = 0
 # Antal zoner (geografiska Y-band) — fler zoner = mindre RAM per worker
 N_ZONES = 20
 # Antal parallella processer — begränsas av RAM (varje worker laddar ~420K vattenpolygoner)

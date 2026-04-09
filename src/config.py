@@ -25,9 +25,9 @@ QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
 # TODO: Ta bort miljövariabeln och hårdkoda OUT_BASE när pipeline är stabil och klar för produktion
-#OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/test_r43_r44_c16_c17_douglas_chaiken_v13")
+OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/test_r43_r46_c9_c12_douglas_chaiken_v01")
 #OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_test_10proc_v01")
-OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_test_100proc_steps_v01")
+#OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_test_100proc_steps_v01")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -37,7 +37,8 @@ OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_test_100proc
 TILE_SIZE        = 2048          # Huvudtile-storlek (pixlar per sida)
 # Vid 2048 px: 35 kolumner × 78 rader = 2730 tiles totalt (71273×157991 px källraster v2.1)
 #PARENT_TILES     = [(r, c) for r in range(39) for c in range(35)]  # rad 43–44 × kol 16–17 = 4 tiles
-PARENT_TILES     = [(r, c) for r in range(78) for c in range(35)]  # 100% av landet
+#PARENT_TILES     = [(r, c) for r in range(78) for c in range(35)]  # 100% av landet
+PARENT_TILES     = [(r, c) for r in range(43,46) for c in range(9,11)]  # rad 43–44 × kol 16–17 = 4 tiles
 #PARENT_TILES     = [(r, c) for r in range(43,50) for c in range(35)]  # 30 rader × 35 kol = 1050 tiles (3 chunks à 13+13+4)
 
 # Hela landet: [(r, c) for r in range(78) for c in range(35)]
@@ -354,10 +355,10 @@ GRASS_SNAP_TOLERANCE   = 0.5   # meter
 # RAM per jobb ≈ GRASS_VECTOR_MEMORY // STRIP_WORKERS (48000 // 8 = 6 000 MB).
 # OMP-trådar per jobb ≈ GRASS_OMP_THREADS // STRIP_WORKERS (22 // 8 ≈ 2).
 #
-STRIP_N         = 22     # Y-band (Sverige ~1580 km → ~72 km/band)
+STRIP_N         = 1      # Y-band — 1 = hela täckningsytan i ett enda GRASS-jobb (för testkörning)
 STRIP_OVERLAP_M = 80000  # överlapp i meter per sida — 80 km täcker de största polygonerna (Vänern ~78 km)
-STRIP_WORKERS   = 8      # parallella GRASS-jobb (54 GB / 8 ≈ 6 GB/jobb)
-STRIP_ONLY      = [8, 9, 10]  # kör bara dessa band (tom lista = alla)
+STRIP_WORKERS   = 1      # parallella GRASS-jobb — 1 för testkörning med få tiles
+STRIP_ONLY      = []     # kör bara dessa band (tom lista = alla)
 
 # FULLSWEDEN_RAW_GPKG — Valfri genväg: om en färdig hel-Sverige-GPKG finns och
 # steg 6-katalogen saknas hoppar steg 8 över r.to.vect och läser direkt från filen.
@@ -428,7 +429,7 @@ OVERLAY_EXTERNAL_CLASS = 61               # None = läs 'markslag' från extern 
 OVERLAY_EXTERNAL_SNAP  = 0.5             # meter — snap-tolerans längs difference-söm (stänger floating-point-gap)
 
 # VECTOR_MIN_AREA_M2 — Minimiarea (m²) för polygoner i steg 10-output.
-# Polygoner under denna gräns slås ihop med den granne som har längst delad kant.
+# Polygoner under denna gräns tas bort.
 # 300 m² = 0.03 ha ≈ 3 px vid 10 m upplösning.
 # 0 = inaktiverat.
 VECTOR_MIN_AREA_M2 = 300  # m²

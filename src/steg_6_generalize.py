@@ -54,7 +54,7 @@ from rasterio.windows import Window
 from scipy import ndimage
 from scipy.ndimage import uniform_filter
 
-from config import OUT_BASE, SRC, QML_RECLASSIFY, GENERALIZE_PROTECTED as PROTECTED, COMPRESS, HALO, MMU_STEPS, MMU_CLASS_MAX, KERNEL_SIZES, GENERALIZATION_METHODS, MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS, MORPH_POST_SIEVE_MMU, SEMANTIC_GROUP_DIST, BUILD_OVERVIEWS, OVERVIEW_LEVELS
+from config import OUT_BASE, SRC, QML_RECLASSIFY, GENERALIZE_PROTECTED as PROTECTED, COMPRESS, HALO, MMU_STEPS, MMU_CLASS_MAX, MMU_POWERLINE_PATH, MMU_POWERLINE_MAX, KERNEL_SIZES, GENERALIZATION_METHODS, MORPH_SMOOTH_METHOD, MORPH_SMOOTH_RADIUS, MORPH_POST_SIEVE_MMU, SEMANTIC_GROUP_DIST, BUILD_OVERVIEWS, OVERVIEW_LEVELS
 from rasterio.enums import Resampling as _Resampling
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -174,6 +174,74 @@ def build_vrt(paths: list[Path], vrt_path: Path):
     log.debug("VRT klar: %s", vrt_path.name)
 
 
+def build_powerline_mask_vrt(tile_paths: list[Path], out_dir: Path) -> Path | None:
+    """Rastrerar kraftlednings-GPKG till ett binärt mask-raster (ett TIF per tile + VRT).
+
+    Returnerar sökväg till VRT om MMU_POWERLINE_PATH är konfigurerat,
+    annars None (inaktiverat).
+
+    Masken har värde 1 under kraftledningsgator och 0 övriga pixlar.
+    Sparas i out_dir/powerline_mask/ och återanvänds om den redan finns.
+    """
+    if not MMU_POWERLINE_PATH or not Path(MMU_POWERLINE_PATH).exists():
+        return None
+    if MMU_POWERLINE_MAX is None:
+        return None
+
+    mask_dir = out_dir / "powerline_mask"
+    vrt_path = mask_dir / "powerline_mask.vrt"
+    if vrt_path.exists():
+        log.debug("Kraftlednings-mask VRT finns redan: %s", vrt_path)
+        return vrt_path
+
+    mask_dir.mkdir(parents=True, exist_ok=True)
+    log.info("Rastrerar kraftledningsgator → %s", mask_dir)
+
+    mask_paths = []
+    for tile in tile_paths:
+        out_mask = mask_dir / tile.name
+        if not out_mask.exists():
+            with rasterio.open(tile) as src:
+                meta = src.meta.copy()
+                transform = src.transform
+                width = src.width
+                height = src.height
+                crs = src.crs
+
+            meta.update(dtype="uint8", count=1, nodata=0, compress=COMPRESS)
+            result = np.zeros((height, width), dtype="uint8")
+
+            # Rastera GPKG-polygoner till tile-grid med gdal_rasterize
+            with tempfile.NamedTemporaryFile(suffix=".tif", delete=False) as f:
+                tmp_path = Path(f.name)
+            try:
+                subprocess.run([
+                    "gdal_rasterize",
+                    "-burn", "1",
+                    "-te", str(transform.c), str(transform.f + transform.e * height),
+                    str(transform.c + transform.a * width), str(transform.f),
+                    "-ts", str(width), str(height),
+                    "-ot", "Byte",
+                    "-of", "GTiff",
+                    str(MMU_POWERLINE_PATH), str(tmp_path),
+                ], capture_output=True, check=True)
+                with rasterio.open(tmp_path) as msrc:
+                    result = msrc.read(1)
+            except subprocess.CalledProcessError as e:
+                log.warning("gdal_rasterize misslyckades för %s: %s", tile.name, e.stderr.decode()[:200])
+            finally:
+                tmp_path.unlink(missing_ok=True)
+
+            with rasterio.open(out_mask, "w", **meta) as dst:
+                dst.write(result, 1)
+
+        mask_paths.append(out_mask)
+
+    build_vrt(mask_paths, vrt_path)
+    log.info("Kraftlednings-mask VRT klar: %d tiles", len(mask_paths))
+    return vrt_path
+
+
 def read_with_halo(vrt_path: Path, tile_path: Path):
     """
     Läser tile + HALO px kant från VRT.
@@ -220,7 +288,36 @@ def read_with_halo(vrt_path: Path, tile_path: Path):
     return data, tile_meta, inner_slice
 
 
-def run_sieve(data: np.ndarray, mmu: int, conn: int, extra_protected: frozenset = frozenset()) -> np.ndarray:
+def _apply_sieve(masked: np.ndarray, mmu: int, conn: int, meta_tmp: dict) -> np.ndarray:
+    """Kör gdal_sieve.py på ett förberett (maskerat) numpy-array.
+
+    Anroparen ansvarar för att sätta skyddade pixlar till NODATA_TMP i `masked`
+    och för att återinsätta originalvärdena i returresultatet.
+    Returnerar råresultatet direkt från sieve — ingen NoData-justering.
+    """
+    with tempfile.NamedTemporaryFile(suffix="_in.tif", delete=False) as f1, \
+         tempfile.NamedTemporaryFile(suffix="_out.tif", delete=False) as f2:
+        in_p = Path(f1.name)
+        out_p = Path(f2.name)
+    try:
+        with rasterio.open(in_p, "w", **meta_tmp) as dst:
+            dst.write(masked, 1)
+        flag = "-4" if conn == 4 else "-8"
+        subprocess.run(
+            ["gdal_sieve.py", "-st", str(mmu), flag, str(in_p), str(out_p)],
+            capture_output=True, check=True,
+        )
+        with rasterio.open(out_p) as src:
+            return src.read(1)
+    finally:
+        in_p.unlink(missing_ok=True)
+        out_p.unlink(missing_ok=True)
+
+
+def run_sieve(data: np.ndarray, mmu: int, conn: int,
+              extra_protected: frozenset = frozenset(),
+              powerline_mask: np.ndarray | None = None,
+              run_powerline_sieve: bool = False) -> np.ndarray:
     """Kör gdal_sieve på en numpy-array och returnerar det silade resultatet.
 
     Sieve-filtret eliminerar sammanhängande pixelgrupper (patches) som är
@@ -233,13 +330,23 @@ def run_sieve(data: np.ndarray, mmu: int, conn: int, extra_protected: frozenset 
     extra_protected — klasser från MMU_CLASS_MAX vars max_mmu understiger aktuellt mmu-steg;
                        dessa läggs till som tilfälligt skyddade för detta steg.
 
-    Flöde:
-      1. Maskera skyddade klasser → skriv temp-TIF
-      2. Anropa gdal_sieve.py via subprocess
-      3. Läs resultatet → återställ skyddade pixlar
-      4. Rensa temp-filer
+    powerline_mask — om angiven, körs kraftledningspixlar ALLTID separat från övrig
+                     mark (de exkluderas från huvud-sieve oavsett MMU-steg).
+
+    run_powerline_sieve — om True körs ett andra sieve-pass enbart på kraftlednings-
+                          pixlar (med all annan mark maskad som NoData). Sätts True
+                          när mmu <= MMU_POWERLINE_MAX. Därigenom kan kraftlednings-
+                          pixlar bara absorberas av grannar som OCKSÅ ligger under
+                          kraftledningen, inte av den omgivande skogen.
+
+    Flöde (med aktiv kraftlednings-mask):
+      1. Huvud-sieve: kraftledning + skyddade klasser → NoData; sieve för övrig mark
+      2. Om run_powerline_sieve: kraftlednings-sieve: allt utom kraftledning → NoData
+      3. Merge: kraftledningsresultat ersätter huvud-resultatet där masken är aktiv
     """
-    log.debug("run_sieve: mmu=%d conn=%d  data=%s  extra_prot=%s", mmu, conn, data.shape, extra_protected)
+    log.debug("run_sieve: mmu=%d conn=%d  data=%s  extra_prot=%s  powerline=%s  pl_sieve=%s",
+              mmu, conn, data.shape, extra_protected,
+              powerline_mask is not None and powerline_mask.any(), run_powerline_sieve)
     # Bygg en minimal meta för temp-filen (transform spelar ingen roll för sieve;
     # gdal_sieve arbetar enbart med pixelvärden och grannskap, inte geografi)
     from rasterio.transform import from_bounds
@@ -254,37 +361,38 @@ def run_sieve(data: np.ndarray, mmu: int, conn: int, extra_protected: frozenset 
     # Kombinera permanenta och stegspecifika skyddade klasser
     all_protected = list(PROTECTED | extra_protected)
     prot_mask = np.isin(data, all_protected)
-    masked    = data.copy()
-    masked[prot_mask] = NODATA_TMP   # Dölj skyddade klasser som NoData
 
-    # Skapa två namngivna temp-filer (in/ut) som inte raderas automatiskt;
-    # vi raderar dem manuellt i finally-blocket för att kunna läsa ut-filen
-    with tempfile.NamedTemporaryFile(suffix="_in.tif",  delete=False) as f1, \
-         tempfile.NamedTemporaryFile(suffix="_out.tif", delete=False) as f2:
-        in_p  = Path(f1.name)
-        out_p = Path(f2.name)
-    try:
-        # Skriv maskerad indata till temp-TIF
-        with rasterio.open(in_p, "w", **meta_tmp) as dst:
-            dst.write(masked, 1)
-        # -st = size threshold (MMU), -4/-8 = grannskapstyp (4- eller 8-grannskap)
-        flag = "-4" if conn == 4 else "-8"
-        subprocess.run(
-            ["gdal_sieve.py", "-st", str(mmu), flag, str(in_p), str(out_p)],
-            capture_output=True, check=True
-        )
-        # Läs sieve-resultatet och återställ skyddade klasser från original
-        with rasterio.open(out_p) as src:
-            sieved = src.read(1)
-        sieved[prot_mask] = data[prot_mask]   # Återinsätt vatten etc.
-        changed = int(np.sum(sieved != data))
-        log.debug("run_sieve klar: %d px ändrade (%.1f%%)",
-                  changed, changed / data.size * 100)
-        return sieved
-    finally:
-        # Rensa alltid temp-filer, även vid undantag
-        in_p.unlink(missing_ok=True)
-        out_p.unlink(missing_ok=True)
+    # --- Huvud-sieve: mark utanför kraftledningen ---
+    # Kraftledningspixlar exkluderas alltid från huvud-sieve (oavsett MMU-steg)
+    # så att de inte absorberas av den omgivande landklassen.
+    main_prot = prot_mask.copy()
+    if powerline_mask is not None and powerline_mask.shape == data.shape:
+        main_prot = main_prot | powerline_mask
+
+    masked = data.copy()
+    masked[main_prot] = NODATA_TMP   # Dölj skyddade klasser + kraftledning som NoData
+    sieved = _apply_sieve(masked, mmu, conn, meta_tmp)
+    sieved[main_prot] = data[main_prot]   # Återinsätt kraftledning + vatten etc.
+
+    # --- Separat sieve för kraftledningsmark (mmu <= MMU_POWERLINE_MAX) ---
+    # Kraftledningspixlar sievas enbart mot varandra: all annan mark maskeras
+    # som NoData, vilket förhindrar absorption av angränsande skogsklasser.
+    if run_powerline_sieve and powerline_mask is not None and powerline_mask.shape == data.shape:
+        # Skyddade klasser + pixlar utanför kraftledningen → NoData
+        pl_prot = prot_mask | ~powerline_mask
+        pl_masked = data.copy()
+        pl_masked[pl_prot] = NODATA_TMP
+        pl_sieved = _apply_sieve(pl_masked, mmu, conn, meta_tmp)
+        pl_sieved[pl_prot] = data[pl_prot]   # Återinsätt allt som inte är aktiv kraftledning
+        # Merge: kraftledningsresultatet gäller där masken är aktiv och pixeln ej
+        # är permanent skyddad (vatten/bebyggelse bör aldrig ändras).
+        pl_domain = powerline_mask & ~prot_mask
+        sieved = np.where(pl_domain, pl_sieved, sieved)
+
+    changed = int(np.sum(sieved != data))
+    log.debug("run_sieve klar: %d px ändrade (%.1f%%)",
+              changed, changed / data.size * 100)
+    return sieved
 
 
 def majority_filter_once(data: np.ndarray, kernel: int) -> np.ndarray:
@@ -417,9 +525,13 @@ def apply_morph_smooth(data: np.ndarray) -> np.ndarray:
 def _build_overviews(path: Path) -> None:
     """Bygger pyramidnivåer för en TIF-fil om BUILD_OVERVIEWS är aktiverat."""
     if BUILD_OVERVIEWS and OVERVIEW_LEVELS:
-        with rasterio.open(path, "r+") as ds:
-            ds.build_overviews(OVERVIEW_LEVELS, _Resampling.nearest)
-            ds.update_tags(ns="rio_overview", resampling="nearest")
+        try:
+            with rasterio.open(path, "r+") as ds:
+                ds.build_overviews(OVERVIEW_LEVELS, _Resampling.nearest)
+                ds.update_tags(ns="rio_overview", resampling="nearest")
+        except Exception as _ov_exc:
+            log.warning("_build_overviews: misslyckades för %s (%s) — overviews hoppas över",
+                        path.name, _ov_exc)
 
 
 def _morph_tile_worker(args):
@@ -722,6 +834,8 @@ def _sieve_tile_worker(args):
     prev_vrt, tile, out_path = Path(args[0]), Path(args[1]), Path(args[2])
     mmu, conn = args[3], args[4]
     extra_protected: frozenset = args[5]
+    powerline_vrt = Path(args[6]) if len(args) > 6 and args[6] else None
+
     # Återupptagen körning: utfil finns redan → returnera direkt utan bearbetning
     if out_path.exists():
         with rasterio.open(tile) as _src:
@@ -732,8 +846,21 @@ def _sieve_tile_worker(args):
     tile_meta.update(compress=COMPRESS)
     with rasterio.open(tile) as _src:
         orig = _src.read(1)
+
+    # Läs kraftlednings-mask om konfigurerat — alltid, oavsett MMU-steg.
+    # Vid mmu <= MMU_POWERLINE_MAX körs ett separat sieve-pass för kraftledningsmark.
+    # Vid mmu > MMU_POWERLINE_MAX är kraftledningspixlar fortfarande exkluderade från
+    # huvud-sieve (ingen separat pass) → de förblir oförändrade ("frysta").
+    pl_mask = None
+    if powerline_vrt is not None and MMU_POWERLINE_MAX is not None:
+        pl_padded, _, pl_inner = read_with_halo(powerline_vrt, tile)
+        pl_mask = pl_padded.astype(bool)
+
+    run_pl_sieve = (pl_mask is not None and MMU_POWERLINE_MAX is not None
+                    and mmu <= MMU_POWERLINE_MAX)
+
     # Kör sieve på hela det utvidgade fönstret; [inner] klipper bort halon innan skrivning
-    result  = run_sieve(padded, mmu, conn, extra_protected)[inner]
+    result  = run_sieve(padded, mmu, conn, extra_protected, pl_mask, run_pl_sieve)[inner]
     changed = int(np.sum(result != orig))
     tile_meta.update(compress=COMPRESS)
     with rasterio.open(out_path, "w", **tile_meta) as dst:
@@ -802,6 +929,12 @@ def sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int):
     if not prev_vrt.exists():
         build_vrt(filled_paths, prev_vrt)
 
+    # Bygg kraftlednings-mask VRT (om konfigurerat) — en gång per variant
+    powerline_vrt = build_powerline_mask_vrt(tile_paths, out_dir)
+    if powerline_vrt:
+        info.info("Kraftlednings-mask aktiv: MMU_POWERLINE_MAX=%d px  (%s)",
+                  MMU_POWERLINE_MAX, powerline_vrt.name)
+
     info.info("Steg 6 Sieve-%s: %d MMU-steg x %d tiles (halo=%dpx)",
               label, len(MMU_STEPS), len(tile_paths), HALO)
 
@@ -814,10 +947,12 @@ def sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int):
         log.debug("%s mmu=%d: startar  extra_prot=%s", label, mmu, extra_protected)
 
         # Bygg argument-tupler; argument måste vara primitiva typer för pickle (multiprocessing)
+        # powerline_vrt skickas med som str (None → "") — workern ignorerar om tom
+        pl_vrt_str = str(powerline_vrt) if powerline_vrt else ""
         task_args = [
             (str(prev_vrt), str(tile),
              str(out_dir / f"{tile.stem}_{label}_mmu{mmu:03d}.tif"),
-             mmu, conn, extra_protected)
+             mmu, conn, extra_protected, pl_vrt_str)
             for tile in tile_paths
         ]
         with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
@@ -831,8 +966,15 @@ def sieve_halo(tile_paths: list[Path], filled_paths: list[Path], conn: int):
         prev_vrt = step_vrt
         elapsed  = time.time() - t0
         extra_str = f"  (skyddar {sorted(extra_protected)})" if extra_protected else ""
-        info.info("  %-10s mmu=%3dpx  totalt %9d px ändrade  %.1fs%s",
-                  label, mmu, total_changed, elapsed, extra_str)
+        if powerline_vrt and MMU_POWERLINE_MAX is not None:
+            if mmu <= MMU_POWERLINE_MAX:
+                pl_str = f"  (kraftledning sievas separat, steg {mmu}<={MMU_POWERLINE_MAX})"
+            else:
+                pl_str = f"  (kraftledning fryst, steg {mmu}>{MMU_POWERLINE_MAX})"
+        else:
+            pl_str = ""
+        info.info("  %-10s mmu=%3dpx  totalt %9d px ändrade  %.1fs%s%s",
+                  label, mmu, total_changed, elapsed, extra_str, pl_str)
 
     # Rensa intermediära TIF-filer (lägre MMU-steg) — behåll bara det slutliga steget.
     # VRT-filerna som pekade på mellanresultaten raderas också.
