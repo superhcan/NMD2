@@ -25,9 +25,10 @@ QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 
 # Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
 # TODO: Ta bort miljövariabeln och hårdkoda OUT_BASE när pipeline är stabil och klar för produktion
-OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/test_r43_r46_c9_c12_douglas_chaiken_v01")
+#OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/test_r43_r46_c9_c12_douglas_chaiken_v01")
 #OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_test_10proc_v01")
 #OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_test_100proc_steps_v01")
+OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_100proc_v02")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -38,7 +39,7 @@ TILE_SIZE        = 2048          # Huvudtile-storlek (pixlar per sida)
 # Vid 2048 px: 35 kolumner × 78 rader = 2730 tiles totalt (71273×157991 px källraster v2.1)
 #PARENT_TILES     = [(r, c) for r in range(39) for c in range(35)]  # rad 43–44 × kol 16–17 = 4 tiles
 #PARENT_TILES     = [(r, c) for r in range(78) for c in range(35)]  # 100% av landet
-PARENT_TILES     = [(r, c) for r in range(43,46) for c in range(9,11)]  # rad 43–44 × kol 16–17 = 4 tiles
+PARENT_TILES     = [(r, c) for r in range(78) for c in range(35)]  # 100% av landet
 #PARENT_TILES     = [(r, c) for r in range(43,50) for c in range(35)]  # 30 rader × 35 kol = 1050 tiles (3 chunks à 13+13+4)
 
 # Hela landet: [(r, c) for r in range(78) for c in range(35)]
@@ -355,9 +356,9 @@ GRASS_SNAP_TOLERANCE   = 0.5   # meter
 # RAM per jobb ≈ GRASS_VECTOR_MEMORY // STRIP_WORKERS (48000 // 8 = 6 000 MB).
 # OMP-trådar per jobb ≈ GRASS_OMP_THREADS // STRIP_WORKERS (22 // 8 ≈ 2).
 #
-STRIP_N         = 1      # Y-band — 1 = hela täckningsytan i ett enda GRASS-jobb (för testkörning)
+STRIP_N         = 20     # Y-band — 1 = hela täckningsytan i ett enda GRASS-jobb (för testkörning)
 STRIP_OVERLAP_M = 80000  # överlapp i meter per sida — 80 km täcker de största polygonerna (Vänern ~78 km)
-STRIP_WORKERS   = 1      # parallella GRASS-jobb — 1 för testkörning med få tiles
+STRIP_WORKERS   = 8      # parallella GRASS-jobb — 1 för testkörning med få tiles
 STRIP_ONLY      = []     # kör bara dessa band (tom lista = alla)
 
 # FULLSWEDEN_RAW_GPKG — Valfri genväg: om en färdig hel-Sverige-GPKG finns och
