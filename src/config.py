@@ -107,9 +107,9 @@ CLASS_REMAP = {
     228: 22,   # Övrig öppen våtmark → 22 (Öppen våtmark ej på myr)
     
     # Fjällskogar — sammanför fastmark och våtmark
-    23: 103,   # Låg fjällskog på våtmark → 103
-    43: 103,   # Låg fjällskog på fastmark → 103
-    230: 103,  # Låg fjällskog på övrig våtmark → 103
+    23: 109,   # Låg fjällskog på våtmark → 109
+    43: 109,   # Låg fjällskog på fastmark → 109
+    230: 109,  # Låg fjällskog på övrig våtmark → 109
     
     # Åkermark
     3: 3,      # Åkermark → 3 (ingen förändring)
