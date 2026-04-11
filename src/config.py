@@ -28,7 +28,7 @@ QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
 #OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/test_r43_r46_c9_c12_douglas_chaiken_v01")
 #OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_test_10proc_v01")
 #OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_test_100proc_steps_v01")
-OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_100proc_v02")
+OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_100proc_v03")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -358,7 +358,7 @@ GRASS_SNAP_TOLERANCE   = 0.5   # meter
 #
 STRIP_N         = 20     # Y-band — 1 = hela täckningsytan i ett enda GRASS-jobb (för testkörning)
 STRIP_OVERLAP_M = 80000  # överlapp i meter per sida — 80 km täcker de största polygonerna (Vänern ~78 km)
-STRIP_WORKERS   = 8      # parallella GRASS-jobb — 1 för testkörning med få tiles
+STRIP_WORKERS   = 2      # parallella GRASS-jobb — 1 för testkörning med få tiles
 STRIP_ONLY      = []     # kör bara dessa band (tom lista = alla)
 
 # FULLSWEDEN_RAW_GPKG — Valfri genväg: om en färdig hel-Sverige-GPKG finns och
@@ -420,7 +420,7 @@ EXPAND_WATER_PX      = 2            # pixlar — mark växer in så många px i 
 # OVERLAY_EXTERNAL_LAYER — Lagernamn inuti GPKG:n att läsa (None = första lagret).
 # OVERLAY_EXTERNAL_CLASS — Heltal som skrivs i 'markslag'-kolumnen för alla
 #   externa polygoner. Sätt till None för att läsa kolumnen från filen själv.
-OVERLAY_EXTERNAL_PATH  = "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/LM/hydrografi_3006_merged_polygons_all.gpkg"
+OVERLAY_EXTERNAL_PATH  = "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/LM/hydrografi_3006_merged_polygons_all_2d.gpkg"
 OVERLAY_EXTERNAL_LAYER = None  # None = första lagret, str eller lista med lagernamn ["Layer1", "Layer2"]".
 OVERLAY_EXTERNAL_CLASS = 61               # None = läs 'markslag' från extern fil
 # OVERLAY_EXTERNAL_SNAP  — Buffrar externa polygoner med detta antal meter INNAN difference.
@@ -448,16 +448,17 @@ ENABLE_STEPS = {
     0: True,    # Verifikation - tileluppdelning utan omklassificering (grunddata för steg 1)
     1: True,    # Tileluppdelning med omklassificering
     2: True,    # Extrahera skyddade klasser
-    3: True,    # Extrahera landskapsbild
-    4: False,   # Fylla små landöar < MMU_ISLAND px omringade av vatten
-    5: True,    # Ta bort (filtrera) små sjöar < 0,25 ha
-    6: True,    # Generalisering
+    3: True,    # Lös upp klasser i omgivande mark (DISSOLVE_CLASSES)
+    4: False,   # Ta bort små sjöar < 0,5 ha (steg_4_filter_lakes.py)
+    5: True,    # Fylla små landöar < MMU_ISLAND px omringade av vatten (steg_5_filter_islands.py)
+    6: True,    # Generalisering (sieve + majority + semantic)
     "6b": True, # Expand water: mark flödar EXPAND_WATER_PX px in i vattenytor
     7: False,   # Vektorisering (hoppas över — steg 8 kör r.to.vect)
-    8: True,    # Simplifiering (per strip: r.to.vect + v.generalize parallellt)
-    9: False,   # Overlay byggnader från steg 2 på steg 8
-    10: True,   # Overlay extern vektorfil (OVERLAY_EXTERNAL_PATH) på steg 9/8
-    11: True,   # Slå ihop strip-GPKGs från steg 10 till slutlig GPKG per variant
+    8: True,    # GRASS-polygonisering + förenkling per Y-band (steg_8_simplify.py)
+    9: False,   # Overlay byggnader från steg 2 på steg 8 (steg_9_overlay_buildings.py)
+    10: True,   # Sammanfoga strip-GPKGs från steg 9/8 till en GPKG per variant (steg_10_merge.py)
+    11: True,   # Overlay extern vektorfil (OVERLAY_EXTERNAL_PATH) på merged lager (steg_11_overlay_external.py)
+    12: True,   # Klipp till rastrets footprint (steg_12_clip_to_footprint.py)
     99: True,   # Bygga QGIS-projekt
 }
 
@@ -468,18 +469,20 @@ ENABLE_STEPS = {
 # Sätt False för steg du inte behöver granska i QGIS.
 #
 QGIS_INCLUDE_STEPS = {
-    0: True,   # Verifieringstiles (original, 980 rasterfiler)
-    1: True,   # Tiles med omklassificering (980 rasterfiler)
-    2: True,  # Extraherade skyddade klasser (980 rasterfiler)
-    3: True,   # Upplöst landskapsbild (980 rasterfiler)
-    4: False,   # Fyllda sjöar (980 rasterfiler)
-    5: True,   # Fyllda öar (980 rasterfiler)
-    6: True,    # Generaliserat raster (steg6_generalized_*/)
+    0: True,    # Verifieringstiles (original, 2730 rasterfiler)
+    1: True,    # Tiles med omklassificering (2730 rasterfiler)
+    2: True,    # Extraherade skyddade klasser (2730 rasterfiler)
+    3: True,    # Upplöst landskapsbild (2730 rasterfiler)
+    4: False,   # Filtrerade sjöar < 0,5 ha (2730 rasterfiler)
+    5: True,    # Fyllda landöar omringade av vatten (2730 rasterfiler)
+    6: True,    # Generaliserat raster (steg_6_generalize/)
     "6b": True, # Expand water (steg_6b_expand_water/)
-    7: False,   # Vektoriserade GeoPackage
-    8: True,    # Förenklat (Mapshaper)
-    9: False,    # Med byggnader
-    10: True,   # Med extern overlay
+    7: False,   # Vektoriserade GeoPackage (hoppas över)
+    8: True,    # Förenklat per strip (GRASS v.generalize)
+    9: False,   # Med byggnadsoverlay (steg_9_overlay_buildings/)
+    10: True,   # Sammanfogade strips — merged GPKG per variant (steg_10_merge/)
+    11: True,   # Overlay extern vektorfil — LM hydrografi (steg_11_overlay_external/)
+    12: True,   # Klippt till rastrets footprint (steg_12_clip_to_footprint/)
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
