@@ -1,196 +1,171 @@
-# NMD2 2023 Landskapsförenkling Pipeline
+# NMD2 — Generaliseringspipeline för NMD
 
-**Status:** Komplett (9 steg) ✅ | Pipeline modernisering: ~95% färdig
+Automatiserad pipeline som omklassificerar och generaliserar **Nationella Marktäckedata (NMD)** från rasterformat till ett topologiskt korrekt, generaliserat vektorlager (GeoPackage) för hela Sverige.
+
+Pipelines primära indata är NMD2018 (10 m pixelstorlek, ~52 000 × 91 800 px för fjällregionen) och slutresultatet är ett sammanhängande polygonlager utan luckor eller överlapp, kombinerad med Lantmäteriets hydrografi.
 
 ---
 
-## 🚀 Snabbstart
-
-### Ny Orchestrator-metod (Rekommenderat)
+## Snabbstart
 
 ```bash
+# 1. Aktivera Python-miljö
 cd /home/hcn/projects/NMD2
 source .venv/bin/activate
 
-# Kör alla 9 steg via orchestrator
+# 2. Kontrollera att sökvägarna i config.py pekar rätt
+#    (SRC, OUT_BASE, OVERLAY_EXTERNAL_PATH m.fl.)
+nano src/config.py
+
+# 3. Kör hela pipelinen
 python3 run_all_steps.py
 
-# Eller bara vissa steg
-python3 run_all_steps.py --step 1 4    # Bara steg 1-4
-python3 run_all_steps.py --step 6 9    # Bara steg 6-9 (generalisering-QGIS)
-python3 run_all_steps.py --list        # Visa alla steg
-```
+# 4. Kör enskilda steg (t.ex. bara steg 6, 7 och 8)
+python3 run_all_steps.py --step 6 7 8
 
-### Klassisk metod (Manuella steg)
-
-```bash
-cd /home/hcn/projects/NMD2
-source .venv/bin/activate
-
-cd src
-
-# Steg 1-4: Förberedelse
-python3 steg_1_reclassify.py
-python3 steg_2_extract_protected.py
-python3 steg_3_extract_landscape.py
-python3 steg_4_filter_lakes.py
-
-# Steg 5-9: Generalisering & QGIS
-python3 steg_5_filter_islands.py        # [VALFRITT] Fylla öar
-python3 steg_6_generalize.py
-python3 steg_7_vectorize.py
-python3 steg_8_simplify.py
-python3 steg_9_build_qgis_project.py
+# Visa alla steg och om de är aktiverade
+python3 run_all_steps.py --list
 ```
 
 ---
 
-## 📂 Projektstruktur - 9 Steg
-
-**Nya separata steg-filer (i ordning):**
-- `steg_1_reclassify.py` — Omklassificering av tiles (CLASS_REMAP via LUT)
-- `steg_2_extract_protected.py` — Extrahera skyddade klasser
-- `steg_3_extract_landscape.py` — Extrahera landskapsbild
-- `steg_4_filter_lakes.py` — Ta bort små sjöar
-- `steg_5_filter_islands.py` — Fylla små öar [VALFRITT]
-- `steg_6_generalize.py` — Generalisering (CONN4, CONN8, modal, semantic)
-- `steg_7_vectorize.py` — Vektorisering (CONN4, CONN8, MODAL)
-- `steg_8_simplify.py` — Mapshaper-förenkling (p90/p75/p50/p25/p15)
-- `steg_9_build_qgis_project.py` — Bygga QGIS-projekt med sub_groups
-
-Se [ARKITEKTUR.md](ARKITEKTUR.md) för detaljgranskning av moderniseringsstatusen.
-
----
-
-## 📋 Loggfiler
-
-Pipeline-körningar genererar loggfiler i arbetssimulatorn:
-
-- **`log/`** — Debug-loggfiler (`pipeline_debug_<YYYYMMDD_HHMMSS>.log`)
-- **`summary/`** — Sammanfattningsloggfiler (`pipeline_summary_<YYYYMMDD_HHMMSS>.log`)
-
-Dessa innehåller detaljerade körningsrapporter från den senaste pipelinekörningen.
-Filadresserna skrivs ut i konsolen när pipeline startar.
-
----
-
-## 📚 Dokumentation
-
-**Arkitektur & Planering:**
-- **[ARKITEKTUR.md](ARKITEKTUR.md)** - Pipeline-moderniseringstatus (60% färdig)
-
-**Detaljerad dokumentation i `doc/`:**
-- **[README.md](doc/README.md)** - Projekt-översikt
-- **[workflow.md](doc/workflow.md)** - Pipeline-arbetsflöde & arkitektur
-- **[STEG_7_FORENKLING_README.md](doc/STEG_7_FORENKLING_README.md)** - Förenkling process & inställningar
-- **[STEG_7_NOTES.md](doc/STEG_7_NOTES.md)** - Snabb-referens för Steg 7
-- **[MAPSHAPER_INSTALLATION_GUIDE.md](doc/MAPSHAPER_INSTALLATION_GUIDE.md)** - Mapshaper installation
-- **[MAPSHAPER_SIMPLIFY_GUIDE.md](doc/MAPSHAPER_SIMPLIFY_GUIDE.md)** - Detaljerad Mapshaper-dokumentation
-- **[INSTALL.md](doc/INSTALL.md)** - Installation av beroenden
-- **[tile_boundary_notes.md](doc/tile_boundary_notes.md)** - Tile-gränser & halo-behandling
-
----
-
-## 🧪 Experimentell Kod
-
-Experimentella & arkiverade filer ligger i `lab/`:
-
-```bash
-ls -la lab/
-```
-
-Se [lab/README.md](lab/README.md) för detaljer.
-
----
-
-## 🔵 Aktivkod (src/)
-
-**Pipeline-filer i `src/`:**
-- `pipeline_1024_halo.py` - Huvudpipeline (Steg 1-6)
-- `simplify_mapshaper.py` - Förenkling (Steg 7)
-- `split_tiles.py` - Tileluppdelning
-- `vectorize_*.py` - Vektoriseringsalternativ
-
-**Support i `src/`:**
-- `config.py` - Konfiguration
-- `logging_setup.py` - Loggning
-
-Se [src/README.md](src/README.md) för detaljer.
-
----
-
-## 📊 Dataflöde
+## Pipeline-flöde
 
 ```
-Steg 1-6: Raster → Vektorisering (20,624 polygoner, 28 MB)
-         ↓
-Steg 7:   Mapshaper förenkling (topologi-bevarad)
-         ↓
-Output:   4 nivåer (p90%, p75%, p50%, p25%)
+NMD-raster (GeoTIFF)
+        │
+        ▼
+  [0] Verifikation         Delar raster i tiles utan omklassificering
+        │
+        ▼
+  [1] Omklassificering     Applicerar CLASS_REMAP (t.ex. tall+gran på fastmark/våtmark → 101/102)
+        │
+        ▼
+  [2] Extrahera klasser    Sparar vägar (53), byggnader (51), vatten (61/62) som separat lager
+        │
+        ▼
+  [3] Dissolve             Ersätter vägar (klass 53) med omgivande mark via distance-transform
+        │
+  [4] Sjö-filter (opt.)     Tar bort sjöar < 0,5 ha och fyller med omgivande mark
+        │
+        ▼
+  [5] Ö-filter              Fyller landöar < 0,25 ha helt omringade av vatten
+        │
+        ▼
+  [6] Generalisering       Iterativ sieve (GDAL) med HALO-teknik; bevarar vatten och skyddade klasser
+        │
+        ▼
+  [7] Expand water         Mark flödar 2 px in i vattenytor; centralt vatten nollställs (skapar plats för overlay)
+        │
+        ▼
+  [8] GRASS-polygonisering Raster → vektor per Y-band; v.generalize (douglas+chaiken)
+        │
+  [9] Byggnads-overlay (opt.) Lägger byggnader från steg 2 ovanpå steg 8
+        │
+        ▼
+ [10] Merge               Slår ihop Y-band till en GPKG per variant
+        │
+        ▼
+ [11] Vatten-overlay        Klipper in Lantmäteriets hydrografi (extern GPKG) → topologiskt korrekt vatten
+        │
+        ▼
+ [12] Footprint-klippning  Klipper till rastrets täckningsyta
+        │
+        ▼
+ [13] Dataarea-klippning   Tar bort polygoner utanför rastrets giltiga pixlar
+        │
+        ▼
+  Slutlig GPKG (täckande polygonlager, utan luckor eller överlapp)
+        │
+ [99] QGIS-projekt         Bygger inspektionsbart QGIS-projekt med alla steg
 ```
 
 ---
 
-## 🛠️ Systemkrav
+## Systemberoenden
 
-- Python 3.8+
-- GDAL/OGR
-- Node.js 18 + Mapshaper
-- PostgreSQL (valfritt för PostGIS)
+| Komponent | Version | Syfte |
+|-----------|---------|-------|
+| Python | ≥ 3.10 | Pipeline-kod |
+| GDAL / OGR | ≥ 3.6 | Rasteroperationer, `gdal_sieve` |
+| GRASS GIS | ≥ 8.3 | Polygonisering och vektorförenkling (steg 8) |
+| QGIS (med Python-API) | ≥ 3.28 | Steg 99: bygga QGIS-projekt |
 
-Installation: Se [doc/INSTALL.md](doc/INSTALL.md)
+Python-paket installeras via venv (se [doc/INSTALL.md](doc/INSTALL.md)):
+
+```
+rasterio, geopandas, fiona, scipy, numpy, shapely, pyproj, pandas
+```
 
 ---
 
-## 📁 Projektstuktur
+## Datakrav
+
+Fyra externa datakällor måste finnas på disk innan körning:
+
+| Data | Variabel i config.py | Används i |
+|------|----------------------|-----------|
+| NMD-raster (GeoTIFF) | `SRC` | Steg 0–7 |
+| LM hydrografi (GPKG) | `OVERLAY_EXTERNAL_PATH` | Steg 11 |
+| Kraftledningsgator (GPKG) | `MMU_POWERLINE_PATH` | Steg 6 |
+| Footprint-polygon (GPKG) | `FOOTPRINT_GPKG` | Steg 12 |
+
+---
+
+## Dokumentation
+
+| Fil | Innehåll |
+|-----|----------|
+| [doc/INSTALL.md](doc/INSTALL.md) | Installation av beroenden och miljöinställning |
+| [doc/METOD.md](doc/METOD.md) | Metodbeskrivning — hur och varför varje steg fungerar |
+| [doc/KÖRNING.md](doc/KÖRNING.md) | Körningsinstruktioner och konfigurationsreferens |
+
+---
+
+## Katalogstruktur
 
 ```
-/home/hcn/projects/NMD2/
-├── README.md                    ← Du läser detta
-├── 🔴 src/ (12 filer - Aktivkod)
-│   ├── pipeline_1024_halo.py    (Steg 1-6 - HUVUDPIPELINE)
-│   ├── simplify_mapshaper.py    (Steg 7 - FÖRENKLING)
-│   ├── config.py                (Konfiguration)
-│   ├── logging_setup.py
-│   ├── split_tiles.py
-│   ├── vectorize_*.py
-│   └── README.md                (src/ guide)
-│
-├── 📚 doc/ (9 .md-filer - Dokumentation)
-│   ├── INDEX.md                 ← START HÄR för dokumentation
-│   ├── STEG_7_FORENKLING_README.md
-│   ├── MAPSHAPER_INSTALLATION_GUIDE.md
+NMD2/
+├── run_all_steps.py        # Master orchestrator
+├── requirements.txt        # Python-beroenden
+├── src/
+│   ├── config.py           # All konfiguration — ändra här
+│   ├── steg_0_verify_tiles.py
+│   ├── steg_1_reclassify.py
+│   ├── steg_2_extract.py
+│   ├── steg_3_dissolve.py
+│   ├── steg_4_filter_lakes.py
+│   ├── steg_5_filter_islands.py
+│   ├── steg_6_generalize.py
+│   ├── steg_7_expand_water.py
+│   ├── steg_8_simplify.py
+│   ├── steg_9_overlay_buildings.py
+│   ├── steg_10_merge.py
+│   ├── steg_11_overlay_external.py
+│   ├── steg_12_clip_to_footprint.py
+│   ├── steg_99_build_qgis_project.py
+│   └── logging_setup.py
+└── doc/
+    ├── INSTALL.md
+    ├── METOD.md
+    └── KÖRNING.md
+```
+
+Output skrivs till katalogen angiven i `OUT_BASE` (config.py), t.ex.:
+```
+/home/hcn/NMD_workspace/.../fjall_2018_v07/
+├── steg_0_verify_tiles/
+├── steg_1_reclassify/
 │   └── ...
-│
-├── 🧪 lab/ (39 .py-filer - Experimentell)
-│   ├── README.md
-│   ├── simplify_with_topojson.py (MISSLYCKAT)
-│   ├── simplify_with_arcs.py (MISSLYCKAT)
-│   └── ...
-│
-└── __pycache__/
+├── steg_6_generalize/
+│   └── conn4/
+│       └── *_mmu050.tif
+├── steg_8_simplify/
+│   └── conn4_mmu050/
+│       ├── strip_000.gpkg
+│       └── strip_001.gpkg
+├── steg_11_overlay_external/
+│   └── conn4_mmu050.gpkg
+└── steg_12_clip_to_footprint/
+    └── conn4_mmu050.gpkg   ← slutresultat
 ```
-
----
-
-## 🎯 Nästa Steg
-
-1. Inspektera förenlingsresultat i QGIS
-2. Verifiera att inga slivers finns mellan polygoner
-3. Välj lämplig förenlingsgrad för din användning
-4. Exportera till slutlig format
-
----
-
-## 📞 Hjälp
-
-Se dokumentation i `doc/`:
-- Installation: [INSTALL.md](doc/INSTALL.md)
-- Mapshaper guide: [MAPSHAPER_INSTALLATION_GUIDE.md](doc/MAPSHAPER_INSTALLATION_GUIDE.md)
-- Steg 7 detaljer: [STEG_7_FORENKLING_README.md](doc/STEG_7_FORENKLING_README.md)
-
----
-
-**Version:** 1.0  
-**Uppdaterad:** 13 mars 2026  
-**Status:** Produktionsklar (Steg 1-7)

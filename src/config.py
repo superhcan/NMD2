@@ -10,7 +10,7 @@ import os
 import numpy as np
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PATHS
+# SÖKVÄGAR
 # ══════════════════════════════════════════════════════════════════════════════
 
 #SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.tif")
@@ -20,11 +20,11 @@ SRC     = Path("/home/hcn/NMD_workspace/NMD2018_basskikt_ogeneraliserad_Sverige_
 QML_SRC = Path("/home/hcn/NMD_workspace/NMD2018_basskikt_ogeneraliserad_Sverige_v1_1/nmd2018bas_ogeneraliserad_v1_1.qml")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# QML — Style files (color palettes)
+# QML — Stilfiler (färgpaletter)
 # ══════════════════════════════════════════════════════════════════════════════
-# QML_SRC — Original source raster color palette (used as fallback if others missing)
-# QML_RECLASSIFY — Reclassified palette for steg 1 and onwards
-# Both should reside in the base layer directory for consistency
+# QML_SRC — Färgpalett för det ursprungliga källrastret (används som reserv om andra saknas)
+# QML_RECLASSIFY — Omklassificerad färgpalett, används i steg 1 och framåt
+# Båda bör ligga i basskiktskatalogen för konsistens
 
 QML_RECLASSIFY = Path("/home/hcn/NMD_workspace/NMD2018_basskikt_ogeneraliserad_Sverige_v1_1/nmd2018_reclassified.qml")
 
@@ -33,11 +33,11 @@ FOOTPRINT_GPKG  = Path("/home/hcn/NMD_workspace/NMD2018_basskikt_ogeneraliserad_
 FOOTPRINT_LAYER = "2018_mask__vectorized"
 
 #OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_100proc_v03")
-OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/fjall_2018_v07")
+OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/fjall_2018_verifiering_v01")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TILE CONFIGURATION
+# TILE-KONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
 TILE_SIZE        = 2048          # Huvudtile-storlek (pixlar per sida)
@@ -56,11 +56,10 @@ PARENT_TILES     = [(r, c) for r in range(45) for c in range(26)]  # NMD 2018 cl
 HALO             = 100           # px – kant på varje sida vid generalisering, >= max(MMU_STEPS)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CLASSIFICATION CONSTANTS
+# KLASSIFICERINGSKONSTANTER
 # ══════════════════════════════════════════════════════════════════════════════
 
 GENERALIZE_PROTECTED = {61, 62}                     # Skyddade klasser i steg 6 (generalisering): maskeras vid sieve/majority, exkluderas från areafilter.
-SIMPLIFY_PROTECTED   = set()                       # Skyddade klasser i steg 8 (Mapshaper): förenklas aldrig (sp=1.0). (51 borttagen — löses upp i steg 3)
 EXTRACT_CLASSES  = {51, 53, 61, 62}                # Klasser som extraheras separat i steg 2 (vektoriseras senare): Byggnad, Väg/järnväg, Vatten
 DISSOLVE_CLASSES      = {53}        # Klasser som ersätts med närmaste omgivande klass i steg 3 (distance-transform fill)
 DISSOLVE_EMPTY_CLASSES = {}  # Klasser som lämnas tomma (sätts till 0) i steg 3 — ersätts EJ av omgivande mark
@@ -186,7 +185,7 @@ CLASS_REMAP = {
 # INTE i NMD2018. Se CLASS_REMAP för hur dessa 2023-klasser remappas till slutkoder.
 
 # ══════════════════════════════════════════════════════════════════════════════
-# GENERALIZATION PARAMETERS
+# GENERALISERINGSPARAMETRAR
 # ══════════════════════════════════════════════════════════════════════════════
 
 MMU_ISLAND   = 25               # Minsta storlek på öar innan fyllnad (px) — 0,25 ha vid 10 m upplösning
@@ -195,6 +194,36 @@ MMU_ISLAND   = 25               # Minsta storlek på öar innan fyllnad (px) —
 # En ö fylls bara om ALLA dess grannar tillhör dessa klasser.
 # Exempel: {61, 62} = bara sjöar/vatten; {51, 52, 53, 54, 61, 62} = vatten + vägar/byggnader
 ISLAND_FILL_SURROUNDS = {61, 62}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GENERALIZATION METHODS — Vilka metoder i Steg 6 ska köras?
+# ══════════════════════════════════════════════════════════════════════════════
+# Möjliga metoder: "conn4", "conn8"
+
+#
+# ─── conn4 och conn8 (sieve-baserade metoder) ────────────────────────────────
+# Sieve-algoritm: tar bort sammanhängande pixelgrupper (patches) som är
+# mindre än MMU-värdet och ersätter dem med den dominerande grannklassen.
+#
+#   conn4 — 4-konnektivitet (upp/ned/vänster/höger)
+#     + Mer konservativ: diagonalt rörande patches anses separata
+#     + Ger skarpare och mer "rätvinkliga" gränser
+#     - Kan lämna kvar fler isolerade 1-px punkter i diagonalriktning
+#
+#   conn8 — 8-konnektivitet (alla 8 grannpixlar)
+#     + Mer aggressiv: diagonalt rörande patches slås ihop
+#     + Rensar ut "pepparkornsmönster" bättre
+#     - Kan slå ihop patches som borde vara separata (t.ex. tunna landryggar)
+#
+#   Styrs av MMU_STEPS (se ovan). Samma lista gäller för conn4 och conn8.
+#   Styrs av MMU_STEPS (samma lista som för conn4/conn8).
+#
+# Exempel:
+#   GENERALIZATION_METHODS = {"conn4", "conn8"}            # Bara sieve-metoder
+#
+
+GENERALIZATION_METHODS = {"conn4"}
+
 
 # Sieve MMU-steg för conn4 och conn8 metoder (Steg 6)
 # ═════════════════════════════════════════════════════════════════════════════
@@ -221,6 +250,7 @@ ISLAND_FILL_SURROUNDS = {61, 62}
 #   - Fler steg = längre körtid men bättre för att jämföra resultat
 #
 MMU_STEPS    = [6, 10, 12, 25, 50]
+
 
 # MMU_POWERLINE_PATH — Sökväg till GPKG med kraftledningsgator (polygoner).
 # MMU_POWERLINE_MAX  — Max MMU (px) för pixlar som ligger under en kraftledningsgata.
@@ -253,89 +283,29 @@ MMU_CLASS_MAX = {
     42:   25,   # Buskdominerad mark/Risdominerad mark/Gräsdominerad mark
 }
 
-# Kernel-storlekar för modal filter (Steg 6c)
-# ═════════════════════════════════════════════════════════════════════════════
-# k-värde för modal filter genomför "majority voting" över ett k×k pixelfönster.
-#
-# Teknisk förklaring:
-#   - Större k = större fönster = mer generalisering
-#   - Mindre k = mindre fönster = mindre generalisering
-#   - Algoritm: Ersätt pixel med vanligaste värde i k×k område
-#
-# Effekt på output:
-#   k=3:   Minimal generalisering, nästan original (små brus-borttagning)
-#   k=5:   Liten förenkling (små detaljer börjar försvinna)
-#   k=7:   Medium generalisering (märkbar förenkling visas)
-#   k=9:   Medium-stark generalisering
-#   k=11:  Stark generalisering (många små områden borta)
-#   k=13:  Mycket stark generalisering
-#   k=15:  Extrem generalisering (mycket få smådetaljer kvar)
-#
-# Filstorlek-påverkan (ca guide för steg 7 vectorizer output):
-#   k=3:    ~100% (baseline)
-#   k=5:    ~95-98%
-#   k=7:    ~90-95%
-#   k=9:    ~85-90%
-#   k=11:   ~75-85%
-#   k=13:   ~60-75%
-#   k=15:   ~50-65%
-#
-# Praktiska val:
-#   Snabb test (3 steg, ~50% snabbare):
-#     KERNEL_SIZES = [3, 7, 13]
-#
-#   Standard (6 steg, rekommenderat):
-#     KERNEL_SIZES = [3, 5, 7, 11, 13, 15]
-#
-#   Detaljerad analys (9 steg, långsamt men många värdepunkter):
-#     KERNEL_SIZES = [3, 5, 7, 9, 11, 13, 15, 17, 19]
-#
-# Tips:
-#   - Börja med k=3 eller k=5 för att behålla mestadels original detalj
-#   - ODD mängd är standard (3, 5, 7, 9, 11, ...) för symmetrisk pixel-fönstring
-#   - Större kernel = längre körtid (ungefär kvadratisk komplexitet)
-#   - Kernel måste pågå helt inom tile + HALO område
-#   - Begränsning: k≤(2*HALO+1) för att undvika edge-artefakter
-#
-KERNEL_SIZES = [3, 7]
 
-# Mapshaper Simplification Tolerances (Steg 8)
-# ═══════════════════════════════════════════════════════════════════════════════
-# Dessa värden styr hur aggressiv vertex-förenkling ska vara i Mapshaper.
-# 
-# Teknisk förklaring:
-#   - Mapshaper behåller percentage% av "removable vertices"
-#   - Högre värde (ex. p90) = behåller MER detalj = mindre förenkling
-#   - Lägre värde (ex. p15) = behåller MINDRE detalj = mer förenkling
-#
-# VIKTIGT: Dessa är INTE samma som "simplification level 90%" - det är tvärtom!
-#   p90  = behåll 90% av removable vertices → minimal förenkling
-#   p50  = behåll 50% av removable vertices → medium förenkling
-#   p15  = behåll 15% av removable vertices → aggressiv förenkling
-#
-# Praktiska effekter:
-#   p90-p75: Nästan original geometri + små förbättringar (filstorlek -10-20%)
-#   p50:     Medium kompromiss (filstorlek -40-50%)
-#   p25-p15: Starkt förenklad (filstorlek -70-80%)
-#   p5:      Extrem förenkling (filstorlek -90%+)
-#
-# Exempel:
-#   SIMPLIFICATION_TOLERANCES = [90, 50, 15]      # 3 nivåer - snabb test
-#   SIMPLIFICATION_TOLERANCES = [90, 75, 50, 25, 15]  # 5 nivåer - standard
-#   SIMPLIFICATION_TOLERANCES = [95, 85, 70, 50, 30, 10]  # 6 nivåer - detaljerad
-#
-# Tips:
-#   - Använd p90-p75 för presentationskvalitet
-#   - Använd p50 för webb-kartor
-#   - Använd p15-p5 för extrem förenkling (lätta filer)
-#   - Fler nivåer = längre körtid men bättre att jämföra resultat
-#
-SIMPLIFICATION_TOLERANCES = [25]
 
-# Förenklingsbackend för steg 8.
-# "mapshaper" — Mapshaper CLI (snabb, men kraschar på filer > ~3 GB pga Node.js string-limit)
+# ══════════════════════════════════════════════════════════════════════════════
+# STEG 7 — Utvidga mark i vattenkanter (expand water)
+# ══════════════════════════════════════════════════════════════════════════════
+# EXPAND_WATER        — Aktiverar steg 7 (expand water halo).
+# EXPAND_WATER_CLASSES — Klasser som tas bort från kanten (f.d. vattenkanter).
+#   Pixlar inom EXPAND_WATER_PX avstånd från icke-vattenpixel ersätts med
+#   närmaste omgivande klass. Inre pixlar (djupare än EXPAND_WATER_PX) behåller
+#   sin originalklass (61/62) och vektoriseras som vatten.
+# EXPAND_WATER_PX     — Max antal pixlar från strandlinjen som mark får växa in.
+#                       0 = ingen fill alls — hela vattenytan (EXPAND_WATER_CLASSES) nollställs.
+#   2 px = 20 m vid 10 m upplösning.
+# Utmapp: steg_6_generalize/{metod}_expand{N}px/  (ett TIF per tile, baserat på mmu050)
+EXPAND_WATER         = True         # True/False
+EXPAND_WATER_CLASSES = {61}         # klasser som "skalar bort" från kanten
+EXPAND_WATER_PX      = 2            # pixlar — mark växer in så många px i vattenytorna
+
+
+
+
+# Simplifiering för steg 8.
 # "grass"     — GRASS v.generalize (diskbaserad, inga storleksgränser, bevarar topologi)
-# "auto"      — Välj mapshaper om GeoJSON < 2 GB, annars grass
 SIMPLIFY_BACKEND = "grass"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -347,14 +317,7 @@ SIMPLIFY_BACKEND = "grass"
 #   "chaiken"            — Chaikin corner-cutting. Rundar pixeltrappor, lägger till punkter.
 #   "douglas+chaiken"    — Douglas städar bort kolineära punkter → Chaikin rundar hörnen.
 #   "chaiken+douglas"    — Chaikin rundar → Douglas trimmar. Ger rundade kurvor med färre punkter.
-#   "sliding_avg"        — Glider befintliga vertexar till medelposition (ITERATIONS pass).
-#                          Inga nya punkter tillkommer → filen blir inte större.
-#   "douglas+sliding_avg"— Douglas tar bort kolineära punkter → sliding_avg jämnar ut.
-#                          Bäst kombination för liten fil + jämna kanter.
 #
-# GRASS_SLIDING_ITERATIONS — Antal upprepningar av sliding_averaging.
-#   Fler iterationer = mjukare kurvor men punkterna rör sig mer från originalet.
-#   Rekommenderat: 3–10.
 #
 # GRASS_CHAIKEN_THRESHOLD — Minsta avstånd (meter) mellan punkter i Chaikin-output.
 #   Lägre värde → fler punkter, slätare kurvor, större fil.
@@ -376,10 +339,6 @@ SIMPLIFY_BACKEND = "grass"
 GRASS_SIMPLIFY_METHOD    = "douglas+chaiken"     # "douglas", "chaiken", "douglas+chaiken", "chaiken+douglas", "sliding_avg", "douglas+sliding_avg"
 GRASS_CHAIKEN_THRESHOLD  = 10.0       # meter — Chaikin min-avstånd mellan punkter
 GRASS_DOUGLAS_THRESHOLD  = 5.0        # meter — Douglas tröskel
-GRASS_SLIDING_ITERATIONS = 1          # antal pass för sliding_averaging (färre = närmare original)
-GRASS_SLIDING_THRESHOLD  = 5.0        # meter — max förflyttning per vertex per iteration
-GRASS_SLIDING_SLIDE      = 0.1        # 0.0–1.0 — rörelse per pass (lägre = mjukare, närmare original)
-GRASS_SIMPLIFY_THRESHOLD = 10.0       # meter — bakåtkompatibelt (douglas-only tolerance-loop)
 
 # GRASS_VECTOR_MEMORY — RAM som GRASS får använda för topologinätet (MB).
 # Default i GRASS är ~1000 MB. Med mycket RAM: sätt högt för att hålla hela
@@ -415,57 +374,10 @@ STRIP_ONLY      = []     # kör bara dessa band (tom lista = alla)
 # Sätt till None för att alltid köra från raster-tiles.
 FULLSWEDEN_RAW_GPKG = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/conn4_raw_vect.gpkg")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# MORFOLOGISK UTJÄMNING — Rasterbaserad kantutjämning (Steg 6, sista pass)
-# ══════════════════════════════════════════════════════════════════════════════
-#
-# MORPH_SMOOTH_METHOD — Metod för kantutjämning på raster INNAN polygonisering.
-#   "none"         — Ingen utjämning (standard)
-#   "disk_modal"   — Disk-formad majority-filter. Snabb, mjukar pixeltrappor utan
-#                    att förflytta gränser mer än ~radius pixlar.
-#   "closing"      — Binär morphologisk closing per klass. Fyller konkava notchar
-#                    längs gränser ("pixelsteg inåt"). Gränser förflyttas max R px.
-#
-# MORPH_SMOOTH_RADIUS — Radie i pixlar för strukturelementet.
-#   1 px = 10 m vid NMD:s 10 m upplösning.
-#   Rekommenderat: 2–4 px (20–40 m).
-#
-# Katalog- och lagernamn encodar metod+radie automatiskt:
-#   disk_modal r2 → undermapp: {method}_morph_disk_r02
-#   closing    r2 → undermapp: {method}_morph_close_r02
-#   Lagernamn i GPKG: markslag_morph_disk_r02 / markslag_morph_close_r02
-#
-MORPH_SMOOTH_METHOD = "none"  # "none", "disk_modal", "closing"
-MORPH_SMOOTH_RADIUS = 2        # pixlar — 1 px = 10 m
 
-# MORPH_POST_SIEVE_MMU — Kör en extra sieve-pass (conn4) efter morph-utjämningen
-# för att ta bort småfläckar som morph kan skapa längs klassgränser.
-# Värdet är tröskeln i pixlar (0 = inaktiverat).
-# 50 px = 0,5 ha vid 10 m upplösning (samma som MMU_ISLAND).
-MORPH_POST_SIEVE_MMU = 0       # px — 0 = inaktiverat
-
-# MORPH_ONLY — Om True: vektorisera/förenkla BARA morph-katalogerna i steg 7/8.
-# Bas-metoderna (conn4 etc.) körs fortfarande i steg 6 (morph bygger på dem),
-# men ingen GPKG skapas för originalet. Sparar tid och diskutrymme.
-MORPH_ONLY = False
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEG 6b — Utvidga mark i vattenkanter (expand water)
-# ══════════════════════════════════════════════════════════════════════════════
-# EXPAND_WATER        — Aktiverar steg 6b (expand water halo).
-# EXPAND_WATER_CLASSES — Klasser som tas bort från kanten (f.d. vattenkanter).
-#   Pixlar inom EXPAND_WATER_PX avstånd från icke-vattenpixel ersätts med
-#   närmaste omgivande klass. Inre pixlar (djupare än EXPAND_WATER_PX) behåller
-#   sin originalklass (61/62) och vektoriseras som vatten.
-# EXPAND_WATER_PX     — Max antal pixlar från strandlinjen som mark får växa in.
-#                       0 = ingen fill alls — hela vattenytan (EXPAND_WATER_CLASSES) nollställs.
-#   2 px = 20 m vid 10 m upplösning.
-# Utmapp: steg_6_generalize/{metod}_expand{N}px/  (ett TIF per tile, baserat på mmu050)
-EXPAND_WATER         = True         # True/False
-EXPAND_WATER_CLASSES = {61}         # klasser som "skalar bort" från kanten
-EXPAND_WATER_PX      = 2            # pixlar — mark växer in så många px i vattenytorna
-# ══════════════════════════════════════════════════════════════════════════════
-# OVERLAY_EXTERNAL — Extern vektorfil (vatten, vägar, etc.)
+# OVERLAY_EXTERNAL — Extern vektorfil (vatten, vägar, etc.) (Steg 11)
 # ══════════════════════════════════════════════════════════════════════════════
 # OVERLAY_EXTERNAL_PATH  — Absolut sökväg till den externa GPKG/SHP-filen.
 # OVERLAY_EXTERNAL_LAYER — Lagernamn inuti GPKG:n att läsa (None = första lagret).
@@ -503,19 +415,17 @@ ENABLE_STEPS = {
     4: False,   # Ta bort små sjöar < 0,5 ha (steg_4_filter_lakes.py)
     5: True,    # Fylla små landöar < MMU_ISLAND px omringade av vatten (steg_5_filter_islands.py)
     6: True,    # Generalisering (sieve + majority + semantic)
-    "6b": True, # Expand water: mark flödar EXPAND_WATER_PX px in i vattenytor
-    7: False,   # Vektorisering (hoppas över — steg 8 kör r.to.vect)
+    7: True,    # Expand water: mark flödar EXPAND_WATER_PX px in i vattenytor
     8: True,    # GRASS-polygonisering + förenkling per Y-band (steg_8_simplify.py)
     9: False,   # Overlay byggnader från steg 2 på steg 8 (steg_9_overlay_buildings.py)
     10: True,   # Sammanfoga strip-GPKGs från steg 9/8 till en GPKG per variant (steg_10_merge.py)
     11: True,   # Overlay extern vektorfil (OVERLAY_EXTERNAL_PATH) på merged lager (steg_11_overlay_external.py)
     12: True,   # Klipp till rastrets footprint (steg_12_clip_to_footprint.py)
-    13: True,   # Klipp till rasters giltiga dataarea — ta bort polygoner utanför rastrets !=0 pixlar
     99: True,   # Bygga QGIS-projekt
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# QGIS-PROJEKT — Vilka steg ska inkluderas i QGIS-projektet?
+# QGIS-PROJEKT — Vilka steg ska inkluderas i QGIS-projektet? (Steg 99)  
 # ══════════════════════════════════════════════════════════════════════════════
 # Steg med mycket data (steg 0-5: 980 rasterfiler/steg) kan göra QGIS trögstartat.
 # Sätt False för steg du inte behöver granska i QGIS.
@@ -528,131 +438,17 @@ QGIS_INCLUDE_STEPS = {
     4: False,   # Filtrerade sjöar < 0,5 ha (2730 rasterfiler)
     5: True,    # Fyllda landöar omringade av vatten (2730 rasterfiler)
     6: True,    # Generaliserat raster (steg_6_generalize/)
-    "6b": True, # Expand water (steg_6b_expand_water/)
-    7: False,   # Vektoriserade GeoPackage (hoppas över)
+    7: True,    # Expand water (steg_7_expand_water/)
     8: True,    # Förenklat per strip (GRASS v.generalize)
     9: False,   # Med byggnadsoverlay (steg_9_overlay_buildings/)
     10: True,   # Sammanfogade strips — merged GPKG per variant (steg_10_merge/)
     11: True,   # Overlay extern vektorfil — LM hydrografi (steg_11_overlay_external/)
     12: True,   # Klippt till rastrets footprint (steg_12_clip_to_footprint/)
-    13: True,   # Klippt till rasters giltiga dataarea (steg_13_clip_to_raster_extent/)
 }
 
-# ══════════════════════════════════════════════════════════════════════════════
-# GENERALIZATION METHODS — Vilka metoder i Steg 6 ska köras?
-# ══════════════════════════════════════════════════════════════════════════════
-# Möjliga metoder: "conn4", "conn8", "majority", "semantic"
-# Steg 7 och 8 kör automatiskt samma metoder som här är aktiverade
-#
-# ─── conn4 och conn8 (sieve-baserade metoder) ────────────────────────────────
-# Sieve-algoritm: tar bort sammanhängande pixelgrupper (patches) som är
-# mindre än MMU-värdet och ersätter dem med den dominerande grannklassen.
-#
-#   conn4 — 4-konnektivitet (upp/ned/vänster/höger)
-#     + Mer konservativ: diagonalt rörande patches anses separata
-#     + Ger skarpare och mer "rätvinkliga" gränser
-#     - Kan lämna kvar fler isolerade 1-px punkter i diagonalriktning
-#
-#   conn8 — 8-konnektivitet (alla 8 grannpixlar)
-#     + Mer aggressiv: diagonalt rörande patches slås ihop
-#     + Rensar ut "pepparkornsmönster" bättre
-#     - Kan slå ihop patches som borde vara separata (t.ex. tunna landryggar)
-#
-#   Styrs av MMU_STEPS (se ovan). Samma lista gäller för conn4 och conn8.
-#
-# ─── majority (majoritetsfilter) ─────────────────────────────────────────────
-# Ersätter varje pixel med den vanligaste klassen i ett k×k pixelfönster
-# (majority voting / moving window).
-#
-#   + Mjukar ut gränser och brus utan att förstöra stora sammanhängande ytor
-#   + Bra för att eliminera "salt-and-pepper"-brus
-#   - Rundar av skarpa hörn och smala strukturer (t.ex. vägkorridorer)
-#   - Kan förskjuta klassgränser upp till k/2 pixlar
-#
-#   Styrs av KERNEL_SIZES (se ovan). k=3 = liten fönster, k=7 = större fönster.
-#
-# ─── semantic (semantisk eliminering) ────────────────────────────────────────
-# Slår ihop små patches med sin semantiskt *närmaste* grannpatch, baserat på
-# NMD:s marktäckehierarki — inte bara den geometriskt störst grann.
-#
-# OBS: Semantic arbetar på de ommappade klasskoderna (efter CLASS_REMAP),
-# INTE på de ursprungliga NMD-koderna (111–128, 4211–4233, etc.).
-# CLASS_REMAP reducerar ~50 original-klasser till ~20 remap-klasser.
-#
-# Semantisk gruppering via nmd_group() på ommappade klasser:
-#   v < 10    → grupp = v itself    (t.ex. 3 = Åkermark → grupp 3)
-#   v < 100   → grupp = v // 10     (t.ex. 21,22 → grupp 2; 41,51–54,61–62 → grupp 4/5/6)
-#   v < 1000  → grupp = v // 100    (t.ex. 101–108 → grupp 1; 200 → grupp 2; 421–423 → grupp 4)
-#   (v >= 1000 förekommer ej — inga 4-siffriga koder efter CLASS_REMAP)
-#
-#   Faktiska grupper med ommappade klasser (post-CLASS_REMAP):
-#   Grupp 1 = Skog         (101–108: tallskog, granskog, barrbland, lövbland, trivlöv, ädellöv,
-#                             trivlöv m. ädel, temporärt ej skog — fastmark och våtmark sammanförda)
-#   Grupp 2 = Våtmark      (21: öppen myr; 22: öppen våtmark ej myr; 200: öppen våtmark övrigt)
-#   Grupp 3 = Åkermark     (3: åkermark)
-#   Grupp 4 = Öppen mark   (41: öppen mark/glacier/snö; 421: buskmark; 422: risdominerad; 423: gräsdominerad)
-#   Grupp 5 = Bebyggd/infra (51: byggnad; 52: anlagd mark; 53: väg/järnväg; 54: torvtäkt)
-#   Grupp 6 = Vatten       (61: inlandsvatten; 62: hav)
-#
-#   Distanstabell (SEMANTIC_GROUP_DIST nedan), lägre = mer lika:
-#
-#          Skog  Våtmk  Åkerm  Öppnm  Byggd  Vatten
-#   Skog    —      2      3      3      4      5
-#   Våtmk   2      —      2      1      3      4
-#   Åkerm   3      2      —      3      4      3
-#   Öppnm   3      1      3      —      3      4
-#   Byggd   4      3      4      3      —      4
-#   Vatten  5      4      3      4      4      —
-#
-#   Motivering av utvalda distanser:
-#     Våtmark–Öppen mark = 1  Ekologiskt närmast: myr-kant och torr hed är
-#                             varandras normalgranne i nordsvenskt landskap.
-#     Skog–Våtmark = 2        Trädklädd myr är vanlig — naturlig övergång.
-#     Våtmark–Åkermark = 2    Fuktig odlingsmark gränsar naturligt mot myr.
-#     Åkermark–Vatten = 3     Åker vid vattendrag är vanligt (inte 4 som man
-#                             kanske tror) — kortare distans än t.ex. Skog–Bebyggd.
-#     Skog–Vatten = 5         Maxdistans — ett skogspaket ska aldrig
-#                             absorberas i ett vattenpaket.
-#
-# Grupp-ID:n matchar nmd_group()-logiken på post-CLASS_REMAP-koder:
-#   1=Skog  2=Våtmark  3=Åkermark  4=Öppen mark  5=Bebyggd/infra  6=Vatten
-#
-SEMANTIC_GROUP_DIST = {
-    (1, 2): 2, (1, 3): 3, (1, 4): 3, (1, 5): 4, (1, 6): 5,
-    (2, 3): 2, (2, 4): 1, (2, 5): 3, (2, 6): 4,
-    (3, 4): 3, (3, 5): 4, (3, 6): 3,
-    (4, 5): 3, (4, 6): 4,
-    (5, 6): 4,
-}
-#
-#   Algoritm (heapq-baserat greedy merge):
-#     1. Bygg upp alla 4-konnekterade patches och deras grannar
-#     2. Lägg alla patches < MMU i en min-heap (minst patch först)
-#     3. Slå ihop varje liten patch med den granne som har lägst sem_dist
-#        (vid lika distans väljs den *största* grannen)
-#     4. Upprepa tills inga patches < MMU finns kvar
-#     5. Skyddade klasser {51,52,53,54,61,62} ändras aldrig
-#
-#   + Bevarar semantisk konsekvens bättre än ren sieve:
-#     t.ex. en liten öppen mark (gr.4) bredvid skog (gr.1) och våtmark (gr.2)
-#     slås ihop med våtmark (dist=1) istället för skog (dist=3)
-#   + Lämpar sig bra för klassbaserade analyser och legend-renhet
-#   - Långsammare än conn4/conn8 (O(n log n) per MMU-steg)
-#   - Kan ge oväntade resultat om semantisk granntabell inte stämmer med
-#     den faktiska markanvändningskontexten i just detta område
-#
-#   Styrs av MMU_STEPS (samma lista som för conn4/conn8).
-#
-# Exempel:
-#   GENERALIZATION_METHODS = {"conn4", "conn8", "majority"}  # Skippa semantic
-#   eller
-#   GENERALIZATION_METHODS = {"conn4", "conn8"}            # Bara sieve-metoder
-#
-
-GENERALIZATION_METHODS = {"conn4"}
 
 # ══════════════════════════════════════════════════════════════════════════════
-# GDAL & RASTERIO SETTINGS
+# GDAL & RASTERIO-INSTÄLLNINGAR
 # ══════════════════════════════════════════════════════════════════════════════
 
 COMPRESS   = "lzw"          # GeoTIFF kompression
@@ -668,9 +464,6 @@ OVERVIEW_LEVELS = [2, 4, 8, 16, 32, 64, 128, 256, 512]  # 9 nivåer, faktor 2 (s
 # ══════════════════════════════════════════════════════════════════════════════
 # STRUCTURAL ELEMENTS
 # ══════════════════════════════════════════════════════════════════════════════
-
-# TODO: Används denna fortfarande? 
-
 STRUCT_4 = np.array([[0, 1, 0],
                      [1, 1, 1],
                      [0, 1, 0]], dtype=bool)  # 4-connected

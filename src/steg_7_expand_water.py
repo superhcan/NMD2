@@ -1,5 +1,5 @@
 """
-steg_6b_expand_water.py — Steg 6b: Utvidga mark in i vattenytor.
+steg_7_expand_water.py — Steg 7: Utvidga mark in i vattenytor.
 
 Läser de generaliserade rasterytorna från steg 6 (steg_6_generalize/{method}/)
 och applicerar en kantzonsoperation:
@@ -15,12 +15,12 @@ Effekten: byggnadslagret (eller LM-hydrografi via steg 10) kan sedan
 klippas in i de tomma ytorna utan att klassificeringsvärden kolliderar.
 
 Indata : steg_6_generalize/{method}/*_mmu050.tif   (ett TIF per tile)
-Utdata : steg_6b_expand_water/{method}/*.tif        (ett TIF per tile)
+Utdata : steg_7_expand_water/{method}/*.tif        (ett TIF per tile)
 
-Steg 7+8 (steg_78_grass.py) läser automatiskt från steg_6b_expand_water/
+Steg 8 (steg_8_simplify.py) läser automatiskt från steg_7_expand_water/
 om den katalogen finns, annars från steg_6_generalize/.
 
-Kör   : python3 src/steg_6b_expand_water.py
+Kör   : python3 src/steg_7_expand_water.py
 Kräver: rasterio, numpy, scipy (i venv)
 """
 
@@ -60,7 +60,7 @@ def _setup_logging(out_base: Path):
     summary_dir.mkdir(parents=True, exist_ok=True)
 
     ts        = datetime.now().strftime("%Y%m%d_%H%M%S")
-    step_num  = os.getenv("STEP_NUMBER", "6b")
+    step_num  = os.getenv("STEP_NUMBER", "7")
     step_name = os.getenv("STEP_NAME",  "expand_water")
     suffix    = f"steg_{step_num}_{step_name}_{ts}"
 
@@ -93,7 +93,7 @@ def _setup_logging(out_base: Path):
 
     _LOGGERS["debug"]   = dbg
     _LOGGERS["summary"] = summary
-    summary.info("Steg 6b startat")
+    summary.info("Steg 7 startat")
 
 
 # Placeholders — byts ut i __main__
@@ -184,23 +184,23 @@ def process_method(method_name: str) -> bool:
     Kör expand-water för en generaliserings-metod.
 
     Läser:  steg_6_generalize/{method_name}/*_mmu050.tif
-    Skriver: steg_6b_expand_water/{method_name}/*.tif
+    Skriver: steg_7_expand_water/{method_name}/*.tif
     """
     src_dir = OUT_BASE / "steg_6_generalize" / method_name
     if not src_dir.exists():
-        info.warning("Steg 6b: källkatalog saknas: %s", src_dir)
+        info.warning("Steg 7: källkatalog saknas: %s", src_dir)
         return False
 
     src_tifs = sorted(src_dir.glob("*_mmu050.tif"))
     if not src_tifs:
-        info.warning("Steg 6b: inga *_mmu050.tif-filer i %s", src_dir)
+        info.warning("Steg 7: inga *_mmu050.tif-filer i %s", src_dir)
         return False
 
-    out_dir = OUT_BASE / "steg_6b_expand_water" / method_name
+    out_dir = OUT_BASE / "steg_7_expand_water" / method_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # VRT-mosaic av källfilerna (för halo-läsning)
-    vrt_path = OUT_BASE / f"_6b_{method_name}_src.vrt"
+    vrt_path = OUT_BASE / f"_7_{method_name}_src.vrt"
     build_vrt(src_tifs, vrt_path)
 
     water_tuple = tuple(sorted(EXPAND_WATER_CLASSES))
@@ -211,7 +211,7 @@ def process_method(method_name: str) -> bool:
 
     t0 = time.time()
     info.info(
-        "Steg 6b: %s — %d tiles  (expand=%dpx%s, klasser=%s, halo=%dpx)",
+        "Steg 7: %s — %d tiles  (expand=%dpx%s, klasser=%s, halo=%dpx)",
         method_name, len(src_tifs), EXPAND_WATER_PX,
         " = ta bort hela vattenytan" if EXPAND_WATER_PX == 0 else "",
         EXPAND_WATER_CLASSES, HALO,
@@ -231,7 +231,7 @@ def process_method(method_name: str) -> bool:
 
     elapsed = time.time() - t0
     info.info(
-        "Steg 6b: %s KLAR — %d px ändrade  (%.1f s)",
+        "Steg 7: %s KLAR — %d px ändrade  (%.1f s)",
         method_name, total_changed, elapsed,
     )
     return True
@@ -247,24 +247,24 @@ if __name__ == "__main__":
     log  = _LOGGERS["debug"]
     info = _LOGGERS["summary"]
 
-    # Checkpoint: Hoppa över om steg 6b redan är färdigt
-    checkpoint_file = OUT_BASE / ".steg_6b_complete"
+    # Checkpoint: Hoppa över om steg 7 redan är färdigt
+    checkpoint_file = OUT_BASE / ".steg_7_complete"
     if checkpoint_file.exists():
         info.info("════════════════════════════════════════════════════════════")
-        info.info("Steg 6b: HOPPAR ÖVER (redan färdigt enligt checkpoint)")
+        info.info("Steg 7: HOPPAR ÖVER (redan färdigt enligt checkpoint)")
         info.info("════════════════════════════════════════════════════════════")
         sys.exit(0)
 
     if not EXPAND_WATER_CLASSES:
-        info.info("Steg 6b: EXPAND_WATER_CLASSES är tomt — inget att göra.")
+        info.info("Steg 7: EXPAND_WATER_CLASSES är tomt — inget att göra.")
         sys.exit(0)
 
     t_total = time.time()
     info.info("══════════════════════════════════════════════════════════")
-    info.info("Steg 6b: Expand water  (expand=%dpx, klasser=%s)",
+    info.info("Steg 7: Expand water  (expand=%dpx, klasser=%s)",
               EXPAND_WATER_PX, EXPAND_WATER_CLASSES)
     info.info("Källa   : %s/steg_6_generalize/", OUT_BASE)
-    info.info("Utdata  : %s/steg_6b_expand_water/", OUT_BASE)
+    info.info("Utdata  : %s/steg_7_expand_water/", OUT_BASE)
     info.info("══════════════════════════════════════════════════════════")
 
     # Hitta vilka metodkataloger som finns och matchar GENERALIZATION_METHODS
@@ -297,13 +297,13 @@ if __name__ == "__main__":
 
     elapsed_total = time.time() - t_total
     info.info("══════════════════════════════════════════════════════════")
-    info.info("Steg 6b klart: %d/%d metoder OK  (%.1f min, %.0f s)",
+    info.info("Steg 7 klart: %d/%d metoder OK  (%.1f min, %.0f s)",
               ok_count, len(methods_to_run), elapsed_total / 60, elapsed_total)
-    info.info("Utdata: %s/steg_6b_expand_water/", OUT_BASE)
-    info.info("══════════════════════════════════════════════════════════")
+    info.info("Utdata: %s/steg_7_expand_water/", OUT_BASE)
+    info.info("════════════════════════════════════════════════════════")
     
-    # Skapa checkpoint-fil för att indikera att steg 6b är färdigt
-    checkpoint_file = OUT_BASE / ".steg_6b_complete"
+    # Skapa checkpoint-fil för att indikera att steg 7 är färdigt
+    checkpoint_file = OUT_BASE / ".steg_7_complete"
     checkpoint_file.touch()
     info.info("Checkpoint skapad: %s", checkpoint_file.name)
 

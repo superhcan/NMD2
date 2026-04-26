@@ -32,7 +32,7 @@ except ImportError as e:
     print("   Installera QGIS först: apt install qgis python3-qgis")
     sys.exit(1)
 
-from config import OUT_BASE, SRC, ENABLE_STEPS, SIMPLIFICATION_TOLERANCES, QGIS_INCLUDE_STEPS
+from config import OUT_BASE, SRC, ENABLE_STEPS, QGIS_INCLUDE_STEPS
 
 
 def _apply_no_fill(layer):
@@ -227,7 +227,6 @@ def build_qgis_project():
     # step_dir=None för steg 99 (detta steg producerar inga datalager).
     steps = [
         (99, "Step 99 - QGIS project", None),
-        (13, "Step 13 - Clipped to raster extent", OUT_BASE / "steg_13_clip_to_raster_extent"),
         (12, "Step 12 - Clipped to footprint", OUT_BASE / "steg_12_clip_to_footprint"),
         (11, "Step 11 - Overlaid external", OUT_BASE / "steg_11_overlay_external"),
         (10, "Step 10 - Merged", OUT_BASE / "steg_10_merge"),
@@ -560,7 +559,7 @@ def build_qgis_project():
                             return m, before[len(m) + 1:], sfx
                 return None, None, None
 
-            allowed_tolerances = {f"p{t}" for t in SIMPLIFICATION_TOLERANCES}
+            allowed_tolerances = set()
             methods_dict = {}
             for lf in layer_files:
                 method, setting_label, tolerance = _parse_steg9(lf.stem)

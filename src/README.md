@@ -1,6 +1,23 @@
-# 🔴 src/ - Pipeline-kod
+# src/ — Pipeline-kod
 
-All aktiv pipeline-kod läggs här. Pipeline är organiserad som **separata steg** med en master orchestrator.
+Se projektets dokumentation i rotkatalogen och `doc/`:
+
+- [README.md](../README.md) — Projektöversikt och snabbstart
+- [doc/INSTALL.md](../doc/INSTALL.md) — Installationsanvisning
+- [doc/METOD.md](../doc/METOD.md) — Metodbeskrivning
+- [doc/KÖRNING.md](../doc/KÖRNING.md) — Körning och konfiguration
+
+---
+
+Pipelinen körs via orchestratorn i rotkatalogen:
+
+```bash
+cd /home/hcn/projects/NMD2
+source .venv/bin/activate
+python3 run_all_steps.py
+```
+
+All konfiguration sker i `src/config.py`.
 
 ---
 

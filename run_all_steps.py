@@ -10,8 +10,7 @@ Kör alla steg i rätt ordning:
   Steg 4: Ta bort små sjöar < 0,5 ha (steg_4_filter_lakes.py)
   Steg 5: Fylla små öar omringade av vatten (steg_5_filter_islands.py)
   Steg 6: Generalisering (steg_6_generalize.py)
-  Steg 6b: Expand water — mark flödar 2px in i vattenytor (steg_6b_expand_water.py)
-  Steg 7: Vektorisering (steg_7_vectorize.py)
+  Steg 7: Expand water — mark flödar 2px in i vattenytor (steg_7_expand_water.py)
   Steg 8: GRASS-polygonisering + förenkling per Y-band (steg_8_simplify.py)
   Steg 9: Overlay buildings (steg_9_overlay_buildings.py)
   Steg 10: Sammanfoga strip-GPKGs (steg_10_merge.py)
@@ -21,9 +20,7 @@ Kör alla steg i rätt ordning:
 
 Användning:
   python3 run_all_steps.py                  # Kör alla steg
-  python3 run_all_steps.py --step 6 6b 8   # Kör steg 6, 6b och 8
-
-Kräver:
+  python3 run_all_steps.py --step 6 7 8   # Kör steg 6, 7 och 8
   - QGIS (för steg 9)
   - Mapshaper installerat och i PATH
   - Python-venv aktiverad
@@ -100,18 +97,13 @@ STEPS = {
         "description": "Generaliserar landskapsbild med sieve, modal, semantic och halo-teknik",
         "requires_dir": None  # Kan läsa från steg_4_filter_lakes eller steg_5_filter_islands
     },
-    "6b": {
+    7: {
         "name": "Expand water",
-        "script": "steg_6b_expand_water.py",
+        "script": "steg_7_expand_water.py",
         "description": "Mark flödar EXPAND_WATER_PX px in i vattenytor; inre vatten sätts till 0",
         "requires_dir": "steg_6_generalize"
     },
-    7: {
-        "name": "Vektorisering",
-        "script": None,  # steg 8 hanterar r.to.vect direkt via GRASS
-        "description": "Hoppas över — steg 8 (steg_8_simplify.py) sköter polygonisering",
-        "requires_dir": "steg_6_generalize"
-    },
+
     8: {
         "name": "GRASS-polygonisering + förenkling (Y-band)",
         "script": "steg_8_simplify.py",
@@ -148,15 +140,15 @@ STEPS = {
         "description": "Bygger QGIS-projekt med alla steg organiserade i grupper",
         # Minst ett av dessa steg måste ha körts; steg 99 hanterar själv saknade kataloger
         "requires_any_dir": ["steg_12_clip_to_footprint", "steg_11_overlay_external", "steg_10_merge", "steg_9_overlay_buildings", "steg_8_simplify",
-                             "steg_7_vectorize", "steg_6b_expand_water", "steg_6_generalize",
+                             "steg_7_expand_water", "steg_6_generalize",
                              "steg_5_filter_islands", "steg_4_filter_lakes",
                              "steg_3_dissolve", "steg_2_extract",
                              "steg_1_reclassify", "steg_0_verify_tiles"]
     }
 }
 
-# Explicit körordning — hanterar att "6b" är en sträng
-STEP_ORDER = [0, 1, 2, 3, 4, 5, 6, "6b", 7, 8, 9, 10, 11, 12, 99]
+# Explicit körordning
+STEP_ORDER = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 99]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FUNKTIONER
@@ -233,7 +225,7 @@ def run_step(step_key):
     step = STEPS[step_key]
     script = step["script"]
 
-    # Steget är avsiktligt inaktiverat (t.ex. steg 7 när GRASS_USE_COMBINED_78=True)
+    # Steget är avsiktligt inaktiverat
     if script is None:
         log.info("")
         log.info("=" * 78)
@@ -295,8 +287,7 @@ def parse_arguments():
         epilog="""
 Exempel:
   python3 run_all_steps.py                  # Kör alla steg
-  python3 run_all_steps.py --step 6 6b 8   # Kör steg 6, 6b och 8
-  python3 run_all_steps.py --step 8 9 10   # Kör steg 8, 9 och 10
+  python3 run_all_steps.py --step 6 7 8   # Kör steg 6, 7 och 8
   python3 run_all_steps.py --list          # Lista alla steg
         """
     )
@@ -305,7 +296,7 @@ Exempel:
         "--step",
         nargs="+",
         metavar="STEG",
-        help="Kör specifika steg, t.ex. --step 6 6b 8  (ange ett eller flera steg)"
+        help="Kör specifika steg, t.ex. --step 6 7 8  (ange ett eller flera steg)"
     )
     parser.add_argument(
         "--list",
@@ -327,9 +318,7 @@ def list_steps():
 
 
 def _parse_step_key(s: str):
-    """Konverterar strängen '6b' → '6b', '8' → 8, etc."""
-    if s in ("6b",):
-        return s
+    """Konverterar strängen '8' → 8, etc."""
     try:
         return int(s)
     except ValueError:

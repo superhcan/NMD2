@@ -11,7 +11,7 @@ stycken) som en oberoende GRASS-session. Band-resultaten sparas i:
 Steg 11 (steg_11_merge.py) slår sedan ihop banden per variant till en slutlig GPKG.
 
 Källa väljs automatiskt:
-  1. steg_6_generalize/ (eller steg_6b_expand_water/) finns
+  1. steg_6_generalize/ (eller steg_7_expand_water/) finns
      -> rasterbaserad körning (r.external -> r.patch -> r.to.vect -> v.generalize)
   2. FULLSWEDEN_RAW_GPKG finns och steg 6 saknas
      -> direkt GPKG-körning (v.in.ogr -> v.generalize per strip)
@@ -32,10 +32,8 @@ from pathlib import Path
 
 from config import (
     OUT_BASE, SRC, TILE_SIZE,
-    MORPH_ONLY, MORPH_SMOOTH_METHOD,
     GRASS_SIMPLIFY_METHOD,
     GRASS_CHAIKEN_THRESHOLD, GRASS_DOUGLAS_THRESHOLD,
-    GRASS_SLIDING_ITERATIONS, GRASS_SLIDING_THRESHOLD, GRASS_SLIDING_SLIDE,
     GRASS_VECTOR_MEMORY, GRASS_OMP_THREADS,
     STRIP_N, STRIP_OVERLAP_M, STRIP_WORKERS, STRIP_ONLY,
     FULLSWEDEN_RAW_GPKG,
@@ -158,23 +156,6 @@ def _build_gen_cmds(in_map, out_map, method, dp_thresh, ch_thresh):
             f'run(["v.generalize", "input=after_chaiken", "output={out_map}", '
             f'"method=douglas", "threshold={dp_thresh:.2f}", '
             f'"--overwrite", "--quiet"], "v.generalize (douglas)")',
-        ]
-    if method == "sliding_avg":
-        return [
-            f'run(["v.generalize", "input={in_map}", "output={out_map}", '
-            f'"method=sliding_averaging", "threshold={GRASS_SLIDING_THRESHOLD:.2f}", '
-            f'"iterations={GRASS_SLIDING_ITERATIONS}", "slide={GRASS_SLIDING_SLIDE:.2f}", '
-            f'"--overwrite", "--quiet"], "v.generalize (sliding_avg)")',
-        ]
-    if method == "douglas+sliding_avg":
-        return [
-            f'run(["v.generalize", "input={in_map}", "output=after_dp", '
-            f'"method=douglas", "threshold={dp_thresh:.2f}", '
-            f'"--overwrite", "--quiet"], "v.generalize (douglas)")',
-            f'run(["v.generalize", "input=after_dp", "output={out_map}", '
-            f'"method=sliding_averaging", "threshold={GRASS_SLIDING_THRESHOLD:.2f}", '
-            f'"iterations={GRASS_SLIDING_ITERATIONS}", "slide={GRASS_SLIDING_SLIDE:.2f}", '
-            f'"--overwrite", "--quiet"], "v.generalize (sliding_avg)")',
         ]
     raise ValueError(f"Okänd GRASS-metod: {method}")
 
@@ -580,11 +561,11 @@ if __name__ == "__main__":
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Välj källa
-    _gen6b = OUT_BASE / "steg_6b_expand_water"
+    _gen7  = OUT_BASE / "steg_7_expand_water"
     _gen6  = OUT_BASE / "steg_6_generalize"
-    if _gen6b.exists() and any(d.is_dir() for d in _gen6b.iterdir()):
-        gen6_dir = _gen6b
-        log.info("Källa: steg_6b_expand_water/ (expand-water kördes)")
+    if _gen7.exists() and any(d.is_dir() for d in _gen7.iterdir()):
+        gen6_dir = _gen7
+        log.info("Källa: steg_7_expand_water/ (expand-water kördes)")
     elif _gen6.exists():
         gen6_dir = _gen6
         log.info("Källa: steg_6_generalize/")
@@ -598,10 +579,6 @@ if __name__ == "__main__":
         sfx = f"dp{dp}"
     elif method == "chaiken":
         sfx = f"chaiken_t{ch}"
-    elif method == "sliding_avg":
-        sfx = f"sliding_i{GRASS_SLIDING_ITERATIONS}_s{int(GRASS_SLIDING_SLIDE*10)}"
-    elif method == "douglas+sliding_avg":
-        sfx = f"dp{dp}_sliding_i{GRASS_SLIDING_ITERATIONS}_s{int(GRASS_SLIDING_SLIDE*10)}"
     else:
         sfx = f"dp{dp}_chaiken_t{ch}"
 
@@ -621,9 +598,6 @@ if __name__ == "__main__":
     if gen6_dir is not None:
         # Rasterbaserat läge: en variant per undermapp i steg_6
         subdirs = sorted(d for d in gen6_dir.iterdir() if d.is_dir())
-        if MORPH_ONLY and MORPH_SMOOTH_METHOD != "none":
-            subdirs = [d for d in subdirs if "_morph_" in d.name]
-
         if not subdirs:
             log.error("Inga undermappar i %s", gen6_dir)
             sys.exit(1)

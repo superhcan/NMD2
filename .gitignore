@@ -17,8 +17,10 @@ __pycache__/
 # Tillfälliga filer
 *.tmp
 *.log
+symbology-style.db
 
 # Loggfiler och utgång
 log/
 summary/
+archive/
 TODO
