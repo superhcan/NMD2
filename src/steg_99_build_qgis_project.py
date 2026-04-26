@@ -227,6 +227,7 @@ def build_qgis_project():
     # step_dir=None för steg 99 (detta steg producerar inga datalager).
     steps = [
         (99, "Step 99 - QGIS project", None),
+        (13, "Step 13 - Clipped to raster extent", OUT_BASE / "steg_13_clip_to_raster_extent"),
         (12, "Step 12 - Clipped to footprint", OUT_BASE / "steg_12_clip_to_footprint"),
         (11, "Step 11 - Overlaid external", OUT_BASE / "steg_11_overlay_external"),
         (10, "Step 10 - Merged", OUT_BASE / "steg_10_merge"),

@@ -247,6 +247,14 @@ if __name__ == "__main__":
     log  = _LOGGERS["debug"]
     info = _LOGGERS["summary"]
 
+    # Checkpoint: Hoppa över om steg 6b redan är färdigt
+    checkpoint_file = OUT_BASE / ".steg_6b_complete"
+    if checkpoint_file.exists():
+        info.info("════════════════════════════════════════════════════════════")
+        info.info("Steg 6b: HOPPAR ÖVER (redan färdigt enligt checkpoint)")
+        info.info("════════════════════════════════════════════════════════════")
+        sys.exit(0)
+
     if not EXPAND_WATER_CLASSES:
         info.info("Steg 6b: EXPAND_WATER_CLASSES är tomt — inget att göra.")
         sys.exit(0)
@@ -293,5 +301,10 @@ if __name__ == "__main__":
               ok_count, len(methods_to_run), elapsed_total / 60, elapsed_total)
     info.info("Utdata: %s/steg_6b_expand_water/", OUT_BASE)
     info.info("══════════════════════════════════════════════════════════")
+    
+    # Skapa checkpoint-fil för att indikera att steg 6b är färdigt
+    checkpoint_file = OUT_BASE / ".steg_6b_complete"
+    checkpoint_file.touch()
+    info.info("Checkpoint skapad: %s", checkpoint_file.name)
 
     sys.exit(0 if ok_count == len(methods_to_run) else 1)

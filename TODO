@@ -66,3 +66,88 @@ Prio 2 testa en annan medtod för generaliseringa.
 Prio 3 Kraftledningator.
 Prio 4 2018.
 Prio 5 vägar, senare.
+
+2026-04-13
+
+2018
+
+
+Klipp ut de ytor som finns i 2018 utanför 2023. 
+
+Öppen våtmark 200
+Övriga öppen mark 42
+41:41 Kolla kan vara 410
+42:42 Kolla om det är 42 eller flera
+200:200 
+
+Klasser i 2018:
+
+0
+1
+2 Våtmark
+3 Åkermark
+41 Övrig öppen mark utan vegetation
+42 Övrig öppen mark med vegetation
+51 Exploaterad mark, byggnad
+52 Exploaterad mark, ej byggnad eller väg/järnväg
+53 Exploaterad mark, väg/järnväg
+61 Sjö och vattendrag
+62 Hav
+111 Tallskog utanför våtmark
+112 Granskog utanför våtmark
+113 Barrblandskog utanför våtmark
+114 Lövblandad barrskog utanför våtmark
+115 Triviallövskog utanför våtmark
+116 Ädellövskog utanför våtmark
+117 Triviallövskog med ädellövinslag utanför våtmark
+118 Temporärt ej skog utanför våtmark
+121 Tallskog på våtmark
+122 Granskog på våtmark
+123 Barrblandskog på våtmark
+124 Lövblandad barrskog på våtmark
+125 Triviallövskog på våtmark
+126 Ädellövskog på våtmark
+127 Triviallövskog med ädellövinslag på våtmark
+128 Temporärt ej skog på våtmark
+
+Analyzed file: /home/hcn/NMD_workspace/NMD2018_basskikt_ogeneraliserad_Sverige_v1_1/nmd2018bas_ogeneraliserad_v1_1.tif (band 1)
+
+Extent: 208450.0000000000000000,6091140.0000000000000000 : 921180.0000000000000000,7671060.0000000000000000
+
+Projection: EPSG:3006 - SWEREF99 TM
+
+Width in pixels: 71273 (units per pixel 10)
+
+Height in pixels: 157992 (units per pixel 10)
+
+Total pixel count: 11260563816
+
+Value	Pixel count	Area (m²)
+0	5204803374	520480337400
+2	393404389	39340438900
+3	258252338	25825233800
+41	107909459	10790945900
+42	549249223	54924922300
+51	9858315	985831500
+52	9695469	969546900
+53	77484135	7748413500
+61	403139364	40313936400
+62	1555982273	155598227300
+111	728898325	72889832500
+112	436210081	43621008100
+113	207531050	20753105000
+114	297536698	29753669800
+115	244802069	24480206900
+116	47269403	4726940300
+117	14569979	1456997900
+118	519897540	51989754000
+121	90391254	9039125400
+122	15502006	1550200600
+123	9075334	907533400
+124	37332421	3733242100
+125	35370109	3537010900
+126	53542	5354200
+127	14373	1437300
+128	6331293	633129300
+
+

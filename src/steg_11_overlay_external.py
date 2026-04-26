@@ -443,10 +443,6 @@ def process_variant(gpkg: Path, ext_path: Path, out_dir: Path, work_base: Path, 
                 "ogr2ogr", "-f", "GPKG", "-overwrite",
                 "-spat", f"{x_min:.2f}", f"{z_y_min:.2f}", f"{x_max:.2f}", f"{z_y_max:.2f}",
                 "-nln", "land",
-                "-nlt", "POLYGON",
-                "-explodecollections",
-                "-dim", "XY",
-                "-unsetFid",
                 str(land_tmp), str(gpkg),
             ], capture_output=True, text=True)
             if r.returncode != 0:

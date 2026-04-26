@@ -25,13 +25,10 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-from config import QML_SRC, OUT_BASE, COMPRESS, CLASS_REMAP, BUILD_OVERVIEWS, OVERVIEW_LEVELS
+from config import QML_SRC, QML_RECLASSIFY, OUT_BASE, COMPRESS, CLASS_REMAP, BUILD_OVERVIEWS, OVERVIEW_LEVELS
 from rasterio.enums import Resampling
 
-# QML-fil som stämmer med de reklassificerade koderna.
-# Genereras av generate_reclassify_qml.py; faller tillbaka på original-QML om den saknas.
-_RECLASSIFY_QML = Path(__file__).parent / "qml" / "steg_1_reclassify.qml"
-QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
+# QML_RECLASSIFY är centraliserat i config.py och pekar på basskikt-katalogen
 
 # Två separata loggers: 'debug' för detaljerade meddelanden, 'summary' för pipeline-översikten
 log = logging.getLogger("pipeline.debug")

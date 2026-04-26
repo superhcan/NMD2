@@ -138,9 +138,16 @@ info = logging.getLogger("pipeline.summary")
 # ══════════════════════════════════════════════════════════════════════════════
 # Dessa värden importeras från config.py och bör inte omdefinieras här
 
-# Temporärt NoData-värde som används när skyddade klasser maskeras inför sieve.
-# Värdet 65535 är max för uint16 och kolliderar inte med giltiga NMD-koder (0–999).
-NODATA_TMP    = 65535
+def get_nodata_tmp(dtype):
+    """Returnera lämpligt temporärt NoData-värde baserat på datatyp.
+    
+    För uint8: 254 (kolliderar inte med giltiga NMD-klasser 0-254 då 255 är max)
+    För uint16: 65535 (max värde, kolliderar inte med NMD-koder 0-999)
+    """
+    if dtype == np.uint8:
+        return np.uint8(254)
+    else:
+        return np.uint16(65535)
 
 # 4-grannskapsstruktur (Von Neumann-grannskap) för connected-component labeling.
 # Används av semantisk generalisering för att identifiera sammanhängande patches.
@@ -198,7 +205,10 @@ def build_powerline_mask_vrt(tile_paths: list[Path], out_dir: Path) -> Path | No
     log.info("Rastrerar kraftledningsgator → %s", mask_dir)
 
     mask_paths = []
-    for tile in tile_paths:
+    for i, tile in enumerate(tile_paths, 1):
+        if i % 50 == 0 or i == 1:
+            log.info("  powerline_mask: %d/%d tiles rastrerad", i, len(tile_paths))
+        
         out_mask = mask_dir / tile.name
         if not out_mask.exists():
             with rasterio.open(tile) as src:
@@ -237,6 +247,7 @@ def build_powerline_mask_vrt(tile_paths: list[Path], out_dir: Path) -> Path | No
 
         mask_paths.append(out_mask)
 
+    log.info("  powerline_mask: %d/%d tiles rastrerad — bygger VRT", len(mask_paths), len(tile_paths))
     build_vrt(mask_paths, vrt_path)
     log.info("Kraftlednings-mask VRT klar: %d tiles", len(mask_paths))
     return vrt_path
@@ -347,6 +358,10 @@ def run_sieve(data: np.ndarray, mmu: int, conn: int,
     log.debug("run_sieve: mmu=%d conn=%d  data=%s  extra_prot=%s  powerline=%s  pl_sieve=%s",
               mmu, conn, data.shape, extra_protected,
               powerline_mask is not None and powerline_mask.any(), run_powerline_sieve)
+    
+    # Hämta lämpligt NODATA_TMP baserat på datatyp
+    NODATA_TMP = get_nodata_tmp(data.dtype)
+    
     # Bygg en minimal meta för temp-filen (transform spelar ingen roll för sieve;
     # gdal_sieve arbetar enbart med pixelvärden och grannskap, inte geografi)
     from rasterio.transform import from_bounds
@@ -356,7 +371,7 @@ def run_sieve(data: np.ndarray, mmu: int, conn: int,
         "driver": "GTiff", "dtype": data.dtype, "count": 1,
         "height": data.shape[0], "width": data.shape[1],
         "crs": "EPSG:3006", "transform": dummy_transform,
-        "compress": None, "nodata": NODATA_TMP,
+        "compress": None, "nodata": int(NODATA_TMP),
     }
     # Kombinera permanenta och stegspecifika skyddade klasser
     all_protected = list(PROTECTED | extra_protected)
@@ -1128,6 +1143,14 @@ if __name__ == "__main__":
     log  = _LOGGERS["debug"]
     info = _LOGGERS["summary"]
     
+    # Checkpoint: Hoppa över om steg 6 redan är färdigt
+    checkpoint_file = OUT_BASE / ".steg_6_complete"
+    if checkpoint_file.exists():
+        info.info("════════════════════════════════════════════════════════════")
+        info.info("Steg 6: HOPPAR ÖVER (redan färdigt enligt checkpoint)")
+        info.info("════════════════════════════════════════════════════════════")
+        sys.exit(0)
+    
     t_total = time.time()
     ts_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -1244,4 +1267,9 @@ if __name__ == "__main__":
         if r.returncode == 0:
             log.info("VRT: %s (%d tiles)", vrt_path, len(tifs))
         else:
-            log.warning("gdalbuildvrt misslyckades för %s", method_dir.name)
+            log.warning("Kunde inte bygga VRT för %s", method_dir)
+    
+    # Skapa checkpoint-fil för att indikera att steg 6 är färdigt
+    checkpoint_file = OUT_BASE / ".steg_6_complete"
+    checkpoint_file.touch()
+    info.info("Checkpoint skapad: %s", checkpoint_file.name)

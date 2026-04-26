@@ -15,20 +15,25 @@ import numpy as np
 
 #SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.tif")
 #QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_0/NMD2023bas_v2_0.qml")
-SRC     = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/NMD2023bas_v2_1.tif")
-QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/NMD2023bas_v2_1.qml")
+SRC     = Path("/home/hcn/NMD_workspace/NMD2018_basskikt_ogeneraliserad_Sverige_v1_1/2018_clipped.tif")
+#QML_SRC = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/NMD2023bas_v2_1.qml")
+QML_SRC = Path("/home/hcn/NMD_workspace/NMD2018_basskikt_ogeneraliserad_Sverige_v1_1/nmd2018bas_ogeneraliserad_v1_1.qml")
 
-# QML-fil för reklassificerade tiles (steg 1 och framåt).
-# Faller tillbaka på QML_SRC om filen saknas.
-_RECLASSIFY_QML = Path(__file__).parent / "qml" / "steg_1_reclassify.qml"
-QML_RECLASSIFY = _RECLASSIFY_QML if _RECLASSIFY_QML.exists() else QML_SRC
+# ══════════════════════════════════════════════════════════════════════════════
+# QML — Style files (color palettes)
+# ══════════════════════════════════════════════════════════════════════════════
+# QML_SRC — Original source raster color palette (used as fallback if others missing)
+# QML_RECLASSIFY — Reclassified palette for steg 1 and onwards
+# Both should reside in the base layer directory for consistency
 
-# Låt OUT_BASE vara konfigurerbar via miljövariabel för testa
-# TODO: Ta bort miljövariabeln och hårdkoda OUT_BASE när pipeline är stabil och klar för produktion
-#OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/test_r43_r46_c9_c12_douglas_chaiken_v01")
-#OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_test_10proc_v01")
-#OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_test_100proc_steps_v01")
-OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_100proc_v03")
+QML_RECLASSIFY = Path("/home/hcn/NMD_workspace/NMD2018_basskikt_ogeneraliserad_Sverige_v1_1/nmd2018_reclassified.qml")
+
+# FOOTPRINT_GPKG — GPKG med täckningsyta för klippning i steg 12 (lager: FOOTPRINT_LAYER)
+FOOTPRINT_GPKG  = Path("/home/hcn/NMD_workspace/NMD2018_basskikt_ogeneraliserad_Sverige_v1_1/2018_mask__vectorized.gpkg")
+FOOTPRINT_LAYER = "2018_mask__vectorized"
+
+#OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_100proc_v03")
+OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/fjall_2018_v07")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -37,9 +42,10 @@ OUT_BASE = Path("/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/prod_100proc_v03"
 
 TILE_SIZE        = 2048          # Huvudtile-storlek (pixlar per sida)
 # Vid 2048 px: 35 kolumner × 78 rader = 2730 tiles totalt (71273×157991 px källraster v2.1)
+# NMD 2018 clipped: 26 kolumner × 45 rader = 1170 tiles totalt (52805×91800 px)
 #PARENT_TILES     = [(r, c) for r in range(39) for c in range(35)]  # rad 43–44 × kol 16–17 = 4 tiles
 #PARENT_TILES     = [(r, c) for r in range(78) for c in range(35)]  # 100% av landet
-PARENT_TILES     = [(r, c) for r in range(78) for c in range(35)]  # 100% av landet
+PARENT_TILES     = [(r, c) for r in range(45) for c in range(26)]  # NMD 2018 clipped (1170 tiles)
 #PARENT_TILES     = [(r, c) for r in range(43,50) for c in range(35)]  # 30 rader × 35 kol = 1050 tiles (3 chunks à 13+13+4)
 
 # Hela landet: [(r, c) for r in range(78) for c in range(35)]
@@ -66,81 +72,118 @@ DISSOLVE_MAX_DIST = 0              # px — 0 = obegränsad fill (klassiskt bete
 # Mappning: NMD-källkod → nya slutkod för förenkling och anpassning till kravspec.
 # Originalklasser sparas i separat _original_class-lager per tile.
 
-CLASS_REMAP = {
-    # Skogsklasser — sammanför fastmark och våtmark för tallskog till samma klass
-    111: 101,  # Tallskog på fastmark → 101
-    121: 101,  # Tallskog på våtmark → 101
-    112: 102,  # Granskog på fastmark → 102
-    122: 102,  # Granskog på våtmark → 102
-    113: 103,  # Barrblandskog på fastmark → 103
-    123: 103,  # Barrblandskog på våtmark → 103
-    114: 104,  # Lövblandad barrskog på fastmark → 104
-    124: 104,  # Lövblandad barrskog på våtmark → 104
-    115: 105,  # Triviallövskog på fastmark → 105
-    125: 105,  # Triviallövskog på våtmark → 105
-    116: 106,  # Ädellövskog på fastmark → 106
-    126: 106,  # Ädellövskog på våtmark → 106
-    117: 107,  # Triviallövskog m. ädellövinslag på fastmark → 107
-    127: 107,  # Triviallövskog m. ädellövinslag på våtmark → 107
-    118: 108,  # Temporärt ej skog på fastmark → 108
-    128: 108,  # Temporärt ej skog på våtmark → 108
+# CLASS_REMAP = {
+#     # Skogsklasser — sammanför fastmark och våtmark för tallskog till samma klass
+#     111: 101,  # Tallskog på fastmark → 101
+#     121: 101,  # Tallskog på våtmark → 101
+#     112: 102,  # Granskog på fastmark → 102
+#     122: 102,  # Granskog på våtmark → 102
+#     113: 103,  # Barrblandskog på fastmark → 103
+#     123: 103,  # Barrblandskog på våtmark → 103
+#     114: 104,  # Lövblandad barrskog på fastmark → 104
+#     124: 104,  # Lövblandad barrskog på våtmark → 104
+#     115: 105,  # Triviallövskog på fastmark → 105
+#     125: 105,  # Triviallövskog på våtmark → 105
+#     116: 106,  # Ädellövskog på fastmark → 106
+#     126: 106,  # Ädellövskog på våtmark → 106
+#     117: 107,  # Triviallövskog m. ädellövinslag på fastmark → 107
+#     127: 107,  # Triviallövskog m. ädellövinslag på våtmark → 107
+#     118: 108,  # Temporärt ej skog på fastmark → 108
+#     128: 108,  # Temporärt ej skog på våtmark → 108
     
-    # Våtmarksklasser — grupperas till två huvudgrupper
-    200: 200,  # Öppen våtmark utan underindelning → 200 (oförändrad)
+#     # Våtmarksklasser — grupperas till två huvudgrupper
+#     200: 200,  # Öppen våtmark utan underindelning → 200 (oförändrad)
     
-    211: 21,   # Buskmyr → 21 (Öppen våtmark på myr)
-    212: 21,   # Ristuvemyr → 21 (Öppen våtmark på myr)
-    213: 21,   # Fastmattemyr, mager → 21 (Öppen våtmark på myr)
-    214: 21,   # Fastmattemyr, frodig → 21 (Öppen våtmark på myr)
-    215: 21,   # Sumpkärr → 21 (Öppen våtmark på myr)
-    216: 21,   # Mjukmattemyr → 21 (Öppen våtmark på myr)
-    217: 21,   # Lösbottenmyr → 21 (Öppen våtmark på myr)
-    218: 21,   # Övrig öppen myr → 21 (Öppen våtmark på myr)
+#     211: 21,   # Buskmyr → 21 (Öppen våtmark på myr)
+#     212: 21,   # Ristuvemyr → 21 (Öppen våtmark på myr)
+#     213: 21,   # Fastmattemyr, mager → 21 (Öppen våtmark på myr)
+#     214: 21,   # Fastmattemyr, frodig → 21 (Öppen våtmark på myr)
+#     215: 21,   # Sumpkärr → 21 (Öppen våtmark på myr)
+#     216: 21,   # Mjukmattemyr → 21 (Öppen våtmark på myr)
+#     217: 21,   # Lösbottenmyr → 21 (Öppen våtmark på myr)
+#     218: 21,   # Övrig öppen myr → 21 (Öppen våtmark på myr)
     
-    221: 22,   # Våtmark med buskar → 22 (Öppen våtmark ej på myr)
-    222: 22,   # Risdominerad våtmark → 22 (Öppen våtmark ej på myr)
-    223: 22,   # Gräsdominerad våtmark, mager → 22 (Öppen våtmark ej på myr)
-    224: 22,   # Gräsdominerad våtmark, frodvuxen → 22 (Öppen våtmark ej på myr)
-    225: 22,   # Gräsdominerad våtmark, högvuxen → 22 (Öppen våtmark ej på myr)
-    226: 22,   # Mossdominerad våtmark → 22 (Öppen våtmark ej på myr)
-    227: 22,   # Våtmark utan växttäcke → 22 (Öppen våtmark ej på myr)
-    228: 22,   # Övrig öppen våtmark → 22 (Öppen våtmark ej på myr)
+#     221: 22,   # Våtmark med buskar → 22 (Öppen våtmark ej på myr)
+#     222: 22,   # Risdominerad våtmark → 22 (Öppen våtmark ej på myr)
+#     223: 22,   # Gräsdominerad våtmark, mager → 22 (Öppen våtmark ej på myr)
+#     224: 22,   # Gräsdominerad våtmark, frodvuxen → 22 (Öppen våtmark ej på myr)
+#     225: 22,   # Gräsdominerad våtmark, högvuxen → 22 (Öppen våtmark ej på myr)
+#     226: 22,   # Mossdominerad våtmark → 22 (Öppen våtmark ej på myr)
+#     227: 22,   # Våtmark utan växttäcke → 22 (Öppen våtmark ej på myr)
+#     228: 22,   # Övrig öppen våtmark → 22 (Öppen våtmark ej på myr)
     
-    # Fjällskogar — sammanför fastmark och våtmark
-    23: 109,   # Låg fjällskog på våtmark → 109
-    43: 109,   # Låg fjällskog på fastmark → 109
-    230: 109,  # Låg fjällskog på övrig våtmark → 109
+#     # Fjällskogar — sammanför fastmark och våtmark
+#     23: 109,   # Låg fjällskog på våtmark → 109
+#     43: 109,   # Låg fjällskog på fastmark → 109
+#     230: 109,  # Låg fjällskog på övrig våtmark → 109
     
-    # Åkermark
-    3: 3,      # Åkermark → 3 (ingen förändring)
+#     # Åkermark
+#     3: 3,      # Åkermark → 3 (ingen förändring)
     
-    # Öppen mark
-    411: 41,   # Öppen mark utan vegetation (ej glaciär eller varaktigt snöfält) → 41
-    412: 41,   # Glaciär → 41
-    413: 41,   # Varaktigt snöfält → 41
+#     # Öppen mark
+#     411: 41,   # Öppen mark utan vegetation (ej glaciär eller varaktigt snöfält) → 41
+#     412: 41,   # Glaciär → 41
+#     413: 41,   # Varaktigt snöfält → 41
     
-    4211: 421, # Torr buskdominerad mark → 421
-    4212: 421, # Frisk buskdominerad mark → 421
-    4213: 421, # Frisk-fuktig buskdominerad mark → 421
+#     4211: 421, # Torr buskdominerad mark → 421
+#     4212: 421, # Frisk buskdominerad mark → 421
+#     4213: 421, # Frisk-fuktig buskdominerad mark → 421
     
-    4221: 422, # Torr risdominerad mark → 422
-    4222: 422, # Frisk risdominerad mark → 422
-    4223: 422, # Frisk-fuktig risdominerad mark → 422
+#     4221: 422, # Torr risdominerad mark → 422
+#     4222: 422, # Frisk risdominerad mark → 422
+#     4223: 422, # Frisk-fuktig risdominerad mark → 422
     
-    4231: 423, # Torr gräsdominerad mark → 423
-    4232: 423, # Frisk gräsdominerad mark → 423
-    4233: 423, # Frisk-fuktig gräsdominerad mark → 423
+#     4231: 423, # Torr gräsdominerad mark → 423
+#     4232: 423, # Frisk gräsdominerad mark → 423
+#     4233: 423, # Frisk-fuktig gräsdominerad mark → 423
 
-    # Bebyggelse och infrastruktur
-    51: 51,    # Exploaterad mark, byggnad → 51 (ingen förändring)
-    52: 52,    # Exploaterad mark, ej byggnad eller väg/järnväg → 52 (ingen förändring)
-    53: 53,    # Exploaterad mark, väg/järnväg → 53 (ingen förändring, ingår ej)
-    54: 54,    # Exploaterad mark, torvtäkt → 54 (ingen förändring)
+#     # Bebyggelse och infrastruktur
+#     51: 51,    # Exploaterad mark, byggnad → 51 (ingen förändring)
+#     52: 52,    # Exploaterad mark, ej byggnad eller väg/järnväg → 52 (ingen förändring)
+#     53: 53,    # Exploaterad mark, väg/järnväg → 53 (ingen förändring, ingår ej)
+#     54: 54,    # Exploaterad mark, torvtäkt → 54 (ingen förändring)
     
-    # Vatten
-    61: 61,    # Sjö och vattendrag → 61 (ingen förändring)
-    62: 62,    # Hav → 62 (ingen förändring)
+#     # Vatten
+#     61: 61,    # Sjö och vattendrag → 61 (ingen förändring)
+#     62: 62,    # Hav → 62 (ingen förändring)
+# }
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NMD2018 KLASSER — Referens med omklassificering enligt CLASS_REMAP
+# ══════════════════════════════════════════════════════════════════════════════
+# Originalkod: Remappade slutkod, # (Beskrivning) — Klassnamn på slutkod
+# 
+CLASS_REMAP = {
+#   0: 0, # Odefinierad
+#   1: 1, # Odefinierad
+    2: 200, # (Våtmark) — Öppen våtmark på myr / Öppen våtmark ej myr / Öppen våtmark övrigt
+    3: 3, # (Åkermark) — Åkermark
+    41: 41, # (Övrig öppen mark utan vegetation) — Öppen mark utan vegetation
+    42: 42, # (Övrig öppen mark med vegetation) — Buskdominerad mark / Risdominerad mark / Gräsdominerad mark
+    51: 51, # (Exploaterad mark, byggnad) — Byggnad
+    52: 52, # (Exploaterad mark, ej byggnad eller väg/järnväg) — Anlagd mark
+    53: 53, # (Exploaterad mark, väg/järnväg) — Väg/järnväg
+    61: 61, # (Sjö och vattendrag) — Inlandsvatten
+    62: 62, # (Hav) — Hav
+    111: 101, # (Tallskog utanför våtmark) — Tallskog (sammanfört fastmark + våtmark)
+    112: 102, # (Granskog utanför våtmark) — Granskog (sammanfört fastmark + våtmark)
+    113: 103, # (Barrblandskog utanför våtmark) — Barrblandskog (sammanfört fastmark + våtmark)
+    114: 104, # (Lövblandad barrskog utanför våtmark) — Lövblandad barrskog (sammanfört fastmark + våtmark)
+    115: 105, # (Triviallövskog utanför våtmark) — Triviallövskog (sammanfört fastmark + våtmark)
+    116: 106, # (Ädellövskog utanför våtmark) — Ädellövskog (sammanfört fastmark + våtmark)
+    117: 107, # (Triviallövskog med ädellövinslag utanför våtmark) — Triviallövskog m. ädellövinslag (sammanfört)
+    118: 108, # (Temporärt ej skog utanför våtmark) — Temporärt ej skog (sammanfört fastmark + våtmark)
+    121: 101, # (Tallskog på våtmark) — Tallskog (sammanfört fastmark + våtmark)
+    122: 102, # (Granskog på våtmark) — Granskog (sammanfört fastmark + våtmark)
+    123: 103, # (Barrblandskog på våtmark) — Barrblandskog (sammanfört fastmark + våtmark)
+    124: 104, # (Lövblandad barrskog på våtmark) — Lövblandad barrskog (sammanfört fastmark + våtmark)
+    125: 105, # (Triviallövskog på våtmark) — Triviallövskog (sammanfört fastmark + våtmark)
+    126: 106, # (Ädellövskog på våtmark) — Ädellövskog (sammanfört fastmark + våtmark)
+    127: 107, # (Triviallövskog med ädellövinslag på våtmark) — Triviallövskog m. ädellövinslag (sammanfört)
+    128: 108, # (Temporärt ej skog på våtmark) — Temporärt ej skog (sammanfört fastmark + våtmark)
 }
+# NOTERING: Klasserna 411, 412, 413, och 4211–4233 är NYA i NMD2023 och fanns
+# INTE i NMD2018. Se CLASS_REMAP för hur dessa 2023-klasser remappas till slutkoder.
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GENERALIZATION PARAMETERS
@@ -194,15 +237,21 @@ MMU_POWERLINE_MAX  = 10  # px — None = inaktiverat
 #
 # Exempel: {21: 25} innebär att klass 21 sievas bort t.o.m. 25 px, men behålls (skyddas) i större MMU-steg.
 #
-MMU_CLASS_MAX = {
-    21:  25,   # Öppen våtmark på myr
-    22:  25,   # Öppen våtmark ej myr
-    200: 25,   # Öppen våtmark övrigt
-    421: 25,   # Buskdominerad mark
-    422: 25,   # Risdominerad mark
-    423: 25,   # Gräsdominerad mark
-}
+## 2023
+# MMU_CLASS_MAX = {
+#     21:  25,   # Öppen våtmark på myr
+#     22:  25,   # Öppen våtmark ej myr
+#     200: 25,   # Öppen våtmark övrigt
+#     421: 25,   # Buskdominerad mark
+#     422: 25,   # Risdominerad mark
+#     423: 25,   # Gräsdominerad mark
+# }
 
+## 2018
+MMU_CLASS_MAX = {
+    200:  25,   # Öppen våtmark på myr/Öppen våtmark ej myr/Öppen våtmark övrigt
+    42:   25,   # Buskdominerad mark/Risdominerad mark/Gräsdominerad mark
+}
 
 # Kernel-storlekar för modal filter (Steg 6c)
 # ═════════════════════════════════════════════════════════════════════════════
@@ -356,7 +405,7 @@ GRASS_SNAP_TOLERANCE   = 0.5   # meter
 # RAM per jobb ≈ GRASS_VECTOR_MEMORY // STRIP_WORKERS (48000 // 8 = 6 000 MB).
 # OMP-trådar per jobb ≈ GRASS_OMP_THREADS // STRIP_WORKERS (22 // 8 ≈ 2).
 #
-STRIP_N         = 20     # Y-band — 1 = hela täckningsytan i ett enda GRASS-jobb (för testkörning)
+STRIP_N         = 5      # Y-band — 5 för testdata (fjall_2018_v05), 20 för full Sverige
 STRIP_OVERLAP_M = 80000  # överlapp i meter per sida — 80 km täcker de största polygonerna (Vänern ~78 km)
 STRIP_WORKERS   = 2      # parallella GRASS-jobb — 1 för testkörning med få tiles
 STRIP_ONLY      = []     # kör bara dessa band (tom lista = alla)
@@ -416,11 +465,13 @@ EXPAND_WATER         = True         # True/False
 EXPAND_WATER_CLASSES = {61}         # klasser som "skalar bort" från kanten
 EXPAND_WATER_PX      = 2            # pixlar — mark växer in så många px i vattenytorna
 # ══════════════════════════════════════════════════════════════════════════════
+# OVERLAY_EXTERNAL — Extern vektorfil (vatten, vägar, etc.)
+# ══════════════════════════════════════════════════════════════════════════════
 # OVERLAY_EXTERNAL_PATH  — Absolut sökväg till den externa GPKG/SHP-filen.
 # OVERLAY_EXTERNAL_LAYER — Lagernamn inuti GPKG:n att läsa (None = första lagret).
 # OVERLAY_EXTERNAL_CLASS — Heltal som skrivs i 'markslag'-kolumnen för alla
 #   externa polygoner. Sätt till None för att läsa kolumnen från filen själv.
-OVERLAY_EXTERNAL_PATH  = "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/LM/hydrografi_3006_merged_polygons_all_2d.gpkg"
+OVERLAY_EXTERNAL_PATH  = "/home/hcn/NMD_workspace/NMD2023_basskikt_v2_1/LM/hydrografi_3006_merged_polygons_all.gpkg"
 OVERLAY_EXTERNAL_LAYER = None  # None = första lagret, str eller lista med lagernamn ["Layer1", "Layer2"]".
 OVERLAY_EXTERNAL_CLASS = 61               # None = läs 'markslag' från extern fil
 # OVERLAY_EXTERNAL_SNAP  — Buffrar externa polygoner med detta antal meter INNAN difference.
@@ -459,6 +510,7 @@ ENABLE_STEPS = {
     10: True,   # Sammanfoga strip-GPKGs från steg 9/8 till en GPKG per variant (steg_10_merge.py)
     11: True,   # Overlay extern vektorfil (OVERLAY_EXTERNAL_PATH) på merged lager (steg_11_overlay_external.py)
     12: True,   # Klipp till rastrets footprint (steg_12_clip_to_footprint.py)
+    13: True,   # Klipp till rasters giltiga dataarea — ta bort polygoner utanför rastrets !=0 pixlar
     99: True,   # Bygga QGIS-projekt
 }
 
@@ -483,6 +535,7 @@ QGIS_INCLUDE_STEPS = {
     10: True,   # Sammanfogade strips — merged GPKG per variant (steg_10_merge/)
     11: True,   # Overlay extern vektorfil — LM hydrografi (steg_11_overlay_external/)
     12: True,   # Klippt till rastrets footprint (steg_12_clip_to_footprint/)
+    13: True,   # Klippt till rasters giltiga dataarea (steg_13_clip_to_raster_extent/)
 }
 
 # ══════════════════════════════════════════════════════════════════════════════

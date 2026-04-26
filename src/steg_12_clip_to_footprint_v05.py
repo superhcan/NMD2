@@ -22,16 +22,16 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from config import OUT_BASE, SRC, FOOTPRINT_GPKG, FOOTPRINT_LAYER
+from config import OUT_BASE, SRC
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Konfiguration
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Footprint-GPKG och lager konfigureras i config.py
-_METADATA_GPKG = FOOTPRINT_GPKG
-_FOOTPRINT_LAYER = FOOTPRINT_LAYER
+# Metadata-GPKG med rastrets footprint
+_METADATA_GPKG = SRC.parent / "NMD2023_metadata_v2_0.gpkg"
+_FOOTPRINT_LAYER = "LM_Saccess_mosaiker"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
